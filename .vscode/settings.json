@@ -1,4 +1,8 @@
 {
   "git.repositoryScanMaxDepth": 1,
-  "git.autoRepositoryDetection": "openEditors"
+  "git.autoRepositoryDetection": false,
+  "git.ignoredRepositories": [
+    "frontend",
+    "d:/github/app- marketing/frontend"
+  ]
 }
