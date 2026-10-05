@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+frontend/build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Python virtual environment & cache
+venv/
+backend/venv/
+__pycache__/
+backend/__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.env
+.env*.local
+frontend/.env*.local
+backend/.env
+!*.example
+!*.env.example
+!*.env.local.example
+!frontend/.env.local.example
+!backend/.env.example
+
+# Local Storage and temporary media uploads
+storage-config.json
+frontend/storage-config.json
+public/uploads/
+frontend/public/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
