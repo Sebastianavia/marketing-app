@@ -126,6 +126,22 @@ export const UGC_MODELS_CATALOG: AIModelConfig[] = [
     supportedClipDurations: [5, 10],
     multiClipCompositionSupported: true,
   },
+  {
+    id: 'heygen/avatar-iv',
+    name: 'HeyGen: Avatar IV (Photo-to-Video)',
+    provider: 'openrouter',
+    costPerSecondUSD: 0.05,
+    category: 'talking-head',
+    tag: 'Ultra Realista',
+    description:
+      'Motor de fotorrealismo extremo y sincronización labial (Lip-Sync) de alta fidelidad con Talking Photo y clonación de audio.',
+    recommendedPerformance: 'Ideal para voceros sintéticos, testimonios frontales de marca y demos de producto.',
+    apiMinDurationSeconds: 3,
+    apiMaxClipDurationSeconds: 60,
+    apiDefaultDurationSeconds: 15,
+    supportedClipDurations: [5, 10, 15, 30, 60],
+    multiClipCompositionSupported: false,
+  },
 ];
 
 export const DEFAULT_UGC_MODEL: AIModelConfig = UGC_MODELS_CATALOG[0];

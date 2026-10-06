@@ -28,11 +28,15 @@ export class OpenRouterVideoService {
   async createVideoTask(params: OpenRouterVideoGenerationParams): Promise<OpenRouterVideoTask> {
     const { model = DEFAULT_MODEL, imageUrl, audioUrl, aspectRatio = '9:16' } = params;
 
-    if (!imageUrl || !audioUrl) {
+    const isValidUrl = (v: unknown): v is string =>
+      typeof v === 'string' && /^https?:\/\//i.test(v.trim());
+
+    if (!isValidUrl(imageUrl) || !isValidUrl(audioUrl)) {
       throw new PipelineError(
-        'Tanto imageUrl como audioUrl son obligatorios para heygen/avatar-iv.',
+        'imageUrl y audioUrl deben ser URLs públicas válidas (https) para heygen/avatar-iv.',
         'video_dispatch',
-        false
+        false,
+        { imageUrl, audioUrl }
       );
     }
 
@@ -43,6 +47,21 @@ export class OpenRouterVideoService {
       return this.createMockTask(model);
     }
 
+    // El payload solo se construye cuando ambas URLs son strings válidos.
+    // OpenRouter exige que image_url / audio_url sean OBJETOS con la clave `url`.
+    const payload = {
+      model,
+      input_references: [
+        { type: 'image_url', image_url: { url: imageUrl.trim() } },
+        { type: 'audio_url', audio_url: { url: audioUrl.trim() } },
+      ],
+      aspect_ratio: aspectRatio,
+      parameters: {
+        motion_model: 'avatar-iv-photoreal',
+        sync_mode: 'high_fidelity',
+      },
+    };
+
     try {
       const response = await fetch(`${OPENROUTER_BASE_URL}/videos`, {
         method: 'POST',
@@ -52,26 +71,7 @@ export class OpenRouterVideoService {
           'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
           'X-Title': 'Lulo Studio Desktop - Render Engine',
         },
-        body: JSON.stringify({
-          model,
-          input_references: [
-            {
-              type: 'image_url',
-              url: imageUrl,
-            },
-            {
-              type: 'audio_url',
-              url: audioUrl,
-            },
-          ],
-          image_url: imageUrl,
-          audio_url: audioUrl,
-          aspect_ratio: aspectRatio,
-          parameters: {
-            motion_model: 'avatar-iv-photoreal',
-            sync_mode: 'high_fidelity',
-          },
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -186,15 +186,26 @@ export class OpenRouterVideoService {
 
         consecutiveErrors = 0;
         const data = await response.json();
-        const taskData = data.data || data;
-        const rawStatus = (taskData.status || '').toLowerCase();
+        console.log('[Polling check]:', JSON.stringify(data, null, 2));
 
-        // 2. Estado: COMPLETADO
-        if (rawStatus === 'completed' || rawStatus === 'succeeded' || taskData.video_url) {
+        const taskData = data.data || data;
+        const status = (taskData.status || taskData.state || '').toLowerCase();
+        const videoUrl =
+          taskData.video_url ||
+          taskData.url ||
+          taskData.output ||
+          taskData.result?.url ||
+          taskData.output?.video_url;
+
+        const isFinished =
+          ['completed', 'succeeded', 'success', 'done'].includes(status) || Boolean(videoUrl);
+
+        // 2. Resolución Inmediata: Estado Completado o URL detectada
+        if (isFinished && videoUrl) {
           const finalTask: OpenRouterVideoTask = {
             taskId,
             status: 'completed',
-            videoUrl: taskData.video_url || taskData.output?.video_url,
+            videoUrl: typeof videoUrl === 'string' ? videoUrl : (taskData.output?.video_url || taskData.video_url),
             progressPercent: 100,
             createdAt: startTime,
             updatedAt: Date.now(),
@@ -204,11 +215,15 @@ export class OpenRouterVideoService {
           return finalTask;
         }
 
-        // 3. Estado: FALLIDO
-        if (rawStatus === 'failed' || rawStatus === 'error') {
-          const errorDetail = taskData.error?.message || taskData.error || 'Error interno en HeyGen';
+        // 3. Manejo de Errores del Proveedor (failed, error, canceled)
+        if (['failed', 'error', 'canceled'].includes(status)) {
+          const errorDetail =
+            taskData.error?.message ||
+            taskData.error ||
+            taskData.message ||
+            'El proveedor reportó un fallo durante la generación del video.';
           throw new PipelineError(
-            `El renderizado de video en HeyGen falló: ${errorDetail}`,
+            `El renderizado de video falló en el proveedor (${status}): ${errorDetail}`,
             'video_polling',
             false,
             taskData

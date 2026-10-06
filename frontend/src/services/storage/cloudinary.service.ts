@@ -100,17 +100,13 @@ export class CloudinaryStorageService {
     folder: string,
     filename: string
   ): Promise<CloudinaryUploadResult> {
-    // Si no está configurado, generar fallback seguro para desarrollo local
+    // Sin credenciales reales no se puede obtener una secure_url válida: fallar explícitamente
     if (!this.isConfigured) {
-      console.warn(
-        `[CloudinaryStorageService] CLOUDINARY no configurado. Simulando URL pública para ${filename}.`
+      throw new PipelineError(
+        'Cloudinary no está configurado. Revisa CLOUDINARY_URL o CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET en .env.local.',
+        'audio_upload',
+        false
       );
-      return {
-        publicUrl: `https://res.cloudinary.com/demo/${resourceType}/upload/sample_${Date.now()}.${filename.split('.').pop() || 'mp3'}`,
-        publicId: `sample_${Date.now()}`,
-        bytes: buffer.length,
-        resourceType: resourceType === 'auto' ? 'image' : resourceType,
-      };
     }
 
     const cleanPublicId = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');

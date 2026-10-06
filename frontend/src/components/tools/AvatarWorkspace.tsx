@@ -22,10 +22,13 @@ import {
   Trash2,
   Cloud,
   FolderOpen,
+  Receipt,
 } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useProjectHydration } from '@/store/useProjectHydrationStore';
 import { SaveProjectWidget } from '../storage/SaveProjectWidget';
+import { usePricingStore } from '@/store/usePricingStore';
+import { extractVideoDurationSeconds } from '@/lib/video/video-metadata';
 
 const ELEVENLABS_VOICES = [
   { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', style: 'Conversacional / Calma' },
@@ -33,6 +36,14 @@ const ELEVENLABS_VOICES = [
   { id: 'AZnzlk1XvdvUeBnXmlld', name: 'Domi', style: 'Narrativa / Juvenil' },
   { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', style: 'Comercial / Cercana' },
 ];
+
+// Error específico de subida a Cloudinary (permite mostrar el toast correcto en la UI)
+class CloudinaryUploadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CloudinaryUploadError';
+  }
+}
 
 export function AvatarWorkspace() {
   // Integración de Hidratación de Proyectos Guardados en Disco
@@ -71,6 +82,21 @@ export function AvatarWorkspace() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Facturación y Recibo de Consumo Final
+  const [finalCostUSD, setFinalCostUSD] = useState<number | null>(null);
+  const [videoDurationReal, setVideoDurationReal] = useState<number | null>(null);
+
+  // Sincronización dinámica de precios al montar el componente
+  useEffect(() => {
+    usePricingStore.getState().syncPrices();
+  }, []);
+
+  // Estimación de costo basada en longitud del guion y tarifa verificada
+  const wordCount = scriptText.trim().split(/\s+/).filter(Boolean).length;
+  const estimatedSeconds = Math.max(5, Math.ceil(wordCount / 2.3));
+  const currentRate = usePricingStore((s) => s.getRatePerSecond('heygen/avatar-iv'));
+  const estimatedCostUSD = Number((estimatedSeconds * currentRate).toFixed(2));
 
   // URLs públicas de activos en Cloudinary
   const [cloudinaryImageInfo, setCloudinaryImageInfo] = useState<{ url: string; id: string } | null>(null);
@@ -130,6 +156,14 @@ export function AvatarWorkspace() {
       setFinalVideoUrl(activeProject.videoUrl);
     } else if (activeProject.videoPath) {
       setFinalVideoUrl(`/api/projects/media?path=${encodeURIComponent(activeProject.videoPath)}`);
+    }
+
+    // 6. Restaurar Recibo de Costo si existía
+    if (activeProject.finalCostUSD !== undefined) {
+      setFinalCostUSD(activeProject.finalCostUSD);
+    }
+    if (activeProject.videoDurationReal !== undefined) {
+      setVideoDurationReal(activeProject.videoDurationReal);
     }
   }, [activeProject]);
 
@@ -193,6 +227,12 @@ export function AvatarWorkspace() {
   // ===========================================================================
   // FLUJO DE RENDERIZADO: CLOUDINARY STORAGE + OPENROUTER (heygen/avatar-iv)
   // ===========================================================================
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = (message: string) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 5000);
+  };
+
   const handleRender = async () => {
     // Resolver foto activa (archivo seleccionado o hidratado desde preview / disco / nube)
     let activeImageFile = photoFile;
@@ -249,34 +289,43 @@ export function AvatarWorkspace() {
 
     try {
       // -----------------------------------------------------------------------
-      // PASO 1 & 2: SUBIR ACTIVOS A CLOUDINARY (o reutilizar si ya existen URLs)
+      // PASO 1 & 2: SUBIR ACTIVOS A CLOUDINARY (await secuencial + validación)
       // -----------------------------------------------------------------------
-      setRenderPhase('Preparando activos para renderizado...');
+      setRenderPhase('Subiendo activos a Cloudinary...');
       setRenderProgress(15);
 
+      // Sube un Blob a Cloudinary y garantiza devolver una URL https (secure_url)
+      const uploadToCloudinary = async (
+        blob: Blob,
+        type: 'image' | 'audio',
+        filename: string
+      ): Promise<{ url: string; id: string }> => {
+        const formData = new FormData();
+        formData.append('file', blob, filename);
+        formData.append('type', type);
+
+        const res = await fetch('/api/storage/cloudinary', { method: 'POST', body: formData });
+        const data = await res.json().catch(() => ({}));
+
+        const url = typeof data?.publicUrl === 'string' ? data.publicUrl.trim() : '';
+        if (!res.ok || !/^https?:\/\//i.test(url)) {
+          throw new CloudinaryUploadError(data?.error || `Cloudinary no devolvió una secure_url válida para ${type}.`);
+        }
+        return { url, id: data.publicId || '' };
+      };
+
+      // 2a. Retrato (reutiliza la URL ya subida si existe)
       let publicImageUrl: string = cloudinaryImageInfo?.url || '';
-      if (!publicImageUrl && activeImageFile) {
+      if (!publicImageUrl) {
+        if (!activeImageFile) throw new CloudinaryUploadError('No hay imagen para subir.');
         setRenderPhase('Subiendo foto de retrato a Cloudinary...');
         setRenderProgress(25);
-        const imageFormData = new FormData();
-        imageFormData.append('file', activeImageFile);
-        imageFormData.append('type', 'image');
-
-        const imgUploadRes = await fetch('/api/storage/cloudinary', {
-          method: 'POST',
-          body: imageFormData,
-        });
-
-        if (!imgUploadRes.ok) {
-          const errData = await imgUploadRes.json().catch(() => ({}));
-          throw new Error(errData.error || 'Error al subir la imagen a Cloudinary.');
-        }
-
-        const imgData = await imgUploadRes.json();
-        publicImageUrl = imgData.publicUrl || '';
-        setCloudinaryImageInfo({ url: publicImageUrl, id: imgData.publicId || '' });
+        const img = await uploadToCloudinary(activeImageFile, 'image', activeImageFile.name || 'portrait.png');
+        publicImageUrl = img.url;
+        setCloudinaryImageInfo(img);
       }
 
+      // 2b. Audio (ElevenLabs o MP3 local); se espera a que termine antes de continuar
       let publicAudioUrl: string = cloudinaryAudioInfo?.url || '';
       if (!publicAudioUrl) {
         let audioBlobToUpload: Blob;
@@ -299,32 +348,20 @@ export function AvatarWorkspace() {
 
           audioBlobToUpload = await ttsRes.blob();
         } else {
-          audioBlobToUpload = activeLocalAudio!;
+          if (!activeLocalAudio) throw new CloudinaryUploadError('No hay audio para subir.');
+          audioBlobToUpload = activeLocalAudio;
         }
 
         setRenderPhase('Subiendo audio a Cloudinary...');
         setRenderProgress(45);
-        const audioFormData = new FormData();
-        audioFormData.append('file', audioBlobToUpload, 'speech.mp3');
-        audioFormData.append('type', 'audio');
-
-        const audioUploadRes = await fetch('/api/storage/cloudinary', {
-          method: 'POST',
-          body: audioFormData,
-        });
-
-        if (!audioUploadRes.ok) {
-          const errData = await audioUploadRes.json().catch(() => ({}));
-          throw new Error(errData.error || 'Error al subir el audio a Cloudinary.');
-        }
-
-        const audioData = await audioUploadRes.json();
-        publicAudioUrl = audioData.publicUrl || '';
-        setCloudinaryAudioInfo({ url: publicAudioUrl, id: audioData.publicId || '' });
+        const aud = await uploadToCloudinary(audioBlobToUpload, 'audio', 'speech.mp3');
+        publicAudioUrl = aud.url;
+        setCloudinaryAudioInfo(aud);
       }
 
+      // Guardia final: jamás enviar el payload a OpenRouter con valores vacíos/undefined
       if (!publicImageUrl || !publicAudioUrl) {
-        throw new Error('No se obtuvieron las URLs requeridas de imagen o audio para el render.');
+        throw new CloudinaryUploadError('Faltan URLs públicas de imagen o audio.');
       }
 
       // -----------------------------------------------------------------------
@@ -379,20 +416,47 @@ export function AvatarWorkspace() {
         }
 
         const pollData = await pollRes.json();
-        const status = (pollData.status || '').toLowerCase();
+        console.log('[Polling check]:', JSON.stringify(pollData, null, 2));
 
-        if (status === 'completed' && pollData.videoUrl) {
+        const status = (pollData.status || pollData.state || '').toLowerCase();
+        const videoUrl =
+          pollData.videoUrl ||
+          pollData.video_url ||
+          pollData.url ||
+          pollData.output ||
+          pollData.result?.url ||
+          pollData.output?.video_url;
+
+        const isFinished =
+          ['completed', 'succeeded', 'success', 'done'].includes(status) || Boolean(videoUrl);
+
+        // Resolución Inmediata
+        if (isFinished && videoUrl) {
           completed = true;
+          clearInterval(timer);
+
+          setRenderPhase('Extrayendo duración real y procesando recibo...');
+          setRenderProgress(98);
+
+          // 2. Extracción de Duración Real del MP4 vía metadatos
+          const realDuration = await extractVideoDurationSeconds(videoUrl);
+          const verifiedRate = usePricingStore.getState().getRatePerSecond('heygen/avatar-iv');
+          const finalCost = Number((realDuration * verifiedRate).toFixed(2));
+
+          setFinalCostUSD(finalCost);
+          setVideoDurationReal(realDuration);
+          setFinalVideoUrl(videoUrl);
           setRenderProgress(100);
           setRenderPhase('¡Video completado con éxito!');
-          setFinalVideoUrl(pollData.videoUrl);
           setIsRendering(false);
-          clearInterval(timer);
           return;
         }
 
-        if (status === 'failed') {
-          throw new Error(pollData.error || 'El renderizado fue rechazado por OpenRouter.');
+        // Manejo de Errores del Proveedor (failed, error, canceled)
+        if (['failed', 'error', 'canceled'].includes(status)) {
+          clearInterval(timer);
+          setIsRendering(false);
+          throw new Error(pollData.error || `El renderizado fue rechazado por el proveedor (${status}).`);
         }
 
         // Incrementar barra suavemente entre 70% y 95%
@@ -400,7 +464,12 @@ export function AvatarWorkspace() {
       }
     } catch (err: any) {
       console.error('[Render Error]:', err);
-      setErrorMsg(err.message || 'Error durante el proceso de renderizado.');
+      if (err instanceof CloudinaryUploadError) {
+        showToast('Error al subir archivos multimedia');
+        setErrorMsg(`Error al subir archivos multimedia: ${err.message}`);
+      } else {
+        setErrorMsg(err.message || 'Error durante el proceso de renderizado.');
+      }
       setIsRendering(false);
       clearInterval(timer);
     }
@@ -408,6 +477,17 @@ export function AvatarWorkspace() {
 
   return (
     <div className="space-y-4">
+      {/* Toast de error de subida multimedia */}
+      {toast && (
+        <div
+          role="alert"
+          className="fixed top-5 right-5 z-[100] flex items-center gap-2 rounded-xl border border-rose-500/30 bg-zinc-950/95 px-4 py-3 text-xs font-medium text-rose-300 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+          <span>{toast}</span>
+          <button type="button" onClick={() => setToast(null)} className="ml-2 text-zinc-500 hover:text-white">✕</button>
+        </div>
+      )}
       {/* 1. Banner de Proyecto Hidratado desde Disco */}
       {activeProject && (
         <div className="rounded-xl border border-white/[0.08] bg-zinc-950 p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
@@ -440,6 +520,8 @@ export function AvatarWorkspace() {
               onClick={() => {
                 clearActiveProject();
                 setFinalVideoUrl(null);
+                setFinalCostUSD(null);
+                setVideoDurationReal(null);
                 setPhotoPreviewUrl(null);
                 setPhotoFile(null);
                 setLocalAudioFile(null);
@@ -545,6 +627,18 @@ export function AvatarWorkspace() {
                 className="w-full h-full object-contain"
               />
               <div className="absolute top-3 right-3 flex items-center gap-2">
+                {finalCostUSD !== null && (
+                  <div
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg backdrop-blur-md border text-[11px] font-mono shadow-lg ${
+                      estimatedCostUSD !== undefined && finalCostUSD > estimatedCostUSD
+                        ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
+                        : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
+                    }`}
+                  >
+                    <Receipt className="h-3 w-3" />
+                    <span>${finalCostUSD.toFixed(2)} USD ({videoDurationReal}s)</span>
+                  </div>
+                )}
                 <a
                   href={finalVideoUrl}
                   download="avatar_render_final.mp4"
@@ -885,7 +979,7 @@ export function AvatarWorkspace() {
           </div>
         </div>
 
-        {/* Guardado en disco local con metadatos estructurados completos */}
+        {/* Guardado en disco local con metadatos estructurados completos y Recibo de Facturación */}
         <SaveProjectWidget
           category="HeyGen"
           projectData={{
@@ -906,6 +1000,11 @@ export function AvatarWorkspace() {
             ratio: aspectRatio,
             videoUrl: finalVideoUrl || undefined,
             status: finalVideoUrl ? 'rendered' : 'draft',
+            finalCostUSD: finalCostUSD ?? undefined,
+            videoDurationReal: videoDurationReal ?? undefined,
+            estimatedCostUSD: estimatedCostUSD,
+            modelUsed: 'heygen/avatar-iv',
+            costPerSecondVerified: usePricingStore.getState().getRatePerSecond('heygen/avatar-iv'),
           }}
           onSaved={(savedProj) => {
             setActiveProject(savedProj);

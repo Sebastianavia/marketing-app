@@ -39,6 +39,11 @@ export interface ProjectMetadata {
   };
   tags?: string[];
   status?: 'draft' | 'rendered' | 'failed';
+  // Facturación y Recibo de Consumo Final
+  finalCostUSD?: number;
+  videoDurationReal?: number;
+  modelUsed?: string;
+  costPerSecondVerified?: number;
   // Disponibilidad de medios en disco / red
   mediaAvailable?: {
     image: boolean;
@@ -233,6 +238,10 @@ export async function saveProject(
     ugcFramework: data.ugcFramework,
     tags: data.tags || [],
     status: data.status || 'draft',
+    finalCostUSD: data.finalCostUSD,
+    videoDurationReal: data.videoDurationReal,
+    modelUsed: data.modelUsed,
+    costPerSecondVerified: data.costPerSecondVerified,
     mediaAvailable: {
       image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath))),
       audio: !!(data.audioMode === 'generar' || data.audioUrl || (resolvedAudioPath && fsSync.existsSync(resolvedAudioPath))),
@@ -407,6 +416,10 @@ export async function getProjectByPath(projectDir: string): Promise<ProjectMetad
     ugcFramework: metadata.ugcFramework,
     tags: metadata.tags || [],
     status: metadata.status || (hasVideo ? 'rendered' : 'draft'),
+    finalCostUSD: metadata.finalCostUSD,
+    videoDurationReal: metadata.videoDurationReal,
+    modelUsed: metadata.modelUsed,
+    costPerSecondVerified: metadata.costPerSecondVerified,
     mediaAvailable: {
       image: hasImage,
       audio: hasAudio,

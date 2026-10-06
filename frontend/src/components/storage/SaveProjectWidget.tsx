@@ -8,6 +8,9 @@ import {
   AlertTriangle,
   FolderOpen,
   CheckCircle2,
+  Download,
+  Receipt,
+  Coins,
 } from 'lucide-react';
 import { sanitizeProjectName } from '@/lib/storage/project-storage';
 
@@ -36,6 +39,12 @@ export interface SaveProjectData {
   ugcFramework?: any;
   tags?: string[];
   status?: 'draft' | 'rendered' | 'failed';
+  // Facturación y Recibo de Consumo Final
+  finalCostUSD?: number;
+  videoDurationReal?: number;
+  estimatedCostUSD?: number;
+  modelUsed?: string;
+  costPerSecondVerified?: number;
 }
 
 interface SaveProjectWidgetProps {
@@ -182,6 +191,50 @@ export function SaveProjectWidget({
           Auto-Organizado en Disco
         </span>
       </div>
+
+      {/* Recibo de Renderizado y Acción de Descarga Directa */}
+      {projectData.videoUrl && (
+        <div className="rounded-lg border border-white/[0.08] bg-zinc-950/80 p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
+          {/* Badge de Recibo Minimalista */}
+          <div className="flex items-center gap-2">
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium border ${
+                projectData.finalCostUSD !== undefined &&
+                projectData.estimatedCostUSD !== undefined &&
+                projectData.finalCostUSD > projectData.estimatedCostUSD
+                  ? 'bg-amber-500/10 border-amber-500/25 text-amber-300'
+                  : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+              }`}
+            >
+              <Receipt className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Coste exacto del render:{' '}
+                {projectData.finalCostUSD !== undefined
+                  ? `$${projectData.finalCostUSD.toFixed(2)} USD`
+                  : 'Calculando...'}
+                {projectData.videoDurationReal !== undefined
+                  ? ` (${projectData.videoDurationReal}s reales)`
+                  : ''}
+              </span>
+            </div>
+            {projectData.costPerSecondVerified ? (
+              <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">
+                ${projectData.costPerSecondVerified}/s
+              </span>
+            ) : null}
+          </div>
+
+          {/* Botón de Descarga Directa */}
+          <a
+            href={projectData.videoUrl}
+            download={`${projectName.trim() || 'render_final'}.mp4`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium border border-white/10 shadow transition-colors"
+          >
+            <Download className="h-3.5 w-3.5 text-zinc-300" />
+            <span>Descargar MP4</span>
+          </a>
+        </div>
+      )}
 
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row gap-2">
