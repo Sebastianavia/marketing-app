@@ -13,13 +13,24 @@ export interface ProjectMetadata {
   updatedAt: string;
   path: string;
   title?: string;
+  // Guion y Prompt
   script?: string;
   prompt?: string;
+  // Imagen / Retrato
+  imageUrl?: string;
+  imagePath?: string;
   avatarId?: string;
   avatarName?: string;
+  // Configuración de Audio
+  audioMode?: 'generar' | 'local';
   voiceId?: string;
+  audioUrl?: string;
+  audioPath?: string;
+  audioName?: string;
+  // Video
   ratio?: string;
   videoUrl?: string;
+  videoPath?: string;
   ugcFramework?: {
     hook?: string;
     painPoint?: string;
@@ -28,6 +39,19 @@ export interface ProjectMetadata {
   };
   tags?: string[];
   status?: 'draft' | 'rendered' | 'failed';
+  // Disponibilidad de medios en disco / red
+  mediaAvailable?: {
+    image: boolean;
+    audio: boolean;
+    video: boolean;
+  };
+}
+
+export interface SaveProjectPayload extends Partial<ProjectMetadata> {
+  imageFileBase64?: string;
+  imageFileName?: string;
+  audioFileBase64?: string;
+  audioFileName?: string;
 }
 
 const DEFAULT_CATEGORIES = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu'] as const;
@@ -123,12 +147,12 @@ export async function checkProjectExists(category: string, projectName: string):
 
 /**
  * Guarda un proyecto creando la estructura jerárquica:
- * [Directorio Base] / [Categoría] / [Nombre_Proyecto] / metadata.json, script.txt, etc.
+ * [Directorio Base] / [Categoría] / [Nombre_Proyecto] / project-metadata.json, metadata.json, script.txt, etc.
  */
 export async function saveProject(
   category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu',
   projectName: string,
-  data: Partial<ProjectMetadata>
+  data: SaveProjectPayload
 ): Promise<{ success: boolean; project: ProjectMetadata }> {
   const basePath = await getStorageBasePath();
   const safeName = sanitizeProjectName(projectName);
@@ -151,6 +175,38 @@ export async function saveProject(
     await fs.mkdir(projectDir, { recursive: true });
   }
 
+  // 1. Guardar archivo de imagen si se envió en base64
+  let resolvedImagePath = data.imagePath;
+  if (data.imageFileBase64) {
+    try {
+      const base64Clean = data.imageFileBase64.replace(/^data:image\/\w+;base64,/, '');
+      const imgBuffer = Buffer.from(base64Clean, 'base64');
+      const ext = data.imageFileName ? path.extname(data.imageFileName) : '.png';
+      const imgFileName = `portrait${ext || '.png'}`;
+      const targetImagePath = path.join(/*turbopackIgnore: true*/ projectDir, imgFileName);
+      await fs.writeFile(targetImagePath, imgBuffer);
+      resolvedImagePath = targetImagePath;
+    } catch (err) {
+      console.error('Error guardando imagen en carpeta de proyecto:', err);
+    }
+  }
+
+  // 2. Guardar archivo de audio si se envió en base64
+  let resolvedAudioPath = data.audioPath;
+  if (data.audioFileBase64) {
+    try {
+      const base64Clean = data.audioFileBase64.replace(/^data:audio\/\w+;base64,/, '');
+      const audioBuffer = Buffer.from(base64Clean, 'base64');
+      const ext = data.audioFileName ? path.extname(data.audioFileName) : '.mp3';
+      const audioFileName = `speech${ext || '.mp3'}`;
+      const targetAudioPath = path.join(/*turbopackIgnore: true*/ projectDir, audioFileName);
+      await fs.writeFile(targetAudioPath, audioBuffer);
+      resolvedAudioPath = targetAudioPath;
+    } catch (err) {
+      console.error('Error guardando audio en carpeta de proyecto:', err);
+    }
+  }
+
   const now = new Date().toISOString();
   const metadata: ProjectMetadata = {
     id: data.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -162,17 +218,36 @@ export async function saveProject(
     title: data.title || projectName,
     script: data.script,
     prompt: data.prompt,
+    imageUrl: data.imageUrl,
+    imagePath: resolvedImagePath,
     avatarId: data.avatarId,
     avatarName: data.avatarName,
+    audioMode: data.audioMode || 'generar',
     voiceId: data.voiceId,
+    audioUrl: data.audioUrl,
+    audioPath: resolvedAudioPath,
+    audioName: data.audioName,
     ratio: data.ratio || '9:16',
     videoUrl: data.videoUrl,
+    videoPath: data.videoPath,
     ugcFramework: data.ugcFramework,
     tags: data.tags || [],
     status: data.status || 'draft',
+    mediaAvailable: {
+      image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath))),
+      audio: !!(data.audioMode === 'generar' || data.audioUrl || (resolvedAudioPath && fsSync.existsSync(resolvedAudioPath))),
+      video: !!(data.videoUrl || (data.videoPath && fsSync.existsSync(data.videoPath))),
+    },
   };
 
-  // Guardar metadata.json
+  // Guardar project-metadata.json (Requerimiento explícito estructurado)
+  await fs.writeFile(
+    path.join(/*turbopackIgnore: true*/ projectDir, 'project-metadata.json'),
+    JSON.stringify(metadata, null, 2),
+    'utf-8'
+  );
+
+  // Guardar metadata.json (Retrocompatibilidad)
   await fs.writeFile(
     path.join(/*turbopackIgnore: true*/ projectDir, 'metadata.json'),
     JSON.stringify(metadata, null, 2),
@@ -201,6 +276,148 @@ export async function saveProject(
 }
 
 /**
+ * Carga un proyecto individual por categoría y nombre.
+ */
+export async function getProject(category: string, projectName: string): Promise<ProjectMetadata | null> {
+  const basePath = await getStorageBasePath();
+  const safeName = sanitizeProjectName(projectName);
+  const projectDir = path.join(/*turbopackIgnore: true*/ basePath, category, safeName);
+  return getProjectByPath(projectDir);
+}
+
+/**
+ * Carga e inspecciona los metadatos y medios de un proyecto desde su carpeta en disco.
+ */
+export async function getProjectByPath(projectDir: string): Promise<ProjectMetadata | null> {
+  if (!fsSync.existsSync(projectDir)) {
+    return null;
+  }
+
+  const projectMetaPath = path.join(/*turbopackIgnore: true*/ projectDir, 'project-metadata.json');
+  const legacyMetaPath = path.join(/*turbopackIgnore: true*/ projectDir, 'metadata.json');
+
+  let metadata: Partial<ProjectMetadata> = {};
+
+  if (fsSync.existsSync(projectMetaPath)) {
+    try {
+      const content = await fs.readFile(projectMetaPath, 'utf-8');
+      metadata = JSON.parse(content);
+    } catch (err) {
+      console.warn(`Error leyendo project-metadata.json en ${projectDir}:`, err);
+    }
+  } else if (fsSync.existsSync(legacyMetaPath)) {
+    try {
+      const content = await fs.readFile(legacyMetaPath, 'utf-8');
+      metadata = JSON.parse(content);
+    } catch (err) {
+      console.warn(`Error leyendo metadata.json en ${projectDir}:`, err);
+    }
+  }
+
+  // Si no había script en metadata, intentar leer script.txt
+  const scriptPath = path.join(/*turbopackIgnore: true*/ projectDir, 'script.txt');
+  if (!metadata.script && fsSync.existsSync(scriptPath)) {
+    try {
+      metadata.script = await fs.readFile(scriptPath, 'utf-8');
+    } catch (e) {}
+  }
+
+  // Si no había prompt en metadata, intentar leer prompt.txt
+  const promptPath = path.join(/*turbopackIgnore: true*/ projectDir, 'prompt.txt');
+  if (!metadata.prompt && fsSync.existsSync(promptPath)) {
+    try {
+      metadata.prompt = await fs.readFile(promptPath, 'utf-8');
+    } catch (e) {}
+  }
+
+  // Verificar archivos multimedia locales en el directorio
+  const dirFiles = await fs.readdir(projectDir).catch(() => [] as string[]);
+
+  // Resolver imagen
+  let hasImage = false;
+  if (metadata.imageUrl && metadata.imageUrl.startsWith('http')) {
+    hasImage = true;
+  } else if (metadata.imagePath && fsSync.existsSync(/*turbopackIgnore: true*/ metadata.imagePath)) {
+    hasImage = true;
+  } else {
+    // Buscar portrait.* en la carpeta
+    const foundImg = dirFiles.find((f) => /^(portrait|avatar|image|foto)\.(png|jpg|jpeg|webp)$/i.test(f));
+    if (foundImg) {
+      metadata.imagePath = path.join(/*turbopackIgnore: true*/ projectDir, foundImg);
+      hasImage = true;
+    }
+  }
+
+  // Resolver audio
+  let hasAudio = false;
+  if (metadata.audioMode === 'generar') {
+    hasAudio = true;
+  } else if (metadata.audioUrl && metadata.audioUrl.startsWith('http')) {
+    hasAudio = true;
+  } else if (metadata.audioPath && fsSync.existsSync(/*turbopackIgnore: true*/ metadata.audioPath)) {
+    hasAudio = true;
+  } else {
+    const foundAudio = dirFiles.find((f) => /^(speech|audio|voice|locucion)\.(mp3|wav|ogg)$/i.test(f));
+    if (foundAudio) {
+      metadata.audioPath = path.join(/*turbopackIgnore: true*/ projectDir, foundAudio);
+      metadata.audioName = foundAudio;
+      hasAudio = true;
+    }
+  }
+
+  // Resolver video
+  let hasVideo = false;
+  if (metadata.videoUrl && metadata.videoUrl.startsWith('http')) {
+    hasVideo = true;
+  } else if (metadata.videoPath && fsSync.existsSync(/*turbopackIgnore: true*/ metadata.videoPath)) {
+    hasVideo = true;
+  } else {
+    const foundVideo = dirFiles.find((f) => /^(video|render|output|final)\.(mp4|webm)$/i.test(f));
+    if (foundVideo) {
+      metadata.videoPath = path.join(/*turbopackIgnore: true*/ projectDir, foundVideo);
+      hasVideo = true;
+    }
+  }
+
+  const stat = await fs.stat(projectDir).catch(() => null);
+  const folderName = path.basename(projectDir);
+
+  const finalProject: ProjectMetadata = {
+    id: metadata.id || `dir_${folderName}`,
+    name: metadata.name || folderName,
+    title: metadata.title || folderName,
+    category: (metadata.category as any) || 'HeyGen',
+    createdAt: metadata.createdAt || (stat ? stat.birthtime.toISOString() : new Date().toISOString()),
+    updatedAt: metadata.updatedAt || (stat ? stat.mtime.toISOString() : new Date().toISOString()),
+    path: projectDir,
+    script: metadata.script,
+    prompt: metadata.prompt,
+    imageUrl: metadata.imageUrl,
+    imagePath: metadata.imagePath,
+    avatarId: metadata.avatarId,
+    avatarName: metadata.avatarName,
+    audioMode: metadata.audioMode || 'generar',
+    voiceId: metadata.voiceId,
+    audioUrl: metadata.audioUrl,
+    audioPath: metadata.audioPath,
+    audioName: metadata.audioName,
+    ratio: metadata.ratio || '9:16',
+    videoUrl: metadata.videoUrl,
+    videoPath: metadata.videoPath,
+    ugcFramework: metadata.ugcFramework,
+    tags: metadata.tags || [],
+    status: metadata.status || (hasVideo ? 'rendered' : 'draft'),
+    mediaAvailable: {
+      image: hasImage,
+      audio: hasAudio,
+      video: hasVideo,
+    },
+  };
+
+  return finalProject;
+}
+
+/**
  * Obtiene la lista de todos los proyectos guardados en todas las categorías.
  */
 export async function getAllProjects(): Promise<ProjectMetadata[]> {
@@ -218,31 +435,9 @@ export async function getAllProjects(): Promise<ProjectMetadata[]> {
       for (const entry of entries) {
         if (entry.isDirectory()) {
           const projectDir = path.join(/*turbopackIgnore: true*/ catDir, entry.name);
-          const metadataPath = path.join(/*turbopackIgnore: true*/ projectDir, 'metadata.json');
-
-          if (fsSync.existsSync(metadataPath)) {
-            try {
-              const metaContent = await fs.readFile(metadataPath, 'utf-8');
-              const parsed = JSON.parse(metaContent);
-              projects.push({
-                ...parsed,
-                path: projectDir,
-              });
-            } catch (err) {
-              console.warn(`Error leyendo metadata de ${projectDir}:`, err);
-            }
-          } else {
-            const stat = await fs.stat(projectDir);
-            projects.push({
-              id: `dir_${entry.name}`,
-              name: entry.name,
-              category: cat as any,
-              createdAt: stat.birthtime.toISOString(),
-              updatedAt: stat.mtime.toISOString(),
-              path: projectDir,
-              title: entry.name,
-              status: 'draft',
-            });
+          const project = await getProjectByPath(projectDir);
+          if (project) {
+            projects.push(project);
           }
         }
       }

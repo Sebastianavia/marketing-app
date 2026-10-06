@@ -21,8 +21,10 @@ import {
   Loader2,
   Trash2,
   Cloud,
+  FolderOpen,
 } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
+import { useProjectHydration } from '@/store/useProjectHydrationStore';
 import { SaveProjectWidget } from '../storage/SaveProjectWidget';
 
 const ELEVENLABS_VOICES = [
@@ -33,6 +35,15 @@ const ELEVENLABS_VOICES = [
 ];
 
 export function AvatarWorkspace() {
+  // Integración de Hidratación de Proyectos Guardados en Disco
+  const {
+    activeProject,
+    mediaWarnings,
+    clearActiveProject,
+    clearWarnings,
+    setActiveProject,
+  } = useProjectHydration();
+
   // Estado de imagen / foto de Retrato
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
@@ -51,6 +62,7 @@ export function AvatarWorkspace() {
   const [audioMode, setAudioMode] = useState<'generar' | 'local'>('generar');
   const [selectedVoiceId, setSelectedVoiceId] = useState(ELEVENLABS_VOICES[0].id);
   const [localAudioFile, setLocalAudioFile] = useState<File | null>(null);
+  const [loadedAudioName, setLoadedAudioName] = useState<string | null>(null);
 
   // Estado de Renderizado: Cloudinary Upload + OpenRouter Render
   const [isRendering, setIsRendering] = useState(false);
@@ -71,12 +83,75 @@ export function AvatarWorkspace() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
 
+  // Efecto de Hidratación al Cargar Proyecto desde la Biblioteca
+  useEffect(() => {
+    if (!activeProject) return;
+
+    // 1. Inyectar Guion exacto guardado en disco
+    if (typeof activeProject.script === 'string') {
+      setScriptText(activeProject.script);
+    }
+    if (activeProject.prompt) {
+      setScriptPrompt(activeProject.prompt);
+    }
+
+    // 2. Restaurar relación de aspecto
+    if (activeProject.ratio === '16:9' || activeProject.ratio === '9:16') {
+      setAspectRatio(activeProject.ratio as '9:16' | '16:9');
+    }
+
+    // 3. Restaurar Foto de Retrato
+    if (activeProject.imageUrl) {
+      setPhotoPreviewUrl(activeProject.imageUrl);
+      setCloudinaryImageInfo({ url: activeProject.imageUrl, id: '' });
+      setPhotoFile(null);
+    } else if (activeProject.imagePath) {
+      const localMediaUrl = `/api/projects/media?path=${encodeURIComponent(activeProject.imagePath)}`;
+      setPhotoPreviewUrl(localMediaUrl);
+      setPhotoFile(null);
+    }
+
+    // 4. Restaurar Configuración de Audio
+    if (activeProject.audioMode === 'local' || activeProject.audioMode === 'generar') {
+      setAudioMode(activeProject.audioMode);
+    }
+    if (activeProject.voiceId) {
+      setSelectedVoiceId(activeProject.voiceId);
+    }
+    if (activeProject.audioUrl) {
+      setCloudinaryAudioInfo({ url: activeProject.audioUrl, id: '' });
+    }
+    if (activeProject.audioName) {
+      setLoadedAudioName(activeProject.audioName);
+    }
+
+    // 5. Restaurar Video si ya existía render
+    if (activeProject.videoUrl) {
+      setFinalVideoUrl(activeProject.videoUrl);
+    } else if (activeProject.videoPath) {
+      setFinalVideoUrl(`/api/projects/media?path=${encodeURIComponent(activeProject.videoPath)}`);
+    }
+  }, [activeProject]);
+
   useEffect(() => {
     if (injectedData && (injectedData.targetTool === 'avatar-studio' || injectedData.targetTool === 'all')) {
       setScriptText(injectedData.content);
       clearInjectedData();
     }
   }, [injectedData, clearInjectedData]);
+
+  const handleOpenProjectFolder = async () => {
+    if (!activeProject?.path) return;
+    try {
+      await fetch('/api/projects/open-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: activeProject.path }),
+      });
+    } catch (err) {
+      console.error('Error abriendo carpeta:', err);
+    }
+  };
 
   // Manejo de carga de imagen para el Canvas
   const handlePhotoSelect = (file: File) => {
@@ -119,12 +194,40 @@ export function AvatarWorkspace() {
   // FLUJO DE RENDERIZADO: CLOUDINARY STORAGE + OPENROUTER (heygen/avatar-iv)
   // ===========================================================================
   const handleRender = async () => {
-    if (!photoFile) {
-      setErrorMsg('Debes subir una foto (.jpg o .png) al lienzo para iniciar el render.');
+    // Resolver foto activa (archivo seleccionado o hidratado desde preview / disco / nube)
+    let activeImageFile = photoFile;
+    if (!activeImageFile && photoPreviewUrl && !cloudinaryImageInfo?.url) {
+      try {
+        const fetchRes = await fetch(photoPreviewUrl);
+        const blob = await fetchRes.blob();
+        activeImageFile = new File([blob], activeProject?.avatarName || 'portrait.png', {
+          type: blob.type || 'image/png',
+        });
+      } catch (e) {
+        console.warn('No se pudo convertir preview a archivo:', e);
+      }
+    }
+
+    if (!activeImageFile && !cloudinaryImageInfo?.url) {
+      setErrorMsg('Debes tener una foto de retrato en el lienzo para iniciar el render.');
       return;
     }
 
-    if (audioMode === 'local' && !localAudioFile) {
+    // Resolver audio activo para modo local
+    let activeLocalAudio = localAudioFile;
+    if (audioMode === 'local' && !activeLocalAudio && activeProject?.audioPath && !cloudinaryAudioInfo?.url) {
+      try {
+        const fetchRes = await fetch(`/api/projects/media?path=${encodeURIComponent(activeProject.audioPath)}`);
+        const blob = await fetchRes.blob();
+        activeLocalAudio = new File([blob], activeProject.audioName || 'speech.mp3', {
+          type: blob.type || 'audio/mpeg',
+        });
+      } catch (e) {
+        console.warn('No se pudo convertir audio de disco a archivo:', e);
+      }
+    }
+
+    if (audioMode === 'local' && !activeLocalAudio && !cloudinaryAudioInfo?.url) {
       setErrorMsg('En modo local debes seleccionar un archivo .mp3 desde tu disco duro.');
       return;
     }
@@ -146,79 +249,83 @@ export function AvatarWorkspace() {
 
     try {
       // -----------------------------------------------------------------------
-      // PASO 1: SPINNER "Subiendo activos a Cloudinary..."
+      // PASO 1 & 2: SUBIR ACTIVOS A CLOUDINARY (o reutilizar si ya existen URLs)
       // -----------------------------------------------------------------------
-      setRenderPhase('Subiendo activos a Cloudinary...');
+      setRenderPhase('Preparando activos para renderizado...');
       setRenderProgress(15);
 
-      // Obtener o sintetizar el archivo de audio
-      let audioBlobToUpload: Blob;
-      if (audioMode === 'generar') {
-        setRenderPhase('Sintetizando voz neuronal con ElevenLabs...');
-        const ttsRes = await fetch('/api/elevenlabs/tts', {
+      let publicImageUrl: string = cloudinaryImageInfo?.url || '';
+      if (!publicImageUrl && activeImageFile) {
+        setRenderPhase('Subiendo foto de retrato a Cloudinary...');
+        setRenderProgress(25);
+        const imageFormData = new FormData();
+        imageFormData.append('file', activeImageFile);
+        imageFormData.append('type', 'image');
+
+        const imgUploadRes = await fetch('/api/storage/cloudinary', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: scriptText.trim(),
-            voiceId: selectedVoiceId,
-            language: 'es',
-          }),
+          body: imageFormData,
         });
 
-        if (!ttsRes.ok) {
-          const errData = await ttsRes.json().catch(() => ({}));
-          throw new Error(errData.error || 'Fallo durante la síntesis de audio en ElevenLabs.');
+        if (!imgUploadRes.ok) {
+          const errData = await imgUploadRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Error al subir la imagen a Cloudinary.');
         }
 
-        audioBlobToUpload = await ttsRes.blob();
-      } else {
-        audioBlobToUpload = localAudioFile!;
+        const imgData = await imgUploadRes.json();
+        publicImageUrl = imgData.publicUrl || '';
+        setCloudinaryImageInfo({ url: publicImageUrl, id: imgData.publicId || '' });
       }
 
-      // -----------------------------------------------------------------------
-      // PASO 2: SUBIR FOTO Y AUDIO A CLOUDINARY; CAPTURAR URLs PÚBLICAS
-      // -----------------------------------------------------------------------
-      setRenderPhase('Subiendo activos a Cloudinary...');
-      setRenderProgress(30);
+      let publicAudioUrl: string = cloudinaryAudioInfo?.url || '';
+      if (!publicAudioUrl) {
+        let audioBlobToUpload: Blob;
+        if (audioMode === 'generar') {
+          setRenderPhase('Sintetizando voz neuronal con ElevenLabs...');
+          const ttsRes = await fetch('/api/elevenlabs/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text: scriptText.trim(),
+              voiceId: selectedVoiceId,
+              language: 'es',
+            }),
+          });
 
-      // 2a. Subir Retrato a Cloudinary
-      const imageFormData = new FormData();
-      imageFormData.append('file', photoFile);
-      imageFormData.append('type', 'image');
+          if (!ttsRes.ok) {
+            const errData = await ttsRes.json().catch(() => ({}));
+            throw new Error(errData.error || 'Fallo durante la síntesis de audio en ElevenLabs.');
+          }
 
-      const imgUploadRes = await fetch('/api/storage/cloudinary', {
-        method: 'POST',
-        body: imageFormData,
-      });
+          audioBlobToUpload = await ttsRes.blob();
+        } else {
+          audioBlobToUpload = activeLocalAudio!;
+        }
 
-      if (!imgUploadRes.ok) {
-        const errData = await imgUploadRes.json().catch(() => ({}));
-        throw new Error(errData.error || 'Error al subir la imagen a Cloudinary.');
+        setRenderPhase('Subiendo audio a Cloudinary...');
+        setRenderProgress(45);
+        const audioFormData = new FormData();
+        audioFormData.append('file', audioBlobToUpload, 'speech.mp3');
+        audioFormData.append('type', 'audio');
+
+        const audioUploadRes = await fetch('/api/storage/cloudinary', {
+          method: 'POST',
+          body: audioFormData,
+        });
+
+        if (!audioUploadRes.ok) {
+          const errData = await audioUploadRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Error al subir el audio a Cloudinary.');
+        }
+
+        const audioData = await audioUploadRes.json();
+        publicAudioUrl = audioData.publicUrl || '';
+        setCloudinaryAudioInfo({ url: publicAudioUrl, id: audioData.publicId || '' });
       }
 
-      const imgData = await imgUploadRes.json();
-      const publicImageUrl = imgData.publicUrl;
-      setCloudinaryImageInfo({ url: publicImageUrl, id: imgData.publicId });
-
-      // 2b. Subir Audio a Cloudinary
-      setRenderProgress(45);
-      const audioFormData = new FormData();
-      audioFormData.append('file', audioBlobToUpload, 'speech.mp3');
-      audioFormData.append('type', 'audio');
-
-      const audioUploadRes = await fetch('/api/storage/cloudinary', {
-        method: 'POST',
-        body: audioFormData,
-      });
-
-      if (!audioUploadRes.ok) {
-        const errData = await audioUploadRes.json().catch(() => ({}));
-        throw new Error(errData.error || 'Error al subir el audio a Cloudinary.');
+      if (!publicImageUrl || !publicAudioUrl) {
+        throw new Error('No se obtuvieron las URLs requeridas de imagen o audio para el render.');
       }
-
-      const audioData = await audioUploadRes.json();
-      const publicAudioUrl = audioData.publicUrl;
-      setCloudinaryAudioInfo({ url: publicAudioUrl, id: audioData.publicId });
 
       // -----------------------------------------------------------------------
       // PASO 3: CAMBIAR ESTADO A "Enviando a OpenRouter..."
@@ -300,11 +407,88 @@ export function AvatarWorkspace() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      {/* =====================================================================
-          COLUMNA IZQUIERDA: EL STUDIO CANVAS / STAGE VISUAL (Lienzo Cinemático)
-          ===================================================================== */}
-      <div className="lg:col-span-5 space-y-3">
+    <div className="space-y-4">
+      {/* 1. Banner de Proyecto Hidratado desde Disco */}
+      {activeProject && (
+        <div className="rounded-xl border border-white/[0.08] bg-zinc-950 p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-mono text-zinc-400">
+              Proyecto Activo en Disco:
+            </span>
+            <span className="text-xs font-semibold text-zinc-100">
+              {activeProject.title || activeProject.name}
+            </span>
+            <span className="text-[10px] font-mono text-zinc-500 bg-zinc-900 border border-white/[0.06] px-2 py-0.5 rounded">
+              /{activeProject.category}/{activeProject.name}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleOpenProjectFolder}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300 hover:text-white text-xs font-mono transition-colors"
+              title="Abrir carpeta exacta en Explorador de Windows"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              <span>Ver en Windows</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                clearActiveProject();
+                setFinalVideoUrl(null);
+                setPhotoPreviewUrl(null);
+                setPhotoFile(null);
+                setLocalAudioFile(null);
+                setLoadedAudioName(null);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-rose-400 text-xs font-mono transition-colors"
+              title="Desvincular este proyecto y empezar uno nuevo"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Desvincular</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Banner de Advertencias Multimedia (Manejo no destructivo: preserva el guion) */}
+      {mediaWarnings.length > 0 && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3.5 flex items-start justify-between gap-3 text-amber-300">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-amber-200">
+                Aviso de Archivos Multimedia en Disco
+              </p>
+              {mediaWarnings.map((warning, idx) => (
+                <p key={idx} className="text-xs text-amber-300/90 leading-relaxed font-sans">
+                  {warning}
+                </p>
+              ))}
+              <p className="text-[11px] text-zinc-400 font-mono pt-0.5">
+                ✓ El texto de tu guion y la configuración se han mantenido intactos en el editor.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={clearWarnings}
+            className="text-zinc-400 hover:text-white text-xs px-2.5 py-1 rounded bg-black/40 hover:bg-black/60 shrink-0 transition-colors"
+          >
+            Entendido
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* =====================================================================
+            COLUMNA IZQUIERDA: EL STUDIO CANVAS / STAGE VISUAL (Lienzo Cinemático)
+            ===================================================================== */}
+        <div className="lg:col-span-5 space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <Camera className="h-4 w-4 text-indigo-400" />
@@ -625,6 +809,39 @@ export function AvatarWorkspace() {
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
+                ) : loadedAudioName || activeProject?.audioName ? (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-emerald-500/20">
+                    <div className="flex items-center gap-2.5 truncate">
+                      <FileAudio className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-medium text-zinc-200 truncate">
+                        {loadedAudioName || activeProject?.audioName}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 shrink-0">
+                        Restaurado de Disco
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => audioInputRef.current?.click()}
+                        className="text-[11px] text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-900 border border-white/[0.08] transition-colors"
+                        title="Cambiar archivo por otro"
+                      >
+                        Cambiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLoadedAudioName(null);
+                          setLocalAudioFile(null);
+                        }}
+                        className="text-zinc-500 hover:text-rose-400 p-1"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div
                     onClick={() => audioInputRef.current?.click()}
@@ -644,7 +861,7 @@ export function AvatarWorkspace() {
           <div className="pt-3 border-t border-white/[0.06]">
             <button
               type="button"
-              disabled={isRendering || !photoFile}
+              disabled={isRendering || (!photoFile && !photoPreviewUrl)}
               onClick={handleRender}
               className="w-full relative overflow-hidden group flex items-center justify-between py-3.5 px-4 rounded-xl bg-white hover:bg-zinc-200 disabled:opacity-40 text-black font-semibold text-xs tracking-wide transition-all shadow-xl shadow-white/5 cursor-pointer"
             >
@@ -668,19 +885,34 @@ export function AvatarWorkspace() {
           </div>
         </div>
 
-        {/* Guardado en disco local */}
+        {/* Guardado en disco local con metadatos estructurados completos */}
         <SaveProjectWidget
           category="HeyGen"
           projectData={{
-            title: `TalkingPhoto_${new Date().toISOString().slice(0, 10)}`,
+            id: activeProject?.id,
+            title: activeProject?.title || activeProject?.name || `TalkingPhoto_${new Date().toISOString().slice(0, 10)}`,
             script: scriptText,
-            videoUrl: finalVideoUrl || undefined,
-            avatarName: photoFile ? photoFile.name : 'Personal Photo',
+            prompt: scriptPrompt,
+            imageFile: photoFile,
+            imageUrl: cloudinaryImageInfo?.url || (photoPreviewUrl?.startsWith('http') ? photoPreviewUrl : undefined),
+            imagePath: activeProject?.imagePath,
+            avatarName: photoFile ? photoFile.name : (activeProject?.avatarName || 'Retrato Personal'),
+            audioMode,
+            voiceId: selectedVoiceId,
+            audioFile: localAudioFile,
+            audioUrl: cloudinaryAudioInfo?.url || (activeProject?.audioUrl || undefined),
+            audioPath: activeProject?.audioPath,
+            audioName: localAudioFile ? localAudioFile.name : (loadedAudioName || activeProject?.audioName || undefined),
             ratio: aspectRatio,
+            videoUrl: finalVideoUrl || undefined,
             status: finalVideoUrl ? 'rendered' : 'draft',
+          }}
+          onSaved={(savedProj) => {
+            setActiveProject(savedProj);
           }}
         />
       </div>
     </div>
+  </div>
   );
 }

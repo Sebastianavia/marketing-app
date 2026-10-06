@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { StorageConfigModal } from './StorageConfigModal';
 import { ProjectMetadata } from '@/lib/storage/project-storage';
+import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
 
 interface ProjectsLibraryViewProps {
   onOpenTool?: (toolId: string, initialData?: any) => void;
@@ -102,7 +103,11 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
     }
   };
 
-  const handleLoadInTool = (project: ProjectMetadata) => {
+  const handleLoadInTool = async (project: ProjectMetadata) => {
+    // 1. Hidratar el estado del proyecto en el almacén de sesión de React
+    await useProjectHydrationStore.getState().loadProject(project);
+
+    // 2. Navegar a la herramienta correspondiente con los datos
     let toolId = 'avatar-studio';
     if (project.category === 'HeyGen') toolId = 'avatar-studio';
     else if (project.category === 'UGC') toolId = 'ugc-generator';

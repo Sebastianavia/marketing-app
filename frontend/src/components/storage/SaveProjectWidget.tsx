@@ -11,21 +11,46 @@ import {
 } from 'lucide-react';
 import { sanitizeProjectName } from '@/lib/storage/project-storage';
 
+export interface SaveProjectData {
+  id?: string;
+  title?: string;
+  script?: string;
+  prompt?: string;
+  // Imagen / Retrato
+  imageUrl?: string;
+  imagePath?: string;
+  avatarId?: string;
+  avatarName?: string;
+  imageFile?: File | null;
+  // Configuración de Audio
+  audioMode?: 'generar' | 'local';
+  voiceId?: string;
+  audioUrl?: string;
+  audioPath?: string;
+  audioName?: string;
+  audioFile?: File | null;
+  // Video
+  ratio?: string;
+  videoUrl?: string;
+  videoPath?: string;
+  ugcFramework?: any;
+  tags?: string[];
+  status?: 'draft' | 'rendered' | 'failed';
+}
+
 interface SaveProjectWidgetProps {
   category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu';
-  projectData: {
-    title?: string;
-    script?: string;
-    prompt?: string;
-    avatarId?: string;
-    avatarName?: string;
-    voiceId?: string;
-    ratio?: string;
-    videoUrl?: string;
-    ugcFramework?: any;
-    status?: 'draft' | 'rendered' | 'failed';
-  };
+  projectData: SaveProjectData;
   onSaved?: (project: any) => void;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 export function SaveProjectWidget({
@@ -39,6 +64,13 @@ export function SaveProjectWidget({
   const [isSaving, setIsSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Sincronizar nombre cuando cambia el proyecto hidratado
+  useEffect(() => {
+    if (projectData.title && (!projectName || projectName.startsWith('TalkingPhoto_'))) {
+      setProjectName(projectData.title);
+    }
+  }, [projectData.title]);
 
   // Debounce check against disk
   useEffect(() => {
@@ -72,6 +104,25 @@ export function SaveProjectWidget({
     setIsSaving(true);
     setError(null);
     try {
+      // Convertir imagen y audio a base64 si existen archivos en memoria para escribirlos en disco
+      let imageFileBase64: string | undefined = undefined;
+      if (projectData.imageFile) {
+        try {
+          imageFileBase64 = await fileToBase64(projectData.imageFile);
+        } catch (e) {
+          console.warn('No se pudo convertir imagen a base64:', e);
+        }
+      }
+
+      let audioFileBase64: string | undefined = undefined;
+      if (projectData.audioFile) {
+        try {
+          audioFileBase64 = await fileToBase64(projectData.audioFile);
+        } catch (e) {
+          console.warn('No se pudo convertir audio a base64:', e);
+        }
+      }
+
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,6 +132,10 @@ export function SaveProjectWidget({
           data: {
             ...projectData,
             title: projectName,
+            imageFileBase64,
+            imageFileName: projectData.imageFile?.name,
+            audioFileBase64,
+            audioFileName: projectData.audioFile?.name,
           },
           overwrite,
         }),

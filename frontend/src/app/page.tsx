@@ -13,6 +13,7 @@ import { BusiDemoView } from '@/components/tools/BusiDemoView';
 import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
 import { useMiaStore } from '@/store/useMiaStore';
+import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
 import {
   User,
   RefreshCw,
@@ -310,7 +311,12 @@ export default function Home() {
                   )}
                   {activeTool === 'projects' && (
                     <ProjectsLibraryView
-                      onOpenTool={(toolId) => setActiveTool(toolId)}
+                      onOpenTool={(toolId, initialData) => {
+                        if (initialData) {
+                          useProjectHydrationStore.getState().loadProject(initialData);
+                        }
+                        setActiveTool(toolId);
+                      }}
                     />
                   )}
                 </div>
