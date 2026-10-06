@@ -89,26 +89,29 @@ export class HeyGenService {
   }
 
   /**
-   * Sube una imagen estática para usarla como "Talking Photo".
+   * Sube un archivo binario (imagen o audio) al endpoint de almacenamiento de HeyGen:
+   * POST https://upload.heygen.com/v1/asset
    */
-  async uploadTalkingPhoto(
-    imageBuffer: Uint8Array | ArrayBuffer | Blob,
-    mimeType: string = 'image/jpeg'
+  async uploadAsset(
+    fileBuffer: Uint8Array | ArrayBuffer | Buffer,
+    mimeType: string
   ): Promise<string> {
     try {
-      const response = await fetch(`${this.baseUrl}/v1/asset`, {
+      // HeyGen utiliza upload.heygen.com para cargas binarias directas
+      const uploadUrl = 'https://upload.heygen.com/v1/asset';
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
           'X-Api-Key': this.getApiKey(),
           'Content-Type': mimeType,
         },
-        body: imageBuffer as unknown as BodyInit,
+        body: fileBuffer as unknown as BodyInit,
       });
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => null);
         throw new HeyGenApiError(
-          `Error subiendo asset a HeyGen: ${response.statusText}`,
+          `Error subiendo asset a HeyGen (${mimeType}): ${response.statusText}`,
           response.status,
           errJson
         );
@@ -119,10 +122,29 @@ export class HeyGenService {
     } catch (error) {
       if (error instanceof HeyGenApiError) throw error;
       throw new HeyGenApiError(
-        `Fallo al subir Talking Photo: ${(error as Error).message}`,
+        `Fallo al subir asset a HeyGen: ${(error as Error).message}`,
         500
       );
     }
+  }
+
+  /**
+   * Sube una imagen estática para usarla como "Talking Photo".
+   */
+  async uploadTalkingPhoto(
+    imageBuffer: Uint8Array | ArrayBuffer | Buffer,
+    mimeType: string = 'image/jpeg'
+  ): Promise<string> {
+    return this.uploadAsset(imageBuffer, mimeType);
+  }
+
+  /**
+   * Sube un archivo de audio para lip-sync en Talking Photo.
+   */
+  async uploadAudioAsset(
+    audioBuffer: Uint8Array | ArrayBuffer | Buffer
+  ): Promise<string> {
+    return this.uploadAsset(audioBuffer, 'audio/mpeg');
   }
 
   /**
