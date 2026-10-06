@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { generateText } from 'ai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { getGeminiKeyPool } from '@/lib/ai/gemini-pool';
 import { heygenService, HeyGenApiError } from '@/services/heygen.service';
 import { ElevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
 import { openRouterService } from '@/services/openrouter.service';
@@ -27,23 +30,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Módulo de Texto: Si el usuario solicitó generar o no tiene guion, llamar a OpenRouter
+    // 2. Módulo de Texto: Si el usuario solicitó generar o no tiene guion, generar con Google Gemini (Cero Costos)
     if (audioMode === 'generar' && !scriptText.trim()) {
       if (!prompt.trim()) {
         return NextResponse.json(
-          { error: 'Se requiere una idea o prompt para que OpenRouter redacte el guion.' },
+          { error: 'Se requiere una idea o prompt para que Gemini redacte el guion.' },
           { status: 400 }
         );
       }
 
-      const scriptResponse = await openRouterService.generateMarketingScript({
-        productName: prompt.slice(0, 40),
-        productDescription: prompt,
-        targetAudience: 'Audiencia general de video marketing',
-        keyBenefit: prompt,
-        format: 'ugc_testimonial',
-      });
-      scriptText = scriptResponse.fullSpokenText || scriptResponse.coreHook;
+      const geminiKeys = getGeminiKeyPool();
+      let generated = false;
+
+      for (const k of geminiKeys) {
+        try {
+          const google = createGoogleGenerativeAI({ apiKey: k });
+          const { text } = await generateText({
+            model: google('gemini-2.5-flash'),
+            system: 'Eres un director de video marketing. Escribe un guion corto de locución en español neutro (máximo 50-60 palabras) para un video publicitario con avatar. No agregues acotaciones entre paréntesis ni notas de producción, solo el texto a pronunciar.',
+            prompt: `Tema o producto: ${prompt.trim()}`,
+            temperature: 0.7,
+          });
+          scriptText = text.trim().replace(/^["']|["']$/g, '');
+          generated = true;
+          break;
+        } catch {
+          // Intentar con siguiente llave del pool
+        }
+      }
+
+      if (!generated) {
+        // Fallback de emergencia si no hubiera llaves de Gemini
+        const scriptResponse = await openRouterService.generateMarketingScript({
+          productName: prompt.slice(0, 40),
+          productDescription: prompt,
+          targetAudience: 'Audiencia general de video marketing',
+          keyBenefit: prompt,
+          format: 'ugc_testimonial',
+        });
+        scriptText = scriptResponse.fullSpokenText || scriptResponse.coreHook;
+      }
     }
 
     // 3. Módulo de Audio Condicional

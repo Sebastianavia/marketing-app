@@ -27,6 +27,16 @@ from typing import Dict, Any, Optional
 import requests
 from dotenv import load_dotenv
 
+# Reconfigurar salida de consola a UTF-8 para compatibilidad universal con Windows CMD y PowerShell
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Cargar variables de entorno desde .env local o raíz
 load_dotenv()
 load_dotenv(dotenv_path=Path(__file__).parent.parent / "frontend" / ".env.local")
@@ -38,6 +48,7 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
 ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 
 # Voces y modelos por defecto
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct"
 DEFAULT_ELEVENLABS_VOICE = "21m00Tcm4TlvDq8ikWAM"  # Rachel (Conversational)
 
@@ -57,8 +68,116 @@ class PipelineApiError(Exception):
 
 
 # =============================================================================
-# 1. MÓDULO DE TEXTO: OPENROUTER
+# 1. MÓDULO DE TEXTO: GOOGLE GEMINI (CERO COSTOS / POOL DE KEYS) Y OPENROUTER
 # =============================================================================
+def get_gemini_key_pool() -> list[str]:
+    """
+    Obtiene las API keys de Google Gemini desde las variables de entorno (.env o .env.local).
+    Soporta GEMINI_API_KEYS (lista separada por comas) y GEMINI_API_KEY única.
+    """
+    keys: list[str] = []
+    seen = set()
+
+    raw_pool = os.getenv("GEMINI_API_KEYS", "")
+    if raw_pool:
+        for k in raw_pool.replace("\n", ",").split(","):
+            cleaned = k.strip()
+            if cleaned and cleaned not in seen:
+                keys.append(cleaned)
+                seen.add(cleaned)
+
+    single_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if single_key and single_key not in seen:
+        keys.append(single_key)
+        seen.add(single_key)
+
+    google_key = os.getenv("GOOGLE_GENERATIVE_AI_API_KEY", "").strip()
+    if google_key and google_key not in seen:
+        keys.append(google_key)
+        seen.add(google_key)
+
+    return keys
+
+
+def generate_script_gemini(
+    prompt: str,
+    api_key: Optional[str] = None,
+    model: str = DEFAULT_GEMINI_MODEL,
+    system_instruction: Optional[str] = None,
+) -> str:
+    """
+    Genera un guion de video marketing usando Google Gemini con failover de cuota automático.
+    Utiliza el pool de claves configurado en el archivo .env sin costos adicionales.
+    """
+    if not prompt or not prompt.strip():
+        raise ValueError("El prompt para generar el guion no puede estar vacío.")
+
+    keys = [api_key] if api_key else get_gemini_key_pool()
+    if not keys:
+        raise PipelineConfigError(
+            "No se encontraron API Keys de Gemini en GEMINI_API_KEYS ni GEMINI_API_KEY."
+        )
+
+    sys_text = system_instruction or (
+        "Eres un director de video marketing experto. Escribe un guion corto y directo de locución "
+        "en español neutro para un video publicitario de 15 a 30 segundos (máximo 60 palabras). "
+        "No incluyas acotaciones entre paréntesis ni indicaciones técnicas de cámara o sonido. "
+        "Únicamente entrega el texto exacto que el avatar debe decir en voz alta."
+    )
+
+    last_error: Optional[Exception] = None
+
+    for idx, key in enumerate(keys):
+        masked_key = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else "***"
+        print(f"\n[1/4 Texto] Generando guion con Google Gemini ({model}) [Llave {idx+1}/{len(keys)}: {masked_key}]...")
+
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": sys_text}]
+            },
+            "contents": [
+                {
+                    "parts": [{"text": f"Tema o producto: {prompt.strip()}"}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 300,
+            },
+        }
+
+        try:
+            res = requests.post(endpoint, json=payload, headers=headers, timeout=30)
+            if res.status_code == 200:
+                data = res.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        script = parts[0].get("text", "").strip()
+                        # Limpiar comillas iniciales y finales si las colocó
+                        script = script.strip('"\'')
+                        print(f"[1/4 Texto] ✓ Guion generado con Gemini ({len(script)} caracteres):\n   \"{script}\"")
+                        return script
+                raise PipelineApiError("Gemini", 200, "Respuesta vacía de candidatos en Gemini", data)
+
+            # Si es error 429 (límite de cuota) y hay más llaves, rotar
+            if res.status_code == 429 and idx < len(keys) - 1:
+                print(f"[1/4 Texto] ⚠ Cuota excedida en llave {masked_key}. Conmutando automáticamente a la siguiente...")
+                continue
+
+            last_error = PipelineApiError("Gemini", res.status_code, res.text)
+        except requests.exceptions.RequestException as req_err:
+            last_error = PipelineApiError("Gemini", 0, f"Error de conexión con Gemini: {req_err}")
+            if idx < len(keys) - 1:
+                print(f"[1/4 Texto] ⚠ Error de red con llave {masked_key}. Intentando siguiente llave...")
+                continue
+
+    raise last_error or PipelineConfigError("No fue posible generar el guion con ninguna llave de Gemini del pool.")
+
+
 def generate_script_openrouter(
     prompt: str,
     api_key: Optional[str] = None,
@@ -66,8 +185,7 @@ def generate_script_openrouter(
     system_instruction: Optional[str] = None,
 ) -> str:
     """
-    Conecta con OpenRouter para redactar un guion breve y persuasivo.
-    Retorna el texto del guion limpio y listo para locución.
+    (Alternativo) Conecta con OpenRouter para redactar un guion breve y persuasivo.
     """
     key = api_key or os.getenv("OPENROUTER_API_KEY")
     if not key:
@@ -116,10 +234,27 @@ def generate_script_openrouter(
 
     data = response.json()
     script = data["choices"][0]["message"]["content"].strip()
-    # Eliminar posibles comillas sobrantes
     script = script.strip('"\'')
-    print(f"[1/4 Texto] ✓ Guion generado ({len(script)} caracteres):\n   \"{script}\"")
+    print(f"[1/4 Texto] ✓ Guion generado con OpenRouter ({len(script)} caracteres):\n   \"{script}\"")
     return script
+
+
+def generate_script(
+    prompt: str,
+    provider: str = "gemini",
+    api_key: Optional[str] = None,
+) -> str:
+    """
+    Selector maestro del módulo de texto.
+    Por defecto usa 'gemini' (cero costos y pool de llaves en .env).
+    """
+    provider = provider.lower().strip()
+    if provider == "gemini":
+        return generate_script_gemini(prompt, api_key=api_key)
+    elif provider == "openrouter":
+        return generate_script_openrouter(prompt, api_key=api_key)
+    else:
+        raise ValueError(f"Proveedor de texto desconocido '{provider}'. Usa 'gemini' u 'openrouter'.")
 
 
 # =============================================================================
@@ -436,19 +571,22 @@ def run_talking_photo_pipeline(
     output_video_path: str = "final_talking_photo.mp4",
     voice_id: str = DEFAULT_ELEVENLABS_VOICE,
     aspect_ratio: str = "9:16",
+    script_provider: str = "gemini",
 ) -> Dict[str, Any]:
     """
     Ejecuta el pipeline completo de principio a fin.
+    Por defecto utiliza Google Gemini para redacción de guiones a cero costos.
     """
     print("\n" + "=" * 65)
     print(" INICIANDO PIPELINE MODULAR DE TALKING PHOTO")
+    print(f" Proveedor de guion: {script_provider.upper()} | Modo audio: {audio_mode}")
     print("=" * 65)
 
-    # 1. Módulo de Texto
+    # 1. Módulo de Texto (Gemini por defecto para recorte de costos)
     if audio_mode == "generar":
         if not prompt:
             raise ValueError("Se requiere '--prompt' cuando audio_mode es 'generar'.")
-        script_text = generate_script_openrouter(prompt)
+        script_text = generate_script(prompt, provider=script_provider)
     else:
         script_text = "[Audio local provisto por el usuario]"
 
@@ -484,6 +622,7 @@ def run_talking_photo_pipeline(
     return {
         "success": True,
         "script": script_text,
+        "script_provider": script_provider,
         "audio_path": audio_file,
         "talking_photo_id": talking_photo_id,
         "audio_id": audio_id,
@@ -498,7 +637,7 @@ def run_talking_photo_pipeline(
 # =============================================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Pipeline Modular de Talking Photo (OpenRouter + ElevenLabs + HeyGen)"
+        description="Pipeline Modular de Talking Photo (Google Gemini + ElevenLabs + HeyGen)"
     )
     parser.add_argument(
         "--image",
@@ -506,15 +645,21 @@ if __name__ == "__main__":
         help="Ruta a la foto del avatar (.jpg o .png)",
     )
     parser.add_argument(
+        "--provider",
+        choices=["gemini", "openrouter"],
+        default="gemini",
+        help="Motor de redacción de guion (por defecto 'gemini' usando pool de claves en .env)",
+    )
+    parser.add_argument(
         "--audio-mode",
         choices=["generar", "local"],
         default="generar",
-        help="Modo de audio: 'generar' (OpenRouter + ElevenLabs) o 'local' (archivo MP3 del disco)",
+        help="Modo de audio: 'generar' (Gemini + ElevenLabs) o 'local' (archivo MP3 del disco)",
     )
     parser.add_argument(
         "--prompt",
         default="Crea un gancho publicitario para una bebida energética de lulo",
-        help="Idea o tema para que OpenRouter redacte el guion (requerido si --audio-mode=generar)",
+        help="Idea o tema para que la IA redacte el guion (requerido si --audio-mode=generar)",
     )
     parser.add_argument(
         "--audio-file",
@@ -542,6 +687,7 @@ if __name__ == "__main__":
             local_audio_path=args.audio_file,
             output_video_path=args.output,
             aspect_ratio=args.aspect_ratio,
+            script_provider=args.provider,
         )
     except Exception as err:
         print(f"\n[ERROR CRÍTICO] {err}", file=sys.stderr)

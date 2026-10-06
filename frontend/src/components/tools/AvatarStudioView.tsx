@@ -82,33 +82,30 @@ export function AvatarStudioView() {
     setErrorMsg(null);
   };
 
-  // 1. Módulo de Texto: Generar Guion con OpenRouter
+  // 1. Módulo de Texto: Generar Guion con Google Gemini (Cero Costos / Pool de Keys)
   const handleGenerateScriptWithAI = async () => {
     if (!scriptPrompt.trim()) return;
     setIsGeneratingScript(true);
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/openrouter/script', {
+      const res = await fetch('/api/script/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productName: scriptPrompt.slice(0, 30),
-          productDescription: scriptPrompt,
-          targetAudience: 'Compradores en redes sociales',
-          keyBenefit: scriptPrompt,
-          format: 'ugc_testimonial',
+          prompt: scriptPrompt,
         }),
       });
 
       if (!res.ok) {
-        throw new Error('Error al conectar con OpenRouter para redactar el guion.');
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Error al conectar con Google Gemini para redactar el guion.');
       }
 
       const data = await res.json();
-      setScriptText(data.fullSpokenText || data.coreHook || scriptPrompt);
+      setScriptText(data.script || scriptPrompt);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error generando guion con IA.');
+      setErrorMsg(err.message || 'Error generando guion con Gemini.');
     } finally {
       setIsGeneratingScript(false);
     }
@@ -382,23 +379,23 @@ export function AvatarStudioView() {
 
         <div className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 space-y-5">
           {/* =================================================================
-              MÓDULO 1: GUION & TEXTO (OpenRouter)
+              MÓDULO 1: GUION & TEXTO (Google Gemini - Cero Costos / Pool Activo)
               ================================================================= */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                <Bot className="h-3.5 w-3.5 text-indigo-400" />
-                <span>1. Guion de Locución (OpenRouter)</span>
+                <Bot className="h-3.5 w-3.5 text-emerald-400" />
+                <span>1. Guion de Locución (Gemini 2.5 Flash • Cero Costos)</span>
               </label>
 
               <button
                 type="button"
                 disabled={isGeneratingScript || !scriptPrompt.trim()}
                 onClick={handleGenerateScriptWithAI}
-                className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-40"
+                className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-40"
               >
                 <Sparkles className="h-3 w-3" />
-                <span>{isGeneratingScript ? 'Redactando...' : 'Generar con IA'}</span>
+                <span>{isGeneratingScript ? 'Redactando con Gemini...' : 'Generar con Gemini'}</span>
               </button>
             </div>
 
