@@ -1,5 +1,5 @@
 import { ElevenLabsService } from '../elevenlabs/elevenlabs.service';
-import { StorageService } from '../storage/storage.service';
+import { CloudinaryStorageService, cloudinaryStorageService } from '../storage/cloudinary.service';
 import { OpenRouterVideoService } from '../openrouter/openrouter-video.service';
 import {
   UgcPipelineExecutionInput,
@@ -14,7 +14,7 @@ export type PipelineProgressCallback = (event: UgcPipelineProgressEvent) => void
 
 export class UgcPipelineMasterOrchestrator {
   private elevenLabsService: ElevenLabsService;
-  private storageService: StorageService;
+  private cloudinaryService: CloudinaryStorageService;
   private openRouterService: OpenRouterVideoService;
 
   constructor(customKeys?: {
@@ -22,7 +22,7 @@ export class UgcPipelineMasterOrchestrator {
     openRouterKey?: string;
   }) {
     this.elevenLabsService = new ElevenLabsService(customKeys?.elevenLabsKey);
-    this.storageService = new StorageService();
+    this.cloudinaryService = cloudinaryStorageService;
     this.openRouterService = new OpenRouterVideoService(customKeys?.openRouterKey);
   }
 
@@ -72,21 +72,20 @@ export class UgcPipelineMasterOrchestrator {
       });
 
       // =======================================================================
-      // PASO 2: ALMACENAMIENTO DE ACTIVO TEMPORAL (Cloudflare R2 / S3)
+      // PASO 2: ALMACENAMIENTO DE ACTIVO TEMPORAL (Cloudinary Seguro)
       // =======================================================================
       currentPhase = 'audio_upload';
-      notify('audio_upload', 'Alojando activo de audio en Cloudflare R2...', 35);
+      notify('audio_upload', 'Alojando activo de audio en Cloudinary...', 35);
 
-      const uploadResult = await this.storageService.uploadAudio({
-        buffer: ttsResult.buffer,
-        fileName: `speech_${Date.now()}.mp3`,
-        contentType: 'audio/mpeg',
-        folder: 'ugc-speech',
-      });
+      const uploadResult = await this.cloudinaryService.uploadAudio(
+        ttsResult.buffer,
+        `speech_${Date.now()}.mp3`,
+        'lulo-studio/ugc-speech'
+      );
 
-      uploadedAudioKey = uploadResult.key;
+      uploadedAudioKey = uploadResult.publicId;
 
-      notify('audio_upload', 'Activo de audio verificado y accesible.', 45, {
+      notify('audio_upload', 'Activo de audio verificado y accesible en Cloudinary.', 45, {
         audioUrl: uploadResult.publicUrl,
       });
 
@@ -191,8 +190,8 @@ export class UgcPipelineMasterOrchestrator {
       // limpiamos el archivo huérfano de R2 para evitar costos y almacenamiento fantasma
       if (uploadedAudioKey && (currentPhase === 'video_dispatch' || currentPhase === 'video_polling')) {
         try {
-          console.log(`[Rollback] Eliminando audio temporal huérfano de R2: ${uploadedAudioKey}`);
-          await this.storageService.deleteAudio(uploadedAudioKey);
+          console.log(`[Rollback] Eliminando audio temporal huérfano de Cloudinary: ${uploadedAudioKey}`);
+          await this.cloudinaryService.deleteAudio(uploadedAudioKey);
         } catch (cleanupErr) {
           console.warn('[Rollback] Fallo al eliminar activo en cleanup:', cleanupErr);
         }

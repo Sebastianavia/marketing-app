@@ -54,6 +54,16 @@ export class OpenRouterVideoService {
         },
         body: JSON.stringify({
           model,
+          input_references: [
+            {
+              type: 'image_url',
+              url: imageUrl,
+            },
+            {
+              type: 'audio_url',
+              url: audioUrl,
+            },
+          ],
           image_url: imageUrl,
           audio_url: audioUrl,
           aspect_ratio: aspectRatio,
