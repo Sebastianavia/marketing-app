@@ -13,21 +13,39 @@ export class CloudinaryStorageService {
   private isConfigured: boolean = false;
 
   constructor() {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const rawUrl = process.env.CLOUDINARY_URL?.trim();
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+    const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
+    const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
 
-    if (cloudName && apiKey && apiSecret) {
+    if (
+      rawUrl &&
+      rawUrl.startsWith('cloudinary://') &&
+      !rawUrl.includes('<your_') &&
+      !rawUrl.includes('TU_API_SECRET')
+    ) {
       cloudinary.config({
-        cloud_name: cloudName.trim(),
-        api_key: apiKey.trim(),
-        api_secret: apiSecret.trim(),
+        cloudinary_url: rawUrl,
+        secure: true,
+      });
+      this.isConfigured = true;
+    } else if (
+      cloudName &&
+      apiKey &&
+      apiSecret &&
+      !apiSecret.includes('TU_API_SECRET') &&
+      !apiSecret.includes('<your_')
+    ) {
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
         secure: true,
       });
       this.isConfigured = true;
     } else {
       console.warn(
-        '[CloudinaryStorageService] Variables CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY o CLOUDINARY_API_SECRET no configuradas.'
+        '[CloudinaryStorageService] Cloudinary pendiente de configurar con API Secret real.'
       );
     }
   }
