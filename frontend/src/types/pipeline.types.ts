@@ -77,6 +77,7 @@ export interface PollingConfig {
 // =============================================================================
 export type PipelinePhase =
   | 'idle'
+  | 'voice_cloning'
   | 'tts_generation'
   | 'audio_upload'
   | 'video_dispatch'

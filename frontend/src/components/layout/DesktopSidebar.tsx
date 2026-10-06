@@ -12,6 +12,7 @@ import {
   HardDrive,
   Cpu,
   FolderKanban,
+  Mic,
 } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 
@@ -61,16 +62,22 @@ const NAV_ITEMS: NavItem[] = [
     icon: Film,
   },
   {
+    id: 'voice-studio',
+    name: 'Voice Studio (ElevenLabs)',
+    shortKey: '⌘5',
+    icon: Mic,
+  },
+  {
     id: 'busi',
     name: 'Busi AI Auditor',
-    shortKey: '⌘5',
+    shortKey: '⌘6',
     icon: Bot,
     isDemo: true,
   },
   {
     id: 'projects',
     name: 'Proyectos en Disco',
-    shortKey: '⌘6',
+    shortKey: '⌘7',
     icon: FolderKanban,
   },
 ];

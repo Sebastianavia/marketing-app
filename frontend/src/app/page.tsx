@@ -8,6 +8,7 @@ import { AvatarStudioView } from '@/components/tools/AvatarStudioView';
 import { UgcGeneratorView } from '@/components/tools/UgcGeneratorView';
 import { DeepSwapView } from '@/components/tools/DeepSwapView';
 import { TextToVideoView } from '@/components/tools/TextToVideoView';
+import { VoiceStudioView } from '@/components/tools/VoiceStudioView';
 import { BusiDemoView } from '@/components/tools/BusiDemoView';
 import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Film,
   Bot,
+  Mic,
   ArrowLeft,
   ArrowRight,
   HardDrive,
@@ -64,6 +66,15 @@ const TOOLS: ToolCardData[] = [
     badge: 'VEO / Sora',
     icon: Film,
   },
+  {
+    id: 'voice-studio',
+    title: 'Voice Studio',
+    category: 'ElevenLabs Engine',
+    description:
+      'Clonación de voz neuronal (Instant Voice Cloning) y síntesis multilingüe en Español, Inglés y Portugués con eleven_multilingual_v2.',
+    badge: 'ElevenLabs',
+    icon: Mic,
+  },
 ];
 
 export default function Home() {
@@ -74,7 +85,7 @@ export default function Home() {
     setMiaActiveTool(activeTool);
   }, [activeTool, setMiaActiveTool]);
 
-  // Atajos de teclado nativos para navegación instantánea en memoria (Cmd/Ctrl + 0..6)
+  // Atajos de teclado nativos para navegación instantánea en memoria (Cmd/Ctrl + 0..7)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) {
@@ -95,8 +106,11 @@ export default function Home() {
           setActiveTool('text-to-video');
         } else if (e.key === '5') {
           e.preventDefault();
-          setActiveTool('busi');
+          setActiveTool('voice-studio');
         } else if (e.key === '6') {
+          e.preventDefault();
+          setActiveTool('busi');
+        } else if (e.key === '7') {
           e.preventDefault();
           setActiveTool('projects');
         }
@@ -116,6 +130,8 @@ export default function Home() {
         return 'Generador UGC';
       case 'text-to-video':
         return 'Text-to-Video';
+      case 'voice-studio':
+        return 'Voice Studio (ElevenLabs)';
       case 'busi':
         return 'Busi AI';
       case 'projects':
@@ -288,6 +304,7 @@ export default function Home() {
                   {activeTool === 'ugc-generator' && <UgcGeneratorView />}
                   {activeTool === 'deep-swap' && <DeepSwapView />}
                   {activeTool === 'text-to-video' && <TextToVideoView />}
+                  {activeTool === 'voice-studio' && <VoiceStudioView />}
                   {activeTool === 'busi' && (
                     <BusiDemoView onBack={() => setActiveTool(null)} />
                   )}
