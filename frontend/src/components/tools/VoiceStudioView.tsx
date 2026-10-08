@@ -287,32 +287,32 @@ export function VoiceStudioView() {
       {/* =======================================================================
           HEADER & NAVEGACIÓN POR PESTAÑAS
           ======================================================================= */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08] pb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-white/[0.08] pb-5">
         <div>
-          <div className="inline-flex items-center gap-2 rounded border border-white/[0.08] bg-zinc-950 px-2 py-0.5 font-mono text-[10px] text-zinc-400 mb-2">
-            <Mic className="h-3 w-3 text-emerald-400" />
+          <div className="inline-flex items-center gap-2 rounded border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-2 py-0.5 font-mono text-[10px] text-slate-600 dark:text-zinc-400 mb-2 shadow-2xs">
+            <Mic className="h-3 w-3 text-emerald-500 dark:text-emerald-400" />
             <span>ELEVENLABS MOTOR · MULTILINGUAL V2 · INSTANT VOICE CLONING</span>
           </div>
-          <h2 className="text-xl font-semibold tracking-tight text-white">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-white">
             Voice Studio
           </h2>
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-slate-600 dark:text-zinc-400">
             Clonación de voz neuronal a partir de tus muestras y síntesis multilingüe en Español, Inglés y Portugués.
           </p>
         </div>
 
         {/* Selector de pestañas segmentado estilo Linear */}
-        <div className="inline-flex p-1 rounded-xl bg-zinc-950/80 border border-white/[0.08]">
+        <div className="inline-flex p-1 rounded-xl bg-slate-200/60 dark:bg-zinc-950/80 border border-slate-200/80 dark:border-white/[0.08]">
           <button
             type="button"
             onClick={() => setActiveTab('tts')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
               activeTab === 'tts'
-                ? 'bg-zinc-800 text-white shadow-sm border border-white/[0.1]'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-white text-slate-900 dark:bg-zinc-800 dark:text-white shadow-sm border border-slate-200/80 dark:border-white/[0.1]'
+                : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
             }`}
           >
-            <Volume2 className="h-3.5 w-3.5 text-indigo-400" />
+            <Volume2 className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
             <span>Estudio de Generación</span>
           </button>
 
@@ -321,14 +321,14 @@ export function VoiceStudioView() {
             onClick={() => setActiveTab('clone')}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${
               activeTab === 'clone'
-                ? 'bg-zinc-800 text-white shadow-sm border border-white/[0.1]'
-                : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-white text-slate-900 dark:bg-zinc-800 dark:text-white shadow-sm border border-slate-200/80 dark:border-white/[0.1]'
+                : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
             }`}
           >
-            <Mic className="h-3.5 w-3.5 text-emerald-400" />
+            <Mic className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
             <span>Clonar Nueva Voz</span>
             {sampleFiles.length > 0 && (
-              <span className="h-4 w-4 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] flex items-center justify-center font-mono">
+              <span className="h-4 w-4 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[10px] flex items-center justify-center font-mono">
                 {sampleFiles.length}
               </span>
             )}
@@ -367,35 +367,35 @@ export function VoiceStudioView() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in">
           {/* Formulario de Clonación */}
           <div className="lg:col-span-8 space-y-5">
-            <form onSubmit={handleCloneVoiceSubmit} className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-6 space-y-5">
+            <form onSubmit={handleCloneVoiceSubmit} className="rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950/60 p-6 space-y-5 shadow-xs">
               <div className="space-y-1">
-                <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                  <Mic className="h-4 w-4 text-emerald-400" />
+                <h3 className="text-sm font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                  <Mic className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
                   <span>Configuración de la Voz Personalizada</span>
                 </h3>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-slate-500 dark:text-zinc-500">
                   Sube entre 1 y 5 minutos de grabaciones limpias (voz hablando a ritmo normal, sin música de fondo).
                 </p>
               </div>
 
               {/* Input: Nombre de la Voz */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">
-                  Nombre de la Voz <span className="text-rose-400">*</span>
+                <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                  Nombre de la Voz <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={cloneName}
                   onChange={(e) => setCloneName(e.target.value)}
                   placeholder="Ej: Voz Sebastián Principal (Comercial)"
-                  className="w-full rounded-xl bg-white/[0.03] hover:bg-white/[0.05] border border-white/[0.08] focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/40 px-3.5 py-2.5 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-all"
+                  className="w-full rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100/60 dark:hover:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/40 px-3.5 py-2.5 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-all"
                   required
                 />
               </div>
 
               {/* Input: Descripción opcional */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-zinc-300">
+                <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
                   Descripción o Notas de Tono (Opcional)
                 </label>
                 <input
@@ -403,18 +403,20 @@ export function VoiceStudioView() {
                   value={cloneDescription}
                   onChange={(e) => setCloneDescription(e.target.value)}
                   placeholder="Ej: Tono dinámico y entusiasta para reels y anuncios de marca"
-                  className="w-full rounded-xl bg-white/[0.03] hover:bg-white/[0.05] border border-white/[0.08] focus:border-white/20 focus:ring-1 focus:ring-white/20 px-3.5 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-all"
+                  className="w-full rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100/60 dark:hover:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/40 px-3.5 py-2 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-all"
                 />
               </div>
 
               {/* Drag & Drop Zone para Muestras de Audio */}
               <div className="space-y-2">
-                <label className="text-xs font-medium text-zinc-300 flex items-center justify-between">
-                  <span>Muestras de Audio (.mp3 o .wav)</span>
-                  <span className="text-[11px] text-zinc-500 font-mono">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                    Muestras de Audio (.mp3 o .wav)
+                  </label>
+                  <span className="text-[11px] text-slate-500 dark:text-zinc-500 font-mono">
                     {sampleFiles.length} muestra(s) cargada(s)
                   </span>
-                </label>
+                </div>
 
                 <div
                   onDragOver={(e) => e.preventDefault()}
@@ -423,7 +425,7 @@ export function VoiceStudioView() {
                     if (e.dataTransfer.files) handleFilesAdded(e.dataTransfer.files);
                   }}
                   onClick={() => fileInputRef.current?.click()}
-                  className="group relative cursor-pointer rounded-2xl border border-dashed border-white/[0.15] bg-zinc-900/20 hover:bg-zinc-900/40 p-8 text-center transition-all hover:border-emerald-500/40"
+                  className="group relative cursor-pointer rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.15] bg-slate-50/70 hover:bg-slate-100/60 dark:bg-zinc-900/20 dark:hover:bg-zinc-900/40 p-8 text-center transition-all hover:border-emerald-500/60"
                 >
                   <input
                     ref={fileInputRef}
@@ -437,14 +439,14 @@ export function VoiceStudioView() {
                   />
 
                   <div className="flex flex-col items-center justify-center gap-2">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:scale-105 transition-transform">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 group-hover:scale-105 transition-transform">
                       <Upload className="h-5 w-5" />
                     </div>
                     <div className="space-y-0.5">
-                      <p className="text-xs font-medium text-zinc-200">
+                      <p className="text-xs font-medium text-slate-800 dark:text-zinc-200">
                         Arrastra tus archivos de audio aquí o haz clic para explorar
                       </p>
-                      <p className="text-[11px] text-zinc-500">
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-500">
                         Formatos soportados: MP3, WAV (Mínimo recomendado: 1 a 3 muestras de 60 segundos)
                       </p>
                     </div>
@@ -457,19 +459,19 @@ export function VoiceStudioView() {
                     {sampleFiles.map((file, idx) => (
                       <div
                         key={idx}
-                        className="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs"
+                        className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/[0.06] text-xs"
                       >
                         <div className="flex items-center gap-2.5 truncate">
-                          <FileAudio className="h-4 w-4 text-emerald-400 shrink-0" />
-                          <span className="truncate text-zinc-200 font-medium">{file.name}</span>
-                          <span className="text-[11px] font-mono text-zinc-500 shrink-0">
-                            {(file.size / (1024 * 1024)).toFixed(2)} MB
+                          <FileAudio className="h-4 w-4 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                          <span className="truncate text-slate-800 dark:text-zinc-200 font-medium">{file.name}</span>
+                          <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-500 shrink-0">
+                            ({(file.size / (1024 * 1024)).toFixed(2)} MB)
                           </span>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleRemoveSample(idx)}
-                          className="p-1 rounded-md text-zinc-500 hover:text-rose-400 hover:bg-white/[0.04] transition-colors"
+                          className="p-1 rounded-md text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:text-zinc-500 dark:hover:text-rose-400 dark:hover:bg-white/[0.04] transition-colors"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -483,7 +485,7 @@ export function VoiceStudioView() {
               <button
                 type="submit"
                 disabled={isCloning || !cloneName.trim() || sampleFiles.length === 0}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-semibold text-xs tracking-wide transition-all shadow-lg shadow-emerald-500/10"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-semibold text-xs tracking-wide transition-all shadow-lg shadow-emerald-500/10 cursor-pointer"
               >
                 {isCloning ? (
                   <>
@@ -502,18 +504,18 @@ export function VoiceStudioView() {
 
           {/* Panel Lateral: Guía de Calidad y Consejos */}
           <div className="lg:col-span-4 space-y-4">
-            <div className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 space-y-4 text-xs">
-              <div className="flex items-center gap-2 text-zinc-200 font-medium">
-                <Info className="h-4 w-4 text-indigo-400" />
+            <div className="rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950/60 p-5 space-y-4 text-xs shadow-xs">
+              <div className="flex items-center gap-2 text-slate-800 dark:text-zinc-200 font-medium">
+                <Info className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
                 <span>Recomendaciones Técnicas SRE</span>
               </div>
-              <ul className="space-y-2.5 text-zinc-400 leading-relaxed">
+              <ul className="space-y-2.5 text-slate-600 dark:text-zinc-400 leading-relaxed">
                 <li className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">•</span>
+                  <span className="text-emerald-500 dark:text-emerald-400 font-bold">•</span>
                   <span><strong>Audio sin ruido:</strong> Graba en una habitación silenciosa con micrófono de solapa o condensador.</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">•</span>
+                  <span className="text-emerald-500 dark:text-emerald-400 font-bold">•</span>
                   <span><strong>Sin música de fondo:</strong> La música o los efectos arruinan el entrenamiento de la red neuronal.</span>
                 </li>
                 <li className="flex items-start gap-2">
@@ -521,8 +523,8 @@ export function VoiceStudioView() {
                   <span><strong>Variedad de entonación:</strong> Habla de forma natural con el estilo exacto que deseas para tus anuncios.</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-emerald-400 font-bold">•</span>
-                  <span><strong>Persistencia local:</strong> La voz clonada se guarda automáticamente en <code className="text-[10px] text-zinc-300 bg-white/[0.05] px-1 py-0.5 rounded">cloned_voices.json</code> para uso permanente.</span>
+                  <span className="text-emerald-500 dark:text-emerald-400 font-bold">•</span>
+                  <span><strong>Persistencia local:</strong> La voz clonada se guarda automáticamente en <code className="text-[10px] text-slate-700 dark:text-zinc-300 bg-slate-100 dark:bg-white/[0.05] px-1 py-0.5 rounded">cloned_voices.json</code> para uso permanente.</span>
                 </li>
               </ul>
             </div>
@@ -537,18 +539,18 @@ export function VoiceStudioView() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in">
           {/* Panel Izquierdo: Configuración & Texto */}
           <div className="lg:col-span-8 space-y-5">
-            <div className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-6 space-y-5">
+            <div className="rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950/60 p-6 space-y-5 shadow-xs">
               {/* Selector de Voz Elegante */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                    <Mic className="h-3.5 w-3.5 text-indigo-400" />
+                  <label className="text-xs font-medium text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+                    <Mic className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                     <span>Voz Activa (Base de Datos Local)</span>
                   </label>
                   <button
                     type="button"
                     onClick={() => setActiveTab('clone')}
-                    className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium transition-colors"
+                    className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 font-medium transition-colors"
                   >
                     + Clonar otra voz
                   </button>
@@ -558,20 +560,20 @@ export function VoiceStudioView() {
                   <select
                     value={selectedVoiceId}
                     onChange={(e) => setSelectedVoiceId(e.target.value)}
-                    className="w-full appearance-none rounded-xl bg-white/[0.03] hover:bg-white/[0.05] border border-white/[0.08] focus:border-indigo-500/40 px-3.5 py-2.5 text-xs text-zinc-100 outline-none transition-all pr-10 cursor-pointer"
+                    className="w-full appearance-none rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100/60 dark:hover:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] focus:border-indigo-500/60 px-3.5 py-2.5 text-xs text-slate-900 dark:text-zinc-100 outline-none transition-all pr-10 cursor-pointer"
                   >
                     {voices.map((v) => (
-                      <option key={v.id} value={v.id} className="bg-zinc-900 text-zinc-100">
+                      <option key={v.id} value={v.id} className="bg-white text-slate-900 dark:bg-zinc-900 dark:text-zinc-100">
                         {v.category === 'cloned' ? '⭐ [CLONADA] ' : '🎙️ [PRESET] '}
                         {v.name}
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-3.5 top-3 h-4 w-4 text-zinc-500 pointer-events-none" />
+                  <ChevronDown className="absolute right-3.5 top-3 h-4 w-4 text-slate-400 dark:text-zinc-500 pointer-events-none" />
                 </div>
 
                 {selectedVoiceObj && (
-                  <p className="text-[11px] text-zinc-500 italic pl-1">
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-500 italic pl-1">
                     {selectedVoiceObj.description || 'Voz neuronal optimizada.'}
                   </p>
                 )}
@@ -580,11 +582,11 @@ export function VoiceStudioView() {
               {/* Segmented Control para Idioma Objetivo */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
-                    <Languages className="h-3.5 w-3.5 text-indigo-400" />
+                  <label className="text-xs font-medium text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+                    <Languages className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
                     <span>Idioma Objetivo (Modelo eleven_multilingual_v2)</span>
                   </label>
-                  <span className="font-mono text-[10px] text-zinc-500 border border-white/[0.06] bg-zinc-900/60 px-2 py-0.5 rounded">
+                  <span className="font-mono text-[10px] text-slate-600 dark:text-zinc-500 border border-slate-200 dark:border-white/[0.06] bg-slate-100 dark:bg-zinc-900/60 px-2 py-0.5 rounded">
                     eleven_multilingual_v2
                   </span>
                 </div>
@@ -599,13 +601,13 @@ export function VoiceStudioView() {
                         onClick={() => setSelectedLanguage(lang.code)}
                         className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-all ${
                           isSelected
-                            ? 'bg-indigo-600/15 border-indigo-500/40 text-white shadow-sm'
-                            : 'bg-white/[0.02] border-white/[0.06] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+                            ? 'bg-indigo-50 border-indigo-400 text-indigo-700 dark:bg-indigo-600/15 dark:border-indigo-500/40 dark:text-white shadow-xs'
+                            : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:bg-white/[0.02] dark:border-white/[0.06] dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-white/[0.04]'
                         }`}
                       >
                         <span className="text-sm">{lang.flag}</span>
                         <span>{lang.name}</span>
-                        <span className="font-mono text-[10px] text-zinc-500">[{lang.label}]</span>
+                        <span className="font-mono text-[10px] text-slate-500 dark:text-zinc-500">[{lang.label}]</span>
                       </button>
                     );
                   })}
@@ -615,7 +617,7 @@ export function VoiceStudioView() {
               {/* Área de Texto Amplia para el Guion */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-300">
+                  <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
                     Guion de Locución
                   </label>
 
@@ -623,7 +625,7 @@ export function VoiceStudioView() {
                     type="button"
                     disabled={isGeneratingAiScript}
                     onClick={handleGenerateScriptWithGemini}
-                    className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-40"
+                    className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors disabled:opacity-40 cursor-pointer"
                     title="Usa el pool de Gemini a cero costos para redactar un gancho comercial"
                   >
                     <Sparkles className="h-3 w-3" />
@@ -636,10 +638,10 @@ export function VoiceStudioView() {
                   value={scriptText}
                   onChange={(e) => setScriptText(e.target.value)}
                   placeholder="Escribe o pega aquí el guion que la voz clonada debe locutar..."
-                  className="w-full rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.08] focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/40 p-4 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-all resize-none leading-relaxed"
+                  className="w-full rounded-2xl bg-slate-50 hover:bg-slate-100/50 dark:bg-white/[0.02] dark:hover:bg-white/[0.04] border border-slate-200 dark:border-white/[0.08] focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/40 p-4 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-all resize-none leading-relaxed"
                 />
 
-                <div className="flex justify-between text-[11px] text-zinc-500 font-mono">
+                <div className="flex justify-between text-[11px] text-slate-500 dark:text-zinc-500 font-mono">
                   <span>~{Math.round(scriptText.trim().length / 15)}s estimados de locución</span>
                   <span>{scriptText.length} caracteres</span>
                 </div>
@@ -650,7 +652,7 @@ export function VoiceStudioView() {
                 type="button"
                 disabled={isSynthesizing || !scriptText.trim() || !selectedVoiceId}
                 onClick={handleSynthesizeAudio}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white hover:bg-zinc-200 disabled:opacity-40 text-black font-semibold text-xs tracking-wide transition-all shadow-lg shadow-white/5"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black disabled:opacity-40 font-semibold text-xs tracking-wide transition-all shadow-md shadow-slate-900/10 dark:shadow-white/5 cursor-pointer"
               >
                 {isSynthesizing ? (
                   <>
@@ -669,13 +671,13 @@ export function VoiceStudioView() {
 
           {/* Panel Derecho: Reproductor Minimalista & Exportación */}
           <div className="lg:col-span-4 space-y-4">
-            <div className="rounded-2xl border border-white/[0.08] bg-zinc-950/60 p-5 space-y-5">
-              <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-                <span className="text-xs font-medium text-white flex items-center gap-2">
-                  <Play className="h-3.5 w-3.5 text-emerald-400" />
+            <div className="rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950/60 p-5 space-y-5 shadow-xs">
+              <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-white/[0.06] pb-3">
+                <span className="text-xs font-medium text-slate-900 dark:text-white flex items-center gap-2">
+                  <Play className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
                   <span>Monitor de Audio</span>
                 </span>
-                <span className="font-mono text-[10px] text-zinc-500">
+                <span className="font-mono text-[10px] text-slate-500 dark:text-zinc-500">
                   {audioUrl ? 'LISTO' : 'EN ESPERA'}
                 </span>
               </div>
@@ -696,19 +698,19 @@ export function VoiceStudioView() {
 
               {/* Tarjeta de Reproductor */}
               {audioUrl ? (
-                <div className="space-y-4 rounded-xl border border-white/[0.08] bg-zinc-900/40 p-4">
+                <div className="space-y-4 rounded-xl border border-slate-200/80 dark:border-white/[0.08] bg-slate-50 dark:bg-zinc-900/40 p-4">
                   {/* Animación de ondas de sonido o barra de progreso */}
                   <div className="flex items-center justify-between gap-3">
                     <button
                       type="button"
                       onClick={togglePlayAudio}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black transition-all shadow-md shadow-emerald-500/20"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
                     >
                       {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
                     </button>
 
                     <div className="flex-1 space-y-1">
-                      <div className="flex justify-between font-mono text-[10px] text-zinc-400">
+                      <div className="flex justify-between font-mono text-[10px] text-slate-600 dark:text-zinc-400">
                         <span>
                           {Math.floor(audioCurrentTime / 60)}:
                           {String(Math.floor(audioCurrentTime % 60)).padStart(2, '0')}
@@ -730,17 +732,17 @@ export function VoiceStudioView() {
                           setAudioCurrentTime(val);
                           if (audioRef.current) audioRef.current.currentTime = val;
                         }}
-                        className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        className="w-full h-1 bg-slate-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                       />
                     </div>
                   </div>
 
                   {/* Acciones del Audio: Descargar o Inyectar a HeyGen */}
-                  <div className="pt-2 space-y-2 border-t border-white/[0.06]">
+                  <div className="pt-2 space-y-2 border-t border-slate-200/80 dark:border-white/[0.06]">
                     <button
                       type="button"
                       onClick={handleDownloadMp3}
-                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-colors"
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 text-xs font-medium transition-colors"
                     >
                       <Download className="h-3.5 w-3.5" />
                       <span>Descargar Archivo MP3</span>
@@ -749,7 +751,7 @@ export function VoiceStudioView() {
                     <button
                       type="button"
                       onClick={handleSendToAvatarStudio}
-                      className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors shadow-md shadow-indigo-600/10"
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors shadow-md shadow-indigo-600/10 cursor-pointer"
                     >
                       <Share2 className="h-3.5 w-3.5" />
                       <span>Inyectar en Avatar Studio (HeyGen)</span>
@@ -757,10 +759,10 @@ export function VoiceStudioView() {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-white/[0.08] p-6 text-center text-zinc-500 text-xs space-y-1">
-                  <Volume2 className="h-6 w-6 mx-auto text-zinc-600 mb-2 opacity-50" />
-                  <p className="font-medium text-zinc-400">Sin audio generado</p>
-                  <p className="text-[11px]">Escribe un guion y presiona "Sintetizar Audio" para escucharlo aquí.</p>
+                <div className="rounded-xl border border-dashed border-slate-200/80 dark:border-white/[0.08] bg-slate-50/50 dark:bg-transparent p-6 text-center text-slate-500 dark:text-zinc-500 text-xs space-y-1">
+                  <Volume2 className="h-6 w-6 mx-auto text-slate-400 dark:text-zinc-600 mb-2 opacity-50" />
+                  <p className="font-medium text-slate-700 dark:text-zinc-400">Sin audio generado</p>
+                  <p className="text-[11px]">Escribe un guion y presiona &ldquo;Sintetizar Audio&rdquo; para escucharlo aquí.</p>
                 </div>
               )}
             </div>

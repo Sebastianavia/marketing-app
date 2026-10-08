@@ -1,7 +1,18 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
+    --background: #f8fafc;
+    --foreground: #09090b;
+    --muted: #64748b;
+    --border: rgba(0, 0, 0, 0.08);
+    --surface: #ffffff;
+    --surface-elevated: #f1f5f9;
+  }
+
+  .dark {
     --background: #000000;
     --foreground: #EDEDED;
     --muted: #707070;
@@ -29,6 +40,7 @@
     user-select: none;
     -webkit-user-select: none;
     overscroll-behavior: none;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   /* Allow text selection inside inputs, textareas, and code output */
@@ -56,29 +68,42 @@
 
 /* Linear/Vercel-style Micro-Utility Tokens */
 .surface-card {
-  background-color: #0A0A0A;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background-color: var(--surface);
+  border: 1px solid var(--border);
   transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .surface-card:hover {
+  border-color: rgba(0, 0, 0, 0.15);
+  background-color: #f8fafc;
+}
+
+.dark .surface-card:hover {
   border-color: rgba(255, 255, 255, 0.16);
   background-color: #0F0F0F;
 }
 
 .input-clean {
-  background-color: #0A0A0A;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #EDEDED;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--foreground);
   transition: border-color 0.15s ease;
 }
 
 .input-clean:focus {
   outline: none;
+  border-color: rgba(0, 0, 0, 0.25);
+}
+
+.dark .input-clean:focus {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
 .input-clean::placeholder {
+  color: #94A3B8;
+}
+
+.dark .input-clean::placeholder {
   color: #52525B;
 }
 
@@ -110,12 +135,22 @@
 
 .desktop-scroll::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.12);
   border-radius: 9999px;
+}
+
+.dark .desktop-scroll::-webkit-scrollbar-thumb,
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .desktop-scroll::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.dark .desktop-scroll::-webkit-scrollbar-thumb:hover,
+.dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 

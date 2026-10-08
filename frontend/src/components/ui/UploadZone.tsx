@@ -60,10 +60,10 @@ export function UploadZone({
       onDrop={handleDrop}
       className={`relative flex flex-col items-center justify-center rounded-lg border border-dashed p-5 text-center transition-all cursor-pointer ${
         isDragging
-          ? 'border-white/40 bg-zinc-900/60'
+          ? 'border-indigo-500 bg-indigo-50/50 dark:border-white/40 dark:bg-zinc-900/60'
           : selectedFile
-          ? 'border-zinc-700 bg-zinc-900/30'
-          : 'border-white/[0.1] bg-zinc-950/40 hover:border-white/[0.2] hover:bg-zinc-900/20'
+          ? 'border-emerald-500/50 bg-emerald-500/5 dark:border-zinc-700 dark:bg-zinc-900/30'
+          : 'border-slate-300 bg-slate-50/50 hover:border-slate-400 hover:bg-slate-100/50 dark:border-white/[0.1] dark:bg-zinc-950/40 dark:hover:border-white/[0.2] dark:hover:bg-zinc-900/20'
       }`}
     >
       <input
@@ -77,14 +77,14 @@ export function UploadZone({
       {selectedFile ? (
         <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-zinc-800 text-zinc-300">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
               <Check className="h-3.5 w-3.5" />
             </div>
             <div className="text-left overflow-hidden">
-              <p className="truncate text-xs font-medium text-zinc-200">
+              <p className="truncate text-xs font-medium text-slate-900 dark:text-zinc-200">
                 {selectedFile.name}
               </p>
-              <p className="font-mono text-[10px] text-zinc-500">
+              <p className="font-mono text-[10px] text-slate-500 dark:text-zinc-500">
                 {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
               </p>
             </div>
@@ -92,17 +92,17 @@ export function UploadZone({
           <button
             type="button"
             onClick={removeFile}
-            className="flex h-6 w-6 items-center justify-center rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+            className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-slate-800 hover:bg-slate-200 dark:text-zinc-500 dark:hover:text-zinc-200 dark:hover:bg-zinc-800 transition-colors"
           >
             <X className="h-3 w-3" />
           </button>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-1.5 py-1">
-          <Upload className="h-4 w-4 text-zinc-500 mb-0.5" />
-          <p className="text-xs font-medium text-zinc-300">{label}</p>
-          <p className="text-[11px] text-zinc-500">{sublabel}</p>
-          <span className="font-mono text-[10px] text-zinc-600 mt-1">
+          <Upload className="h-4 w-4 text-slate-400 dark:text-zinc-500 mb-0.5" />
+          <p className="text-xs font-medium text-slate-800 dark:text-zinc-300">{label}</p>
+          <p className="text-[11px] text-slate-500 dark:text-zinc-500">{sublabel}</p>
+          <span className="font-mono text-[10px] text-slate-400 dark:text-zinc-600 mt-1">
             Máx. {maxSizeMb} MB
           </span>
         </div>

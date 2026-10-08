@@ -1,7 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { UGC_MODELS_CATALOG } from '@/config/ugc-models.config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+export interface VideoModelPricing {
+  id: string;
+  name: string;
+  costPerSecondUSD: number;
+  provider: 'openrouter' | 'apimart';
+  isLiveRate: boolean;
+  pricingRaw?: Record<string, string | number>;
+}
+
+interface OpenRouterRawModel {
+  id: string;
+  name?: string;
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+    image?: string;
+    request?: string;
+  };
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,49 +52,66 @@ export async function GET(req: NextRequest) {
     }
 
     const data = await res.json();
-    const rawModels: any[] = data.data || [];
+    const rawModels: OpenRouterRawModel[] = data.data || [];
 
-    // Mapear precios por modelo
-    // OpenRouter devuelve pricing en pricing: { prompt, completion, image, request }
-    const modelPrices: Record<
-      string,
-      {
-        id: string;
-        name: string;
-        costPerSecondUSD: number;
-        pricingRaw: any;
-      }
-    > = {};
+    // Mapeo inicial con los modelos oficiales del catálogo UGC
+    const modelPrices: Record<string, VideoModelPricing> = {};
 
-    for (const m of rawModels) {
-      if (!m || !m.id) continue;
-      const pricing = m.pricing || {};
-
-      // Si tiene costo por request o imagen o completion
-      // Para modelos de video, OpenRouter puede indicar pricing.request o tarifación por unidad
-      let derivedCostPerSecond = 0;
-
-      if (pricing.request && parseFloat(pricing.request) > 0) {
-        // Si el precio por request equivale a un clip típico de 5s, o si viene por segundo
-        const reqPrice = parseFloat(pricing.request);
-        derivedCostPerSecond = reqPrice >= 0.01 && reqPrice <= 0.2 ? reqPrice : Number((reqPrice / 5).toFixed(5));
-      } else if (pricing.image && parseFloat(pricing.image) > 0) {
-        derivedCostPerSecond = parseFloat(pricing.image);
-      } else if (pricing.prompt && parseFloat(pricing.prompt) > 0) {
-        derivedCostPerSecond = parseFloat(pricing.prompt) * 1000;
-      }
-
-      modelPrices[m.id] = {
-        id: m.id,
-        name: m.name || m.id,
-        costPerSecondUSD: derivedCostPerSecond,
-        pricingRaw: pricing,
+    for (const catalogModel of UGC_MODELS_CATALOG) {
+      modelPrices[catalogModel.id] = {
+        id: catalogModel.id,
+        name: catalogModel.name,
+        costPerSecondUSD: catalogModel.costPerSecondUSD,
+        provider: catalogModel.provider,
+        isLiveRate: false,
       };
+    }
+
+    // Indexar modelos recibidos de OpenRouter por ID
+    const openRouterModelMap = new Map<string, OpenRouterRawModel>();
+    for (const rawModel of rawModels) {
+      if (rawModel?.id) {
+        openRouterModelMap.set(rawModel.id.toLowerCase(), rawModel);
+      }
+    }
+
+    // Actualizar tarifas en vivo para los modelos que dispongan de cotización explícita en la API
+    for (const catalogModel of UGC_MODELS_CATALOG) {
+      if (catalogModel.provider !== 'openrouter') continue;
+
+      const liveModel = openRouterModelMap.get(catalogModel.id.toLowerCase());
+      if (liveModel?.pricing) {
+        const pricing = liveModel.pricing;
+        let liveCostPerSecond = 0;
+
+        if (pricing.request && parseFloat(pricing.request) > 0) {
+          const reqPrice = parseFloat(pricing.request);
+          // Si el precio por request equivale a un clip típico de 5s o viene tarifado por segundo
+          liveCostPerSecond = reqPrice >= 0.01 && reqPrice <= 0.2
+            ? reqPrice
+            : Number((reqPrice / 5).toFixed(5));
+        } else if (pricing.image && parseFloat(pricing.image) > 0) {
+          liveCostPerSecond = parseFloat(pricing.image);
+        }
+
+        if (liveCostPerSecond > 0) {
+          modelPrices[catalogModel.id] = {
+            id: catalogModel.id,
+            name: catalogModel.name,
+            costPerSecondUSD: liveCostPerSecond,
+            provider: 'openrouter',
+            isLiveRate: true,
+            pricingRaw: pricing,
+          };
+        }
+      }
     }
 
     return NextResponse.json({
       success: true,
-      totalModels: rawModels.length,
+      syncedAt: Date.now(),
+      totalCatalogModels: UGC_MODELS_CATALOG.length,
+      totalOpenRouterModels: rawModels.length,
       modelPrices,
     });
   } catch (error: any) {

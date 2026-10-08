@@ -16,8 +16,8 @@ interface PricingState {
 
 // Inicializar con tarifas predeterminadas de ugc-models.config.ts
 const initialRates: Record<string, number> = {};
-for (const m of UGC_MODELS_CATALOG) {
-  initialRates[m.id] = m.costPerSecondUSD;
+for (const catalogModel of UGC_MODELS_CATALOG) {
+  initialRates[catalogModel.id] = catalogModel.costPerSecondUSD;
 }
 
 export const usePricingStore = create<PricingState>((set, get) => ({
@@ -53,7 +53,7 @@ export const usePricingStore = create<PricingState>((set, get) => ({
     const rate = get().liveRates[modelId];
     if (rate !== undefined && rate > 0) return rate;
 
-    const catalogModel = UGC_MODELS_CATALOG.find((m) => m.id === modelId);
+    const catalogModel = UGC_MODELS_CATALOG.find((item) => item.id === modelId);
     if (catalogModel && catalogModel.costPerSecondUSD > 0) return catalogModel.costPerSecondUSD;
 
     return fallbackDefault || 0.05; // Fallback general de 5 centavos por segundo

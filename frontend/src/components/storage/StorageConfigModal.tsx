@@ -87,19 +87,19 @@ export function StorageConfigModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-lg rounded-2xl border border-white/[0.12] bg-[#0A0A0A] p-6 shadow-2xl space-y-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 dark:bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-white/[0.12] bg-white dark:bg-[#0A0A0A] p-6 shadow-2xl space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-white/[0.08] pb-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-300">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300">
               <HardDrive className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-zinc-100">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
                 Carpeta Principal de Proyectos en Disco
               </h2>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-slate-500 dark:text-zinc-500">
                 Elige en qué disco duro (D:, C:, E:, etc.) guardar todos tus videos y assets.
               </p>
             </div>
@@ -107,7 +107,7 @@ export function StorageConfigModal({
           <button
             type="button"
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -116,7 +116,7 @@ export function StorageConfigModal({
         {/* Input & Form */}
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-mono text-zinc-400 mb-1.5">
+            <label className="block text-xs font-mono text-slate-600 dark:text-zinc-400 mb-1.5">
               Ruta en tu Computador (Windows / Mac):
             </label>
             <div className="flex items-center gap-2">
@@ -126,14 +126,14 @@ export function StorageConfigModal({
                   value={basePath}
                   onChange={(e) => setBasePath(e.target.value)}
                   placeholder="D:\LuloStudio_Projects"
-                  className="w-full rounded-lg border border-white/[0.1] bg-black px-3 py-2 font-mono text-xs text-zinc-200 focus:outline-none focus:border-white/30"
+                  className="w-full rounded-lg border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-black px-3 py-2 font-mono text-xs text-slate-900 dark:text-zinc-200 focus:outline-none focus:border-indigo-500 dark:focus:border-white/30"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleOpenInExplorer}
                 title="Abrir esta carpeta en el Explorador de Windows"
-                className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-2 text-xs font-mono text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900 px-3 py-2 text-xs font-mono text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white transition-colors"
               >
                 <FolderOpen className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Explorador</span>
@@ -143,7 +143,7 @@ export function StorageConfigModal({
 
           {/* Quick Drive Presets */}
           <div>
-            <span className="text-[11px] text-zinc-500 font-mono block mb-1.5">
+            <span className="text-[11px] text-slate-500 dark:text-zinc-500 font-mono block mb-1.5">
               Accesos rápidos sugeridos:
             </span>
             <div className="flex flex-wrap gap-2">
@@ -158,8 +158,8 @@ export function StorageConfigModal({
                     }}
                     className={`rounded border px-2.5 py-1 font-mono text-[10px] transition-colors ${
                       basePath === preset
-                        ? 'border-white/30 bg-zinc-800 text-white'
-                        : 'border-white/[0.06] bg-zinc-950 text-zinc-400 hover:border-white/20 hover:text-zinc-200'
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-white/30 dark:bg-zinc-800 dark:text-white'
+                        : 'border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-zinc-950 text-slate-600 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-white/20 hover:text-slate-900 dark:hover:text-zinc-200'
                     }`}
                   >
                     {preset}
@@ -170,12 +170,12 @@ export function StorageConfigModal({
           </div>
 
           {/* Structure Explanation */}
-          <div className="rounded-lg border border-white/[0.06] bg-zinc-950/60 p-3 text-[11px] font-mono text-zinc-400 space-y-1.5">
-            <div className="text-zinc-300 font-medium flex items-center gap-1.5">
-              <Folder className="h-3.5 w-3.5 text-indigo-400" />
+          <div className="rounded-lg border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-zinc-950/60 p-3 text-[11px] font-mono text-slate-600 dark:text-zinc-400 space-y-1.5">
+            <div className="text-slate-800 dark:text-zinc-300 font-medium flex items-center gap-1.5">
+              <Folder className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
               <span>Estructura que se creará automáticamente en tu disco:</span>
             </div>
-            <div className="pl-5 text-[10px] text-zinc-500 leading-relaxed">
+            <div className="pl-5 text-[10px] text-slate-500 dark:text-zinc-500 leading-relaxed">
               <div>📁 {basePath || 'D:\\LuloStudio_Projects'}</div>
               <div className="pl-4">├── 📁 HeyGen/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ Proyectos de Avatar Studio</div>
               <div className="pl-4">├── 📁 UGC/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ Anuncios y guiones virales</div>
@@ -185,14 +185,14 @@ export function StorageConfigModal({
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 text-xs text-rose-400 font-mono">
+            <div className="flex items-center gap-2 text-xs text-rose-500 dark:text-rose-400 font-mono">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {savedSuccess && (
-            <div className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
+            <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 font-mono">
               <Check className="h-3.5 w-3.5 stroke-[2.5]" />
               <span>✓ Carpeta principal actualizada y verificada en tu disco.</span>
             </div>
@@ -200,11 +200,11 @@ export function StorageConfigModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2.5 border-t border-white/[0.08] pt-4">
+        <div className="flex items-center justify-end gap-2.5 border-t border-slate-200 dark:border-white/[0.08] pt-4">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-xs text-zinc-400 hover:text-white transition-colors"
+            className="rounded-lg px-4 py-2 text-xs text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-white transition-colors"
           >
             Cancelar
           </button>
@@ -212,7 +212,7 @@ export function StorageConfigModal({
             type="button"
             disabled={loading || !basePath.trim()}
             onClick={() => handleSave()}
-            className="rounded-lg bg-white px-5 py-2 text-xs font-semibold text-black hover:bg-zinc-200 disabled:opacity-40 transition-colors"
+            className="rounded-lg bg-slate-900 px-5 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 disabled:opacity-40 transition-colors shadow-sm"
           >
             {loading ? 'Guardando...' : 'Aplicar Directorio'}
           </button>

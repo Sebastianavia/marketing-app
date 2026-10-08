@@ -79,10 +79,10 @@ export function TextToVideoView() {
           <div className="space-y-4">
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-zinc-500">
                   Prompt / Guion Visual de Marketing
                 </label>
-                <span className="font-mono text-[10px] text-zinc-600">{prompt.length} chars</span>
+                <span className="font-mono text-[10px] text-slate-400 dark:text-zinc-600">{prompt.length} chars</span>
               </div>
               <textarea
                 rows={4}
@@ -94,7 +94,7 @@ export function TextToVideoView() {
             </div>
 
             <div>
-              <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 block mb-1.5">
+              <label className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-zinc-500 block mb-1.5">
                 Estilo Audiovisual
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -109,8 +109,8 @@ export function TextToVideoView() {
                     onClick={() => setStylePreset(s.id)}
                     className={`py-2 rounded-lg border text-xs font-mono transition-colors ${
                       stylePreset === s.id
-                        ? 'border-white/30 bg-zinc-900 text-white'
-                        : 'border-white/[0.06] text-zinc-500 hover:text-zinc-300'
+                        ? 'border-slate-900 bg-slate-900 text-white dark:border-white/30 dark:bg-zinc-900 dark:text-white shadow-xs'
+                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:border-white/[0.06] dark:bg-transparent dark:text-zinc-500 dark:hover:text-zinc-300'
                     }`}
                   >
                     {s.label}
@@ -121,11 +121,11 @@ export function TextToVideoView() {
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                  <Sliders className="h-3 w-3 text-zinc-400" />
+                <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 dark:text-zinc-500 flex items-center gap-1.5">
+                  <Sliders className="h-3 w-3 text-slate-400 dark:text-zinc-400" />
                   Duración de la Toma
                 </span>
-                <span className="font-mono text-zinc-300 text-xs">{durationSec}s</span>
+                <span className="font-mono text-slate-800 dark:text-zinc-300 text-xs">{durationSec}s</span>
               </div>
               <input
                 type="range"
@@ -134,7 +134,7 @@ export function TextToVideoView() {
                 step="5"
                 value={durationSec}
                 onChange={(e) => setDurationSec(Number(e.target.value))}
-                className="w-full accent-white bg-zinc-800 rounded-lg cursor-pointer h-1.5"
+                className="w-full accent-slate-900 dark:accent-white bg-slate-200 dark:bg-zinc-800 rounded-lg cursor-pointer h-1.5"
               />
             </div>
 
@@ -143,7 +143,7 @@ export function TextToVideoView() {
                 type="button"
                 disabled={isGenerating || !prompt.trim()}
                 onClick={handleGenerate}
-                className="w-full flex items-center justify-center gap-2 rounded-md bg-white py-2.5 text-xs font-medium text-black hover:bg-zinc-200 disabled:opacity-40 transition-colors"
+                className="w-full flex items-center justify-center gap-2 rounded-md bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-black dark:hover:bg-zinc-200 py-2.5 text-xs font-medium disabled:opacity-40 transition-colors shadow-2xs cursor-pointer"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>{isGenerating ? 'Sintetizando Video...' : 'Transformar Guion a Video HD'}</span>

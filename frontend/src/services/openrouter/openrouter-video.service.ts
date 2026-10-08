@@ -22,6 +22,19 @@ export class OpenRouterVideoService {
   }
 
   /**
+   * Módulo Profundo (Deep Module): Despacha y sondea la generación del video
+   * de principio a fin en una sola llamada de alta palanca, encapsulando
+   * validación, despacho y polling con control de progreso.
+   */
+  async renderVideo(
+    params: OpenRouterVideoGenerationParams,
+    config: PollingConfig = {}
+  ): Promise<OpenRouterVideoTask> {
+    const task = await this.createVideoTask(params);
+    return this.pollVideoUntilCompletion(task.taskId, config);
+  }
+
+  /**
    * Despacha la orden de generación de video con Lip-Sync a OpenRouter
    * utilizando el modelo heygen/avatar-iv.
    */

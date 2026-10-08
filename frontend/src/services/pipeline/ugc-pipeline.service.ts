@@ -92,44 +92,41 @@ export class UgcPipelineMasterOrchestrator {
       // =======================================================================
       // PASO 3: DESPACHO A OPENROUTER / HEYGEN (heygen/avatar-iv)
       // =======================================================================
+      // =======================================================================
+      // PASO 3 & 4: DESPACHO Y RENDERIZADO DE VIDEO LIP-SYNC
+      // =======================================================================
       currentPhase = 'video_dispatch';
       notify('video_dispatch', 'Despachando renderizado a HeyGen (OpenRouter avatar-iv)...', 50, {
         audioUrl: uploadResult.publicUrl,
       });
 
-      const videoTask = await this.openRouterService.createVideoTask({
-        model: 'heygen/avatar-iv',
-        imageUrl: input.avatarImageUrl,
-        audioUrl: uploadResult.publicUrl,
-        aspectRatio: input.aspectRatio || '9:16',
-      });
-
       currentPhase = 'video_polling';
-      notify('video_polling', 'Renderizando fotorrealismo y lip-sync (esto puede tomar unos minutos)...', 55, {
-        taskId: videoTask.taskId,
-        audioUrl: uploadResult.publicUrl,
-      });
-
-      // =======================================================================
-      // PASO 4: CICLO DE POLLING NO-BLOQUEANTE
-      // =======================================================================
-      const completedTask = await this.openRouterService.pollVideoUntilCompletion(videoTask.taskId, {
-        intervalMs: 3500,
-        timeoutMs: 360000, // 6 minutos
-        onProgress: (task, elapsed) => {
-          // Escalar porcentaje visual entre 55% y 98% durante el renderizado
-          const scaledPercent = Math.min(98, 55 + Math.round((task.progressPercent || 0) * 0.43));
-          notify(
-            'video_polling',
-            `Renderizando fotorrealismo en HeyGen (${task.progressPercent || Math.round((elapsed / 60) * 100)}%)...`,
-            scaledPercent,
-            {
-              taskId: task.taskId,
-              audioUrl: uploadResult.publicUrl,
-            }
-          );
+      const completedTask = await this.openRouterService.renderVideo(
+        {
+          model: 'heygen/avatar-iv',
+          imageUrl: input.avatarImageUrl,
+          audioUrl: uploadResult.publicUrl,
+          aspectRatio: input.aspectRatio || '9:16',
         },
-      });
+        {
+          intervalMs: 3500,
+          timeoutMs: 360000, // 6 minutos
+          onProgress: (task, elapsed) => {
+            currentPhase = 'video_polling';
+            // Escalar porcentaje visual entre 55% y 98% durante el renderizado
+            const scaledPercent = Math.min(98, 55 + Math.round((task.progressPercent || 0) * 0.43));
+            notify(
+              'video_polling',
+              `Renderizando fotorrealismo en HeyGen (${task.progressPercent || Math.round((elapsed / 60) * 100)}%)...`,
+              scaledPercent,
+              {
+                taskId: task.taskId,
+                audioUrl: uploadResult.publicUrl,
+              }
+            );
+          },
+        }
+      );
 
       if (!completedTask.videoUrl) {
         throw new PipelineError(

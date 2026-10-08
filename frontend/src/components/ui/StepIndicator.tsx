@@ -21,7 +21,7 @@ export function StepIndicator({
   onStepClick,
 }: StepIndicatorProps) {
   return (
-    <div className="w-full pb-5 border-b border-white/[0.06]">
+    <div className="w-full pb-5 border-b border-slate-200 dark:border-white/[0.06]">
       <div className="flex items-center justify-between">
         {steps.map((step, idx) => {
           const isCompleted = step.id < currentStep;
@@ -36,10 +36,10 @@ export function StepIndicator({
                 <div
                   className={`flex h-5 w-5 items-center justify-center rounded text-[11px] font-mono transition-colors ${
                     isCompleted
-                      ? 'bg-zinc-800 text-zinc-300'
+                      ? 'bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300'
                       : isActive
-                      ? 'bg-white text-black font-semibold'
-                      : 'border border-white/[0.1] text-zinc-600 group-hover:border-white/20'
+                      ? 'bg-slate-900 text-white font-semibold dark:bg-white dark:text-black'
+                      : 'border border-slate-300 dark:border-white/[0.1] text-slate-400 dark:text-zinc-600 group-hover:border-slate-400 dark:group-hover:border-white/20'
                   }`}
                 >
                   {isCompleted ? <Check className="h-3 w-3 stroke-[2.5]" /> : step.id}
@@ -47,10 +47,10 @@ export function StepIndicator({
                 <span
                   className={`text-xs tracking-tight transition-colors ${
                     isActive
-                      ? 'text-zinc-100 font-medium'
+                      ? 'text-slate-900 dark:text-zinc-100 font-semibold'
                       : isCompleted
-                      ? 'text-zinc-400'
-                      : 'text-zinc-600 group-hover:text-zinc-400'
+                      ? 'text-slate-600 dark:text-zinc-400'
+                      : 'text-slate-400 dark:text-zinc-600 group-hover:text-slate-600 dark:group-hover:text-zinc-400'
                   }`}
                 >
                   {step.label}
@@ -60,7 +60,9 @@ export function StepIndicator({
               {idx < steps.length - 1 && (
                 <div
                   className={`flex-1 mx-3 h-[1px] ${
-                    step.id < currentStep ? 'bg-zinc-700' : 'bg-white/[0.06]'
+                    step.id < currentStep
+                      ? 'bg-slate-400 dark:bg-zinc-700'
+                      : 'bg-slate-200 dark:bg-white/[0.06]'
                   }`}
                 />
               )}

@@ -139,23 +139,23 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
       case 'Genjutsu':
         return 'border-amber-500/30 text-amber-400 bg-amber-500/10';
       default:
-        return 'border-white/10 text-zinc-400 bg-zinc-900';
+        return 'border-slate-300 dark:border-white/10 text-slate-700 dark:text-zinc-400 bg-slate-100 dark:bg-zinc-900';
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-150">
       {/* 1. Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-white/[0.06] pb-6">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-200/80 dark:border-white/[0.06] pb-6">
         <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded border border-white/[0.08] bg-zinc-950 px-2 py-0.5 font-mono text-[10px] text-zinc-400">
-            <HardDrive className="h-3 w-3 text-zinc-500" />
+          <div className="inline-flex items-center gap-2 rounded border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-2 py-0.5 font-mono text-[10px] text-slate-600 dark:text-zinc-400 shadow-2xs">
+            <HardDrive className="h-3 w-3 text-slate-400 dark:text-zinc-500" />
             <span>ALMACENAMIENTO LOCAL EN DISCO</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-100">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 dark:text-zinc-100">
             Biblioteca de Proyectos
           </h1>
-          <p className="text-xs text-zinc-400 font-normal">
+          <p className="text-xs text-slate-600 dark:text-zinc-400 font-normal">
             Todos tus videos, configuraciones y guiones organizados automáticamente por carpetas en tu PC.
           </p>
         </div>
@@ -164,18 +164,18 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
         <div className="flex flex-wrap items-center gap-2">
           <div
             onClick={() => setIsConfigModalOpen(true)}
-            className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-zinc-950 px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:border-white/20 cursor-pointer transition-colors"
+            className="flex items-center gap-2 rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-3 py-1.5 font-mono text-[11px] text-slate-700 dark:text-zinc-300 hover:border-slate-300 dark:hover:border-white/20 cursor-pointer transition-colors shadow-2xs"
             title="Haz clic para cambiar la carpeta del disco"
           >
-            <FolderOpen className="h-3.5 w-3.5 text-zinc-500" />
+            <FolderOpen className="h-3.5 w-3.5 text-slate-400 dark:text-zinc-500" />
             <span className="truncate max-w-[200px] sm:max-w-[280px]">{basePath}</span>
-            <Settings className="h-3 w-3 text-zinc-600 hover:text-zinc-300" />
+            <Settings className="h-3 w-3 text-slate-400 hover:text-slate-800 dark:text-zinc-600 dark:hover:text-zinc-300" />
           </div>
 
           <button
             type="button"
             onClick={() => handleOpenFolder()}
-            className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-mono text-zinc-200 hover:bg-zinc-800 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white transition-colors shadow-2xs"
             title="Abrir carpeta raíz en el Explorador de Windows"
           >
             <FolderOpen className="h-3.5 w-3.5" />
@@ -185,7 +185,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
           <button
             type="button"
             onClick={fetchProjects}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-white transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shadow-2xs"
             title="Actualizar lista de proyectos"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -210,12 +210,16 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                 onClick={() => setSelectedCategory(cat.id)}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-xs transition-colors shrink-0 ${
                   selectedCategory === cat.id
-                    ? 'bg-zinc-800 text-white font-medium border border-white/20'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent'
+                    ? 'bg-slate-900 text-white font-medium border border-slate-900 dark:bg-zinc-800 dark:text-white dark:border-white/20 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-zinc-900 border border-transparent'
                 }`}
               >
                 <span>{cat.label}</span>
-                <span className="rounded-full bg-zinc-900 px-1.5 py-0.2 text-[10px] text-zinc-500">
+                <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${
+                  selectedCategory === cat.id
+                    ? 'bg-slate-800 text-slate-300 dark:bg-zinc-900 dark:text-zinc-400'
+                    : 'bg-slate-200 text-slate-600 dark:bg-zinc-900 dark:text-zinc-500'
+                }`}>
                   {count}
                 </span>
               </button>
@@ -225,13 +229,13 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
 
         {/* Search Input */}
         <div className="relative min-w-[220px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-zinc-500" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar por nombre o guion..."
-            className="w-full rounded-lg border border-white/[0.08] bg-black pl-8 pr-3 py-1.5 font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-white/25"
+            className="w-full rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-black pl-8 pr-3 py-1.5 font-mono text-xs text-slate-900 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-600 focus:outline-none focus:border-slate-400 dark:focus:border-white/25 shadow-2xs transition-colors"
           />
         </div>
       </div>
@@ -242,7 +246,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
           {filteredProjects.map((p) => (
             <div
               key={p.id || p.path}
-              className="surface-card group rounded-xl p-4 flex flex-col justify-between space-y-4 hover:border-white/20 transition-all"
+              className="surface-card group rounded-xl p-4 flex flex-col justify-between space-y-4 hover:border-slate-300 dark:hover:border-white/20 transition-all shadow-xs"
             >
               {/* Card Header */}
               <div className="space-y-2">
@@ -255,17 +259,17 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                     {p.category}
                   </span>
 
-                  <div className="flex items-center gap-1 text-[10px] font-mono text-zinc-500">
+                  <div className="flex items-center gap-1 text-[10px] font-mono text-slate-500 dark:text-zinc-500">
                     <Calendar className="h-3 w-3" />
                     <span>{new Date(p.updatedAt).toLocaleDateString()}</span>
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="text-sm font-semibold text-zinc-100 group-hover:text-white transition-colors truncate">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 group-hover:text-indigo-600 dark:group-hover:text-white transition-colors truncate">
                     {p.title || p.name}
                   </h3>
-                  <div className="font-mono text-[10px] text-zinc-500 truncate mt-0.5">
+                  <div className="font-mono text-[10px] text-slate-500 dark:text-zinc-500 truncate mt-0.5">
                     📁 /{p.category}/{p.name}
                   </div>
                 </div>
@@ -273,7 +277,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
 
               {/* Video Player or Content Preview */}
               {p.videoUrl ? (
-                <div className="relative aspect-video w-full rounded-lg bg-black overflow-hidden border border-white/[0.06]">
+                <div className="relative aspect-video w-full rounded-lg bg-black overflow-hidden border border-slate-200/80 dark:border-white/[0.06]">
                   <video
                     src={p.videoUrl}
                     controls
@@ -281,51 +285,51 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                   />
                 </div>
               ) : p.script ? (
-                <div className="rounded-lg border border-white/[0.04] bg-black/60 p-2.5">
-                  <div className="text-[10px] font-mono text-zinc-500 mb-1 flex items-center gap-1">
+                <div className="rounded-lg border border-slate-200/80 dark:border-white/[0.04] bg-slate-50 dark:bg-black/60 p-2.5">
+                  <div className="text-[10px] font-mono text-slate-500 dark:text-zinc-500 mb-1 flex items-center gap-1">
                     <FileText className="h-3 w-3" />
                     <span>Guion guardado:</span>
                   </div>
-                  <p className="text-xs text-zinc-300 font-sans line-clamp-3 leading-relaxed">
+                  <p className="text-xs text-slate-700 dark:text-zinc-300 font-sans line-clamp-3 leading-relaxed">
                     {p.script}
                   </p>
                 </div>
               ) : p.prompt ? (
-                <div className="rounded-lg border border-white/[0.04] bg-black/60 p-2.5">
-                  <div className="text-[10px] font-mono text-zinc-500 mb-1 flex items-center gap-1">
+                <div className="rounded-lg border border-slate-200/80 dark:border-white/[0.04] bg-slate-50 dark:bg-black/60 p-2.5">
+                  <div className="text-[10px] font-mono text-slate-500 dark:text-zinc-500 mb-1 flex items-center gap-1">
                     <Sparkles className="h-3 w-3" />
                     <span>Prompt cinemático:</span>
                   </div>
-                  <p className="text-xs text-zinc-300 font-mono line-clamp-3 text-[11px]">
+                  <p className="text-xs text-slate-700 dark:text-zinc-300 font-mono line-clamp-3 text-[11px]">
                     {p.prompt}
                   </p>
                 </div>
               ) : (
-                <div className="rounded-lg border border-dashed border-white/[0.06] p-4 text-center text-[11px] font-mono text-zinc-600">
+                <div className="rounded-lg border border-dashed border-slate-200 dark:border-white/[0.06] p-4 text-center text-[11px] font-mono text-slate-500 dark:text-zinc-600">
                   Carpeta de proyecto creada en disco
                 </div>
               )}
 
               {/* Metadata Pills */}
-              <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono text-zinc-400">
+              <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-mono text-slate-600 dark:text-zinc-400">
                 {p.avatarName && (
-                  <span className="rounded bg-zinc-900 border border-white/[0.06] px-1.5 py-0.5">
+                  <span className="rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.06] px-1.5 py-0.5">
                     Avatar: {p.avatarName}
                   </span>
                 )}
                 {p.ratio && (
-                  <span className="rounded bg-zinc-900 border border-white/[0.06] px-1.5 py-0.5">
+                  <span className="rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.06] px-1.5 py-0.5">
                     {p.ratio}
                   </span>
                 )}
               </div>
 
               {/* Card Footer Actions */}
-              <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-xs font-mono">
+              <div className="flex items-center justify-between border-t border-slate-200/80 dark:border-white/[0.06] pt-3 text-xs font-mono">
                 <button
                   type="button"
                   onClick={() => handleOpenFolder(p.path)}
-                  className="flex items-center gap-1 text-zinc-400 hover:text-white transition-colors"
+                  className="flex items-center gap-1 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
                   title="Abrir carpeta exacta en Explorador de Windows"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
@@ -337,7 +341,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                     type="button"
                     onClick={() => handleDelete(p.category, p.name)}
                     disabled={deletingName === p.name}
-                    className="text-zinc-600 hover:text-rose-400 transition-colors p-1"
+                    className="text-slate-400 hover:text-rose-500 dark:text-zinc-600 dark:hover:text-rose-400 transition-colors p-1 cursor-pointer"
                     title="Eliminar de disco"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -346,7 +350,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                   <button
                     type="button"
                     onClick={() => handleLoadInTool(p)}
-                    className="flex items-center gap-1 rounded bg-white text-black px-2.5 py-1 font-semibold text-[11px] hover:bg-zinc-200 transition-colors"
+                    className="flex items-center gap-1 rounded bg-slate-900 text-white dark:bg-white dark:text-black px-2.5 py-1 font-semibold text-[11px] hover:bg-slate-800 dark:hover:bg-zinc-200 transition-colors shadow-2xs cursor-pointer"
                   >
                     <span>Cargar</span>
                     <ArrowRight className="h-3 w-3" />
@@ -358,15 +362,15 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
         </div>
       ) : (
         /* Empty State */
-        <div className="rounded-2xl border border-dashed border-white/[0.1] bg-zinc-950/40 p-12 text-center space-y-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-900 mx-auto text-zinc-400">
+        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.1] bg-white/70 dark:bg-zinc-950/40 p-12 text-center space-y-4 shadow-xs">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 dark:bg-zinc-900 mx-auto text-slate-600 dark:text-zinc-400">
             <FolderKanban className="h-6 w-6" />
           </div>
           <div className="max-w-md mx-auto space-y-1.5">
-            <h3 className="text-sm font-semibold text-zinc-200">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-200">
               No hay proyectos en {selectedCategory === 'ALL' ? 'este disco' : selectedCategory}
             </h3>
-            <p className="text-xs text-zinc-500 leading-relaxed font-sans">
+            <p className="text-xs text-slate-600 dark:text-zinc-500 leading-relaxed font-sans">
               Cuando creas un video en Avatar Studio o Generador UGC, asígnale un nombre y presiona
               &ldquo;Guardar Proyecto en Disco&rdquo;. Se creará automáticamente su carpeta y configuración en tu disco duro.
             </p>
@@ -376,14 +380,14 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
             <button
               type="button"
               onClick={() => onOpenTool?.('avatar-studio')}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-mono text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              className="rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white transition-colors shadow-2xs"
             >
               Ir a Avatar Studio
             </button>
             <button
               type="button"
               onClick={() => onOpenTool?.('ugc-generator')}
-              className="rounded-lg border border-white/[0.08] bg-zinc-900 px-3 py-1.5 text-xs font-mono text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors"
+              className="rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white transition-colors shadow-2xs"
             >
               Ir a Generador UGC
             </button>

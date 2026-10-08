@@ -49,23 +49,23 @@ export function VideoPlayer({
   };
 
   return (
-    <div className="relative flex flex-col items-center justify-between h-full w-full rounded-xl border border-white/[0.08] bg-[#070707] p-5 overflow-hidden">
+    <div className="relative flex flex-col items-center justify-between h-full w-full rounded-xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-[#070707] p-5 overflow-hidden shadow-xs transition-colors duration-200">
       {/* Top Bar: Title & Aspect Switcher */}
-      <div className="flex w-full items-center justify-between pb-3 border-b border-white/[0.06]">
+      <div className="flex w-full items-center justify-between pb-3 border-b border-slate-200/80 dark:border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <span className={`h-1.5 w-1.5 rounded-full ${videoUrl ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-          <span className="text-xs font-medium text-zinc-300 tracking-tight">{title}</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${videoUrl ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-zinc-600'}`} />
+          <span className="text-xs font-medium text-slate-800 dark:text-zinc-300 tracking-tight">{title}</span>
         </div>
 
         {/* Aspect Ratio Segmented Control */}
-        <div className="flex items-center gap-0.5 rounded-md border border-white/[0.08] bg-zinc-950 p-0.5">
+        <div className="flex items-center gap-0.5 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-950 p-0.5">
           <button
             type="button"
             onClick={() => setCurrentAspect('9:16')}
             className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] transition-colors ${
               currentAspect === '9:16'
-                ? 'bg-zinc-800 text-zinc-100 font-semibold'
-                : 'text-zinc-500 hover:text-zinc-300'
+                ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 font-semibold'
+                : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
             }`}
           >
             <Smartphone className="h-2.5 w-2.5" />
@@ -76,8 +76,8 @@ export function VideoPlayer({
             onClick={() => setCurrentAspect('16:9')}
             className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] transition-colors ${
               currentAspect === '16:9'
-                ? 'bg-zinc-800 text-zinc-100 font-semibold'
-                : 'text-zinc-500 hover:text-zinc-300'
+                ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 font-semibold'
+                : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
             }`}
           >
             <Monitor className="h-2.5 w-2.5" />
@@ -89,7 +89,7 @@ export function VideoPlayer({
       {/* Video Viewport */}
       <div className="flex-1 flex items-center justify-center w-full py-4 overflow-hidden">
         <div
-          className={`relative rounded-lg overflow-hidden border border-white/[0.08] bg-black transition-all ${
+          className={`relative rounded-lg overflow-hidden border border-slate-200/80 dark:border-white/[0.08] bg-slate-50 dark:bg-black transition-all ${
             currentAspect === '9:16'
               ? 'w-full max-w-[260px] aspect-[9/16]'
               : 'w-full max-w-[480px] aspect-[16/9]'
@@ -106,11 +106,11 @@ export function VideoPlayer({
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full w-full p-6 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/[0.06] bg-zinc-900/40 text-zinc-600 mb-2.5">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 dark:border-white/[0.06] bg-slate-100 dark:bg-zinc-900/40 text-slate-400 dark:text-zinc-600 mb-2.5">
                 <Play className="h-4 w-4 ml-0.5" />
               </div>
-              <p className="text-xs font-medium text-zinc-400">Sin video generado</p>
-              <p className="text-[11px] text-zinc-600 mt-1 max-w-[180px]">
+              <p className="text-xs font-medium text-slate-700 dark:text-zinc-400">Sin video generado</p>
+              <p className="text-[11px] text-slate-500 dark:text-zinc-600 mt-1 max-w-[180px]">
                 Ajusta los parámetros y presiona Generar Video.
               </p>
             </div>
@@ -124,7 +124,7 @@ export function VideoPlayer({
                 isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
               }`}
             >
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg cursor-pointer">
                 {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
               </div>
             </button>
@@ -133,21 +133,21 @@ export function VideoPlayer({
       </div>
 
       {/* Footer Controls */}
-      <div className="flex w-full items-center justify-between pt-3 border-t border-white/[0.06]">
+      <div className="flex w-full items-center justify-between pt-3 border-t border-slate-200/80 dark:border-white/[0.06]">
         <div className="flex items-center gap-1.5">
           {videoUrl && (
             <>
               <button
                 type="button"
                 onClick={togglePlay}
-                className="flex h-7 w-7 items-center justify-center rounded border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-100 transition-colors"
+                className="flex h-7 w-7 items-center justify-center rounded border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors"
               >
                 {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
               </button>
               <button
                 type="button"
                 onClick={handleRestart}
-                className="flex h-7 w-7 items-center justify-center rounded border border-white/[0.08] bg-zinc-900 text-zinc-400 hover:text-zinc-100 transition-colors"
+                className="flex h-7 w-7 items-center justify-center rounded border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors"
               >
                 <RotateCcw className="h-3 w-3" />
               </button>
@@ -159,7 +159,7 @@ export function VideoPlayer({
           <button
             type="button"
             onClick={handleDownload}
-            className="flex items-center gap-1.5 rounded-md bg-white px-3 py-1 text-xs font-medium text-black hover:bg-zinc-200 transition-colors"
+            className="flex items-center gap-1.5 rounded-md bg-slate-900 text-white dark:bg-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-200 px-3 py-1 text-xs font-medium transition-colors shadow-2xs"
           >
             <Download className="h-3 w-3" />
             Descargar

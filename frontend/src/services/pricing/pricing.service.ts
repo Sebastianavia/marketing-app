@@ -29,7 +29,7 @@ export class PricingService {
       }
 
       const data = await res.json();
-      const liveModelMap = data.modelPrices || {};
+      const liveModelMap: Record<string, { costPerSecondUSD: number; isLiveRate?: boolean }> = data.modelPrices || {};
 
       const updatedRates: Record<string, number> = {};
       const discrepancies: PriceDiscrepancy[] = [];
@@ -39,7 +39,7 @@ export class PricingService {
         updatedRates[model.id] = model.costPerSecondUSD;
 
         const liveInfo = liveModelMap[model.id];
-        if (liveInfo && liveInfo.costPerSecondUSD > 0) {
+        if (liveInfo && liveInfo.costPerSecondUSD > 0 && liveInfo.isLiveRate) {
           const liveRate = liveInfo.costPerSecondUSD;
           const catalogRate = model.costPerSecondUSD;
 

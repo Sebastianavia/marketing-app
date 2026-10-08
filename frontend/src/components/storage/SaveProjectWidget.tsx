@@ -178,23 +178,23 @@ export function SaveProjectWidget({
   };
 
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-[#0A0A0A] p-4 space-y-3.5">
+    <div className="rounded-xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0A0A0A] p-4 space-y-3.5 shadow-sm transition-colors">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <FolderPlus className="h-4 w-4 text-indigo-400" />
-          <span className="text-xs font-semibold text-zinc-200">
+          <FolderPlus className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
+          <span className="text-xs font-semibold text-slate-800 dark:text-zinc-200">
             Guardar Proyecto en Carpeta Local ({category})
           </span>
         </div>
 
-        <span className="font-mono text-[10px] text-zinc-500 uppercase">
+        <span className="font-mono text-[10px] text-slate-400 dark:text-zinc-500 uppercase">
           Auto-Organizado en Disco
         </span>
       </div>
 
       {/* Recibo de Renderizado y Acción de Descarga Directa */}
       {projectData.videoUrl && (
-        <div className="rounded-lg border border-white/[0.08] bg-zinc-950/80 p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
+        <div className="rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-zinc-950/80 p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
           {/* Badge de Recibo Minimalista */}
           <div className="flex items-center gap-2">
             <div
@@ -202,8 +202,8 @@ export function SaveProjectWidget({
                 projectData.finalCostUSD !== undefined &&
                 projectData.estimatedCostUSD !== undefined &&
                 projectData.finalCostUSD > projectData.estimatedCostUSD
-                  ? 'bg-amber-500/10 border-amber-500/25 text-amber-300'
-                  : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                  ? 'bg-amber-500/10 border-amber-500/25 text-amber-600 dark:text-amber-300'
+                  : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600 dark:text-emerald-400'
               }`}
             >
               <Receipt className="h-3.5 w-3.5 shrink-0" />
@@ -218,7 +218,7 @@ export function SaveProjectWidget({
               </span>
             </div>
             {projectData.costPerSecondVerified ? (
-              <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">
+              <span className="text-[10px] text-slate-500 dark:text-zinc-500 font-mono hidden sm:inline">
                 ${projectData.costPerSecondVerified}/s
               </span>
             ) : null}
@@ -228,9 +228,9 @@ export function SaveProjectWidget({
           <a
             href={projectData.videoUrl}
             download={`${projectName.trim() || 'render_final'}.mp4`}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium border border-white/10 shadow transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white text-xs font-medium border border-slate-300 dark:border-white/10 shadow-sm transition-colors"
           >
-            <Download className="h-3.5 w-3.5 text-zinc-300" />
+            <Download className="h-3.5 w-3.5 text-slate-600 dark:text-zinc-300" />
             <span>Descargar MP4</span>
           </a>
         </div>
@@ -244,10 +244,10 @@ export function SaveProjectWidget({
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               placeholder="Ej: Promo-Lanzamiento-v1"
-              className={`w-full rounded-lg border bg-black px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none transition-colors ${
+              className={`w-full rounded-lg border bg-slate-50 dark:bg-black px-3 py-2 font-mono text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 focus:outline-none transition-colors ${
                 nameExists
                   ? 'border-amber-500/50 focus:border-amber-500'
-                  : 'border-white/[0.1] focus:border-white/30'
+                  : 'border-slate-200 dark:border-white/[0.1] focus:border-indigo-500 dark:focus:border-white/30'
               }`}
             />
           </div>
@@ -256,7 +256,7 @@ export function SaveProjectWidget({
             type="button"
             disabled={isSaving || !projectName.trim() || nameExists}
             onClick={() => handleSave(false)}
-            className="flex items-center justify-center gap-1.5 rounded-lg bg-white px-4 py-2 text-xs font-semibold text-black hover:bg-zinc-200 disabled:opacity-30 transition-colors shrink-0"
+            className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 disabled:opacity-30 transition-colors shrink-0 shadow-sm"
           >
             <Save className="h-3.5 w-3.5" />
             <span>{isSaving ? 'Guardando en Disco...' : 'Guardar Proyecto'}</span>
@@ -266,7 +266,7 @@ export function SaveProjectWidget({
         {/* Real-time status / Anti-collision warning */}
         <div className="text-[11px] font-mono">
           {nameExists ? (
-            <div className="flex items-center justify-between text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded">
+            <div className="flex items-center justify-between text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded">
               <div className="flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 <span>Ya existe un proyecto con este nombre en tu disco.</span>
@@ -274,15 +274,15 @@ export function SaveProjectWidget({
               <button
                 type="button"
                 onClick={() => handleSave(true)}
-                className="underline hover:text-amber-300 ml-2 text-[10px]"
+                className="underline hover:text-amber-500 dark:hover:text-amber-300 ml-2 text-[10px]"
               >
                 Sobrescribir
               </button>
             </div>
           ) : projectName.trim() ? (
-            <div className="text-zinc-500 text-[10px]">
+            <div className="text-slate-500 dark:text-zinc-500 text-[10px]">
               Se creará la carpeta:{' '}
-              <span className="text-zinc-300 font-mono">
+              <span className="text-slate-700 dark:text-zinc-300 font-mono">
                 /{category}/{projectName.trim().replace(/\s+/g, '-')}/
               </span>
             </div>

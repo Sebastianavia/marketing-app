@@ -90,7 +90,7 @@ export function DesktopSidebar({
   const isMiaOpen = useMiaStore((s) => s.isOpen);
 
   return (
-    <aside className="no-drag flex h-full w-14 shrink-0 flex-col items-center justify-between border-r border-white/[0.06] bg-[#080808] py-3.5 select-none z-30">
+    <aside className="no-drag flex h-full w-14 shrink-0 flex-col items-center justify-between border-r border-slate-200/80 dark:border-white/[0.06] bg-slate-50/90 dark:bg-[#080808] py-3.5 select-none z-30 transition-colors duration-200">
       {/* Top Section: Navigation Icons */}
       <div className="flex flex-col items-center gap-1.5 w-full">
         {NAV_ITEMS.map((item) => {
@@ -101,7 +101,7 @@ export function DesktopSidebar({
             <div key={item.name} className="relative group w-full flex justify-center">
               {/* Active Indicator Line */}
               {isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-white rounded-r" />
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-slate-900 dark:bg-white rounded-r" />
               )}
 
               <button
@@ -109,8 +109,8 @@ export function DesktopSidebar({
                 onClick={() => onSelectTool(item.id)}
                 className={`relative flex h-10 w-10 items-center justify-center rounded-lg transition-all ${
                   isActive
-                    ? 'bg-zinc-800 text-white shadow-sm'
-                    : 'text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200'
+                    ? 'bg-white text-slate-900 dark:bg-zinc-800 dark:text-white shadow-xs border border-slate-200/80 dark:border-transparent'
+                    : 'text-slate-500 dark:text-zinc-500 hover:bg-slate-200/60 dark:hover:bg-zinc-900 hover:text-slate-900 dark:hover:text-zinc-200'
                 }`}
                 title={`${item.name} (${item.shortKey})`}
               >
@@ -122,9 +122,9 @@ export function DesktopSidebar({
               </button>
 
               {/* Tooltip on Hover */}
-              <div className="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 ml-2 hidden group-hover:flex items-center gap-2 rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1 text-[11px] font-sans text-zinc-200 shadow-xl whitespace-nowrap z-50">
+              <div className="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 ml-2 hidden group-hover:flex items-center gap-2 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-2.5 py-1 text-[11px] font-sans text-slate-800 dark:text-zinc-200 shadow-md whitespace-nowrap z-50">
                 <span>{item.name}</span>
-                <kbd className="font-mono text-[9px] text-zinc-500 bg-zinc-900 border border-white/[0.06] px-1 rounded">
+                <kbd className="font-mono text-[9px] text-slate-500 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.06] px-1 rounded">
                   {item.shortKey}
                 </kbd>
               </div>
@@ -134,20 +134,20 @@ export function DesktopSidebar({
       </div>
 
       {/* Bottom Section: System Status & Copilot Toggle */}
-      <div className="flex flex-col items-center gap-2 w-full pt-3 border-t border-white/[0.04]">
+      <div className="flex flex-col items-center gap-2 w-full pt-3 border-t border-slate-200/80 dark:border-white/[0.04]">
         {/* Local NVMe / Storage Status */}
         <div className="relative group flex justify-center w-full">
           <button
             type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-900 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 dark:text-zinc-600 hover:text-slate-900 dark:hover:text-zinc-300 hover:bg-slate-200/60 dark:hover:bg-zinc-900 transition-colors"
             title="Almacenamiento local"
           >
             <HardDrive className="h-3.5 w-3.5" />
           </button>
-          <div className="pointer-events-none absolute left-14 bottom-2 ml-2 hidden group-hover:block rounded-md border border-white/[0.08] bg-zinc-950 p-2 text-[10px] font-mono text-zinc-400 shadow-xl whitespace-nowrap z-50">
-            <div className="text-zinc-200 font-semibold mb-0.5">NVMe Local Cache</div>
+          <div className="pointer-events-none absolute left-14 bottom-2 ml-2 hidden group-hover:block rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 p-2 text-[10px] font-mono text-slate-600 dark:text-zinc-400 shadow-md whitespace-nowrap z-50">
+            <div className="text-slate-900 dark:text-zinc-200 font-semibold mb-0.5">NVMe Local Cache</div>
             <div>34.2 GB / 512 GB (6.6%)</div>
-            <div className="text-emerald-400 mt-1">● Read/Write: 3,200 MB/s</div>
+            <div className="text-emerald-600 dark:text-emerald-400 mt-1">● Read/Write: 3,200 MB/s</div>
           </div>
         </div>
 
@@ -158,16 +158,16 @@ export function DesktopSidebar({
             onClick={toggleMia}
             className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
               isMiaOpen
-                ? 'bg-white text-black font-bold'
-                : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-bold shadow-xs'
+                : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-200/60 dark:hover:bg-zinc-900 hover:text-slate-900 dark:hover:text-white'
             }`}
             title="Asistente Copilot / Local CLI (⌘J)"
           >
             <Terminal className="h-4 w-4" />
           </button>
-          <div className="pointer-events-none absolute left-14 bottom-2 ml-2 hidden group-hover:flex items-center gap-2 rounded-md border border-white/[0.08] bg-zinc-950 px-2.5 py-1 text-[11px] font-sans text-zinc-200 shadow-xl whitespace-nowrap z-50">
+          <div className="pointer-events-none absolute left-14 bottom-2 ml-2 hidden group-hover:flex items-center gap-2 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-2.5 py-1 text-[11px] font-sans text-slate-800 dark:text-zinc-200 shadow-md whitespace-nowrap z-50">
             <span>Asistente Local CLI</span>
-            <kbd className="font-mono text-[9px] text-zinc-500 bg-zinc-900 border border-white/[0.06] px-1 rounded">
+            <kbd className="font-mono text-[9px] text-slate-500 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.06] px-1 rounded">
               ⌘J
             </kbd>
           </div>

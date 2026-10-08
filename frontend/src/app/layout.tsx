@@ -25,9 +25,17 @@ export default function RootLayout({
   return (
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} h-screen w-screen overflow-hidden bg-black antialiased`}
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} h-screen w-screen overflow-hidden antialiased`}
     >
-      <body className="h-screen w-screen overflow-hidden bg-black text-zinc-100 flex flex-col font-sans select-none">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('lulo_theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;var t=(s==='light'||s==='dark')?s:(d?'dark':'light');if(t==='dark'){document.documentElement.classList.add('dark');document.documentElement.classList.remove('light');document.documentElement.style.colorScheme='dark';}else{document.documentElement.classList.remove('dark');document.documentElement.classList.add('light');document.documentElement.style.colorScheme='light';}}catch(e){}})();`,
+          }}
+        />
+      </head>
+      <body className="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-black text-slate-900 dark:text-zinc-100 flex flex-col font-sans select-none transition-colors duration-200">
         {children}
       </body>
     </html>
