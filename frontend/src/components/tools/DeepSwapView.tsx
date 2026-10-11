@@ -18,9 +18,9 @@ export function DeepSwapView() {
   const [resultVideoUrl, setResultVideoUrl] = useState<string | null>(null);
 
   const steps = [
-    { id: 1, label: 'Video Base', description: 'Clip fuente a transformar' },
-    { id: 2, label: 'Rostro Objetivo', description: 'Foto del nuevo sujeto' },
-    { id: 3, label: 'Procesamiento', description: 'Genjutsu neuronal' },
+    { id: 1, label: 'Video base', description: 'Clip fuente a transformar' },
+    { id: 2, label: 'Rostro nuevo', description: 'Foto del nuevo sujeto' },
+    { id: 3, label: 'Resultado', description: 'Video final' },
   ];
 
   const handleStartSwap = async () => {
@@ -48,26 +48,23 @@ export function DeepSwapView() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       {/* Left Panel */}
-      <div className="lg:col-span-6 space-y-4">
+      <div className="lg:col-span-5 space-y-4">
         {/* Demo Notice Banner */}
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex items-start gap-2.5">
-          <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-zinc-400 leading-relaxed">
-            <span className="font-semibold text-amber-300 font-mono uppercase tracking-wider block">
-              Módulo Genjutsu en Modo Demostración
-            </span>
-            Esta función está en fase de diseño y no consume créditos reales. Puedes probar el flujo de carga y la simulación del reemplazo neuronal.
-          </div>
+        <div className="flex items-start gap-3 rounded-xl border border-line bg-surface-2/60 p-3.5">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-fg-subtle" />
+          <p className="text-[13px] leading-relaxed text-fg-muted">
+            <span className="font-medium text-fg">Vista previa.</span> El flujo es una simulación: no se procesa el video ni se consumen créditos.
+          </p>
         </div>
 
-        <div className="surface-card rounded-xl p-5 sm:p-6 space-y-5">
+        <div className="surface-card p-5 sm:p-6 space-y-6">
           <StepIndicator steps={steps} currentStep={step} onStepClick={setStep} />
 
           <div className="space-y-4">
             {/* Step 1: Base Video */}
             <div>
-              <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 block mb-2">
-                1. Video Base (Sujeto Original)
+              <label className="field-label mb-2">
+                Video base
               </label>
               <UploadZone
                 label="Cargar video base en MP4 o MOV"
@@ -80,8 +77,8 @@ export function DeepSwapView() {
 
             {/* Step 2: Target Face */}
             <div>
-              <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 block mb-2">
-                2. Rostro Objetivo (Target Face)
+              <label className="field-label mb-2">
+                Rostro nuevo
               </label>
               <UploadZone
                 label="Cargar foto del nuevo rostro a insertar"
@@ -94,29 +91,29 @@ export function DeepSwapView() {
 
             {/* Step 3: Settings */}
             <div className="pt-1 space-y-2">
-              <label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 block">
-                Ajustes del Motor Genjutsu
+              <label className="field-label">
+                Ajustes
               </label>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-zinc-950 cursor-pointer hover:border-slate-300 dark:hover:border-white/15 transition-colors">
+                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-line bg-surface-2 cursor-pointer hover:border-line-strong transition-colors">
                   <input
                     type="checkbox"
                     checked={enhanceFace}
                     onChange={(e) => setEnhanceFace(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white focus:ring-0"
+                    className="h-3.5 w-3.5 rounded border-line-strong bg-surface text-fg focus:ring-0"
                   />
-                  <span className="text-xs text-slate-700 dark:text-zinc-300">Restauración HD (GFPGAN)</span>
+                  <span className="text-xs text-fg-muted">Restauración HD (GFPGAN)</span>
                 </label>
 
-                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-zinc-950 cursor-pointer hover:border-slate-300 dark:hover:border-white/15 transition-colors">
+                <label className="flex items-center gap-2 p-2.5 rounded-lg border border-line bg-surface-2 cursor-pointer hover:border-line-strong transition-colors">
                   <input
                     type="checkbox"
                     checked={keepAudio}
                     onChange={(e) => setKeepAudio(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white focus:ring-0"
+                    className="h-3.5 w-3.5 rounded border-line-strong bg-surface text-fg focus:ring-0"
                   />
-                  <span className="text-xs text-slate-700 dark:text-zinc-300">Preservar Audio Original</span>
+                  <span className="text-xs text-fg-muted">Preservar Audio Original</span>
                 </label>
               </div>
             </div>
@@ -127,11 +124,11 @@ export function DeepSwapView() {
                 type="button"
                 disabled={isProcessing || !videoFile || !faceFile}
                 onClick={handleStartSwap}
-                className="w-full flex items-center justify-center gap-2 rounded-md bg-slate-900 py-2.5 text-xs font-medium text-white hover:bg-slate-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200 disabled:opacity-40 transition-colors shadow-sm"
+                className="btn-primary w-full h-11 text-sm"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>
-                  {isProcessing ? 'Procesando Genjutsu...' : 'Ejecutar Genjutsu (Simulación Demo)'}
+                  {isProcessing ? 'Procesando…' : 'Generar video'}
                 </span>
               </button>
             </div>
@@ -140,17 +137,17 @@ export function DeepSwapView() {
       </div>
 
       {/* Right Canvas */}
-      <div className="lg:col-span-6 h-[540px]">
+      <div className="lg:col-span-7 lg:sticky lg:top-6 h-[min(720px,calc(100dvh-7rem))] min-h-[480px]">
         {isProcessing ? (
           <ShimmerLoader
             progress={progress}
-            currentPhase="Interpolando fotogramas y texturas faciales..."
-            subtext="Motor Genjutsu (Deep Swap) — Proceso de simulación demo."
+            currentPhase="Reemplazando el rostro…"
+            subtext="Simulación de vista previa."
           />
         ) : (
           <VideoPlayer
             videoUrl={resultVideoUrl || undefined}
-            title="Previsualización Genjutsu"
+            title="Resultado"
           />
         )}
       </div>

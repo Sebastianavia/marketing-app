@@ -15,61 +15,48 @@ interface StepIndicatorProps {
   onStepClick?: (stepId: number) => void;
 }
 
-export function StepIndicator({
-  steps,
-  currentStep,
-  onStepClick,
-}: StepIndicatorProps) {
+export function StepIndicator({ steps, currentStep, onStepClick }: StepIndicatorProps) {
   return (
-    <div className="w-full pb-5 border-b border-slate-200 dark:border-white/[0.06]">
-      <div className="flex items-center justify-between">
-        {steps.map((step, idx) => {
-          const isCompleted = step.id < currentStep;
-          const isActive = step.id === currentStep;
+    <ol className="flex w-full items-center gap-2 border-b border-line pb-5">
+      {steps.map((step, idx) => {
+        const isCompleted = step.id < currentStep;
+        const isActive = step.id === currentStep;
 
-          return (
-            <React.Fragment key={step.id}>
-              <div
-                onClick={() => onStepClick && onStepClick(step.id)}
-                className="flex items-center gap-2.5 cursor-pointer group"
+        return (
+          <React.Fragment key={step.id}>
+            <li className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onStepClick?.(step.id)}
+                aria-current={isActive ? 'step' : undefined}
+                className="group flex min-w-0 items-center gap-2.5 rounded-lg py-1 pr-1 text-left"
               >
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded text-[11px] font-mono transition-colors ${
-                    isCompleted
-                      ? 'bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300'
-                      : isActive
-                      ? 'bg-slate-900 text-white font-semibold dark:bg-white dark:text-black'
-                      : 'border border-slate-300 dark:border-white/[0.1] text-slate-400 dark:text-zinc-600 group-hover:border-slate-400 dark:group-hover:border-white/20'
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-medium tabular-nums transition-colors ${
+                    isActive
+                      ? 'bg-accent text-accent-fg'
+                      : isCompleted
+                        ? 'bg-surface-2 text-fg'
+                        : 'border border-line-strong text-fg-subtle group-hover:text-fg-muted'
                   }`}
                 >
-                  {isCompleted ? <Check className="h-3 w-3 stroke-[2.5]" /> : step.id}
-                </div>
+                  {isCompleted ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : step.id}
+                </span>
                 <span
-                  className={`text-xs tracking-tight transition-colors ${
-                    isActive
-                      ? 'text-slate-900 dark:text-zinc-100 font-semibold'
-                      : isCompleted
-                      ? 'text-slate-600 dark:text-zinc-400'
-                      : 'text-slate-400 dark:text-zinc-600 group-hover:text-slate-600 dark:group-hover:text-zinc-400'
+                  className={`truncate text-[13px] transition-colors ${
+                    isActive ? 'font-medium text-fg' : isCompleted ? 'text-fg-muted' : 'text-fg-subtle group-hover:text-fg-muted'
                   }`}
                 >
                   {step.label}
                 </span>
-              </div>
-
-              {idx < steps.length - 1 && (
-                <div
-                  className={`flex-1 mx-3 h-[1px] ${
-                    step.id < currentStep
-                      ? 'bg-slate-400 dark:bg-zinc-700'
-                      : 'bg-slate-200 dark:bg-white/[0.06]'
-                  }`}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-    </div>
+              </button>
+            </li>
+            {idx < steps.length - 1 && (
+              <li aria-hidden className={`h-px min-w-4 flex-1 ${isCompleted ? 'bg-line-strong' : 'bg-line'}`} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </ol>
   );
 }

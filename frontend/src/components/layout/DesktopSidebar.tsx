@@ -1,178 +1,89 @@
 'use client';
 
 import React from 'react';
-import {
-  LayoutGrid,
-  User,
-  RefreshCw,
-  Sparkles,
-  Film,
-  Bot,
-  Terminal,
-  HardDrive,
-  Cpu,
-  FolderKanban,
-  Mic,
-} from 'lucide-react';
-import { useMiaStore } from '@/store/useMiaStore';
+import { HOME_ICON, NAV_ORDER, TOOLS, type ToolId } from '@/config/tools.config';
 
 interface DesktopSidebarProps {
-  activeTool: string | null;
-  onSelectTool: (toolId: string | null) => void;
+  activeTool: ToolId | null;
+  onSelectTool: (toolId: ToolId | null) => void;
 }
 
-interface NavItem {
-  id: string | null;
-  name: string;
-  shortKey: string;
+interface NavButtonProps {
+  label: string;
+  shortcut: string;
   icon: React.ComponentType<{ className?: string }>;
-  isDemo?: boolean;
+  active: boolean;
+  preview?: boolean;
+  onClick: () => void;
 }
 
-const NAV_ITEMS: NavItem[] = [
-  {
-    id: null,
-    name: 'Dashboard Overview',
-    shortKey: '⌘0',
-    icon: LayoutGrid,
-  },
-  {
-    id: 'avatar-studio',
-    name: 'Avatar Studio (HeyGen)',
-    shortKey: '⌘1',
-    icon: User,
-  },
-  {
-    id: 'deep-swap',
-    name: 'Genjutsu (Swap Facial)',
-    shortKey: '⌘2',
-    icon: RefreshCw,
-    isDemo: true,
-  },
-  {
-    id: 'ugc-generator',
-    name: 'Generador UGC',
-    shortKey: '⌘3',
-    icon: Sparkles,
-  },
-  {
-    id: 'text-to-video',
-    name: 'Text-to-Video',
-    shortKey: '⌘4',
-    icon: Film,
-  },
-  {
-    id: 'voice-studio',
-    name: 'Voice Studio (ElevenLabs)',
-    shortKey: '⌘5',
-    icon: Mic,
-  },
-  {
-    id: 'busi',
-    name: 'Busi AI Auditor',
-    shortKey: '⌘6',
-    icon: Bot,
-    isDemo: true,
-  },
-  {
-    id: 'projects',
-    name: 'Proyectos en Disco',
-    shortKey: '⌘7',
-    icon: FolderKanban,
-  },
-];
+function NavButton({ label, shortcut, icon: Icon, active, preview, onClick }: NavButtonProps) {
+  return (
+    <div className="group relative flex w-full justify-center">
+      {active && (
+        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-accent" aria-hidden />
+      )}
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        className={`relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+          active ? 'bg-surface-2 text-fg' : 'text-fg-subtle hover:bg-surface-2/70 hover:text-fg'
+        }`}
+      >
+        <Icon className="h-[18px] w-[18px]" />
+        {preview && (
+          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-fg-subtle/60" aria-hidden />
+        )}
+      </button>
 
-export function DesktopSidebar({
-  activeTool,
-  onSelectTool,
-}: DesktopSidebarProps) {
-  const toggleMia = useMiaStore((s) => s.toggleOpen);
-  const isMiaOpen = useMiaStore((s) => s.isOpen);
+      <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] text-fg shadow-[var(--shadow-lift)] group-hover:flex">
+        <span>{label}</span>
+        {preview && <span className="text-fg-subtle">· vista previa</span>}
+        <kbd className="rounded border border-line px-1 text-[10px] text-fg-subtle">⌘{shortcut}</kbd>
+      </div>
+    </div>
+  );
+}
+
+export function DesktopSidebar({ activeTool, onSelectTool }: DesktopSidebarProps) {
+  const projects = TOOLS.projects;
 
   return (
-    <aside className="no-drag flex h-full w-14 shrink-0 flex-col items-center justify-between border-r border-slate-200/80 dark:border-white/[0.06] bg-slate-50/90 dark:bg-[#080808] py-3.5 select-none z-30 transition-colors duration-200">
-      {/* Top Section: Navigation Icons */}
-      <div className="flex flex-col items-center gap-1.5 w-full">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTool === item.id;
-
+    <aside className="no-drag z-30 hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-line bg-bg py-3 sm:flex">
+      <nav className="flex w-full flex-col items-center gap-1" aria-label="Herramientas">
+        <NavButton
+          label="Inicio"
+          shortcut="0"
+          icon={HOME_ICON}
+          active={activeTool === null}
+          onClick={() => onSelectTool(null)}
+        />
+        <div className="my-2 h-px w-6 bg-line" />
+        {NAV_ORDER.map((id) => {
+          const tool = TOOLS[id];
           return (
-            <div key={item.name} className="relative group w-full flex justify-center">
-              {/* Active Indicator Line */}
-              {isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-slate-900 dark:bg-white rounded-r" />
-              )}
-
-              <button
-                type="button"
-                onClick={() => onSelectTool(item.id)}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-lg transition-all ${
-                  isActive
-                    ? 'bg-white text-slate-900 dark:bg-zinc-800 dark:text-white shadow-xs border border-slate-200/80 dark:border-transparent'
-                    : 'text-slate-500 dark:text-zinc-500 hover:bg-slate-200/60 dark:hover:bg-zinc-900 hover:text-slate-900 dark:hover:text-zinc-200'
-                }`}
-                title={`${item.name} (${item.shortKey})`}
-              >
-                <Icon className="h-4 w-4" />
-
-                {item.isDemo && (
-                  <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-amber-500/70" />
-                )}
-              </button>
-
-              {/* Tooltip on Hover */}
-              <div className="pointer-events-none absolute left-14 top-1/2 -translate-y-1/2 ml-2 hidden group-hover:flex items-center gap-2 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-2.5 py-1 text-[11px] font-sans text-slate-800 dark:text-zinc-200 shadow-md whitespace-nowrap z-50">
-                <span>{item.name}</span>
-                <kbd className="font-mono text-[9px] text-slate-500 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.06] px-1 rounded">
-                  {item.shortKey}
-                </kbd>
-              </div>
-            </div>
+            <NavButton
+              key={id}
+              label={tool.title}
+              shortcut={tool.shortcut}
+              icon={tool.icon}
+              preview={tool.preview}
+              active={activeTool === id}
+              onClick={() => onSelectTool(id)}
+            />
           );
         })}
-      </div>
+      </nav>
 
-      {/* Bottom Section: System Status & Copilot Toggle */}
-      <div className="flex flex-col items-center gap-2 w-full pt-3 border-t border-slate-200/80 dark:border-white/[0.04]">
-        {/* Local NVMe / Storage Status */}
-        <div className="relative group flex justify-center w-full">
-          <button
-            type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 dark:text-zinc-600 hover:text-slate-900 dark:hover:text-zinc-300 hover:bg-slate-200/60 dark:hover:bg-zinc-900 transition-colors"
-            title="Almacenamiento local"
-          >
-            <HardDrive className="h-3.5 w-3.5" />
-          </button>
-          <div className="pointer-events-none absolute left-14 bottom-2 ml-2 hidden group-hover:block rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 p-2 text-[10px] font-mono text-slate-600 dark:text-zinc-400 shadow-md whitespace-nowrap z-50">
-            <div className="text-slate-900 dark:text-zinc-200 font-semibold mb-0.5">NVMe Local Cache</div>
-            <div>34.2 GB / 512 GB (6.6%)</div>
-            <div className="text-emerald-600 dark:text-emerald-400 mt-1">● Read/Write: 3,200 MB/s</div>
-          </div>
-        </div>
-
-        {/* Mia Copilot Launcher */}
-        <div className="relative group flex justify-center w-full">
-          <button
-            type="button"
-            onClick={toggleMia}
-            className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-              isMiaOpen
-                ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-bold shadow-xs'
-                : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-200/60 dark:hover:bg-zinc-900 hover:text-slate-900 dark:hover:text-white'
-            }`}
-            title="Asistente Copilot / Local CLI (⌘J)"
-          >
-            <Terminal className="h-4 w-4" />
-          </button>
-          <div className="pointer-events-none absolute left-14 bottom-2 ml-2 hidden group-hover:flex items-center gap-2 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950 px-2.5 py-1 text-[11px] font-sans text-slate-800 dark:text-zinc-200 shadow-md whitespace-nowrap z-50">
-            <span>Asistente Local CLI</span>
-            <kbd className="font-mono text-[9px] text-slate-500 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.06] px-1 rounded">
-              ⌘J
-            </kbd>
-          </div>
-        </div>
-      </div>
+      <NavButton
+        label={projects.title}
+        shortcut={projects.shortcut}
+        icon={projects.icon}
+        active={activeTool === 'projects'}
+        onClick={() => onSelectTool('projects')}
+      />
     </aside>
   );
 }

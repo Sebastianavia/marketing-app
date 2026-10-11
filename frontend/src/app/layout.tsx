@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lulo Studio Desktop",
+  title: "Lulo Studio",
   description: "Suite Autónoma de Creación Audiovisual para Video Marketing",
 };
 
@@ -35,7 +35,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-black text-slate-900 dark:text-zinc-100 flex flex-col font-sans select-none transition-colors duration-200">
+      <body className="h-dvh w-screen overflow-hidden bg-bg text-fg flex flex-col font-sans">
         {children}
       </body>
     </html>

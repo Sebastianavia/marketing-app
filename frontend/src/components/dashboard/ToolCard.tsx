@@ -2,70 +2,53 @@
 
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
-
-export interface ToolCardData {
-  id: string;
-  title: string;
-  category: string;
-  description: string;
-  badge?: string;
-  isDemo?: boolean;
-  icon: React.ElementType;
-}
+import type { ToolDefinition, ToolId } from '@/config/tools.config';
 
 interface ToolCardProps {
-  tool: ToolCardData;
-  onSelect: (toolId: string) => void;
+  tool: ToolDefinition;
+  onSelect: (toolId: ToolId) => void;
+  size?: 'large' | 'compact';
 }
 
-export function ToolCard({ tool, onSelect }: ToolCardProps) {
+export function ToolCard({ tool, onSelect, size = 'large' }: ToolCardProps) {
   const Icon = tool.icon;
+  const large = size === 'large';
 
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onSelect(tool.id)}
-      className="surface-card group relative flex flex-col justify-between rounded-xl p-5 cursor-pointer shadow-xs"
+      className={`surface-card surface-card-interactive group relative flex w-full flex-col text-left ${
+        large ? 'min-h-[220px] p-6' : 'p-5'
+      }`}
     >
-      <div>
-        {/* Top: Icon + Badge */}
-        <div className="flex items-center justify-between">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900/60 text-slate-700 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white group-hover:border-slate-300 dark:group-hover:border-white/20 transition-all">
-            <Icon className="h-4 w-4" />
-          </div>
+      <div className="flex items-start justify-between">
+        <span
+          className={`flex items-center justify-center rounded-xl border border-line bg-surface-2 text-fg transition-colors group-hover:text-accent ${
+            large ? 'h-11 w-11' : 'h-9 w-9'
+          }`}
+        >
+          <Icon className={large ? 'h-5 w-5' : 'h-[18px] w-[18px]'} />
+        </span>
 
-          <div className="flex items-center gap-2">
-            {tool.badge && (
-              <span className={`font-mono text-[10px] uppercase tracking-widest border rounded px-1.5 py-0.5 ${
-                tool.isDemo
-                  ? 'border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400/90'
-                  : 'border-slate-200/80 dark:border-white/[0.06] text-slate-500 dark:text-zinc-500 bg-slate-50 dark:bg-transparent'
-              }`}>
-                {tool.badge}
-              </span>
-            )}
-            <ArrowUpRight className="h-3.5 w-3.5 text-slate-400 dark:text-zinc-600 transition-all group-hover:text-slate-800 dark:group-hover:text-zinc-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="mt-4">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500 dark:text-zinc-500">
-            {tool.category}
-          </span>
-          <h3 className="text-sm font-medium text-slate-900 dark:text-zinc-100 tracking-tight mt-0.5 group-hover:text-indigo-600 dark:group-hover:text-white transition-colors">
-            {tool.title}
-          </h3>
-          <p className="mt-1.5 text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
-            {tool.description}
-          </p>
+        <div className="flex items-center gap-2">
+          {tool.preview && (
+            <span className="rounded-md border border-line px-1.5 py-0.5 text-[11px] font-medium text-fg-subtle">
+              Vista previa
+            </span>
+          )}
+          <ArrowUpRight className="h-4 w-4 text-fg-subtle transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-fg" />
         </div>
       </div>
 
-      {/* Bottom Subtle Action hint */}
-      <div className="mt-5 pt-3 border-t border-slate-100 dark:border-white/[0.04] flex items-center justify-between text-[11px] text-slate-400 dark:text-zinc-600 group-hover:text-slate-700 dark:group-hover:text-zinc-400 transition-colors">
-        <span>Abrir espacio de trabajo</span>
-        <span className="font-mono text-slate-400 dark:text-zinc-500">↵</span>
+      <div className={large ? 'mt-auto pt-8' : 'mt-4'}>
+        <p className="text-[12px] font-medium text-fg-subtle">{tool.formula}</p>
+        <h3 className={`mt-1 font-semibold text-fg ${large ? 'text-lg' : 'text-[15px]'}`}>{tool.title}</h3>
+        <p className={`mt-1.5 max-w-[46ch] text-fg-muted ${large ? 'text-sm leading-relaxed' : 'text-[13px] leading-relaxed'}`}>
+          {tool.description}
+        </p>
+        {large && tool.engines && <p className="mt-4 text-[12px] text-fg-subtle">{tool.engines}</p>}
       </div>
-    </div>
+    </button>
   );
 }

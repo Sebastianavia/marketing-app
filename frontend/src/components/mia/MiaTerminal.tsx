@@ -267,15 +267,15 @@ export function MiaTerminal() {
   const getFileIcon = (type: DroppedLocalFile['type']) => {
     switch (type) {
       case 'video':
-        return <FileVideo className="h-3.5 w-3.5 text-blue-400" />;
+        return <FileVideo className="h-3.5 w-3.5 text-accent" />;
       case 'audio':
         return <FileAudio className="h-3.5 w-3.5 text-amber-400" />;
       case 'image':
         return <FileImage className="h-3.5 w-3.5 text-emerald-400" />;
       case 'text':
-        return <FileText className="h-3.5 w-3.5 text-purple-400" />;
+        return <FileText className="h-3.5 w-3.5 text-accent" />;
       default:
-        return <File className="h-3.5 w-3.5 text-zinc-400" />;
+        return <File className="h-3.5 w-3.5 text-fg-muted" />;
     }
   };
 
@@ -291,39 +291,39 @@ export function MiaTerminal() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className="fixed bottom-4 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[500px] h-[610px] max-h-[85vh] flex flex-col rounded-xl border border-slate-200 dark:border-white/[0.12] bg-white dark:bg-[#0A0A0A]/95 shadow-2xl backdrop-blur-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-150"
+          className="fixed bottom-4 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[500px] h-[610px] max-h-[85vh] flex flex-col rounded-xl border border-line bg-surface shadow-2xl backdrop-blur-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-3 duration-150"
         >
           {/* Drag & Drop Overlay */}
           {isDragging && (
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 border-2 border-dashed border-indigo-400/80 p-6 text-center backdrop-blur-md animate-in fade-in">
-              <UploadCloud className="h-10 w-10 text-indigo-400 mb-3 animate-bounce" />
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 border-2 border-dashed border-accent/80 p-6 text-center backdrop-blur-md animate-in fade-in">
+              <UploadCloud className="h-10 w-10 text-accent mb-3 animate-bounce" />
               <div className="text-sm font-medium text-white">Suelta archivos locales aquí</div>
-              <p className="text-xs text-zinc-400 mt-1">
+              <p className="text-xs text-fg-muted mt-1">
                 Videos (.mp4), audios (.mp3), imágenes o scripts locales
               </p>
             </div>
           )}
 
           {/* Desktop Terminal Header */}
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-[#0F0F0F]">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-line bg-surface-2">
             {/* Title & Mode Switcher */}
             <div className="flex items-center gap-2">
-              <div className="flex h-5 w-5 items-center justify-center rounded bg-slate-900 text-white dark:bg-white dark:text-black font-mono text-[10px] font-bold">
+              <div className="flex h-5 w-5 items-center justify-center rounded bg-fg text-bg font-mono text-[10px] font-bold">
                 A
               </div>
-              <span className="font-mono text-xs font-semibold text-slate-800 dark:text-zinc-200 tracking-tight">
+              <span className="font-mono text-xs font-semibold text-fg tracking-tight">
                 ASISTENTE // COPILOT
               </span>
 
               {/* Mode Toggle: Copilot vs Local CLI */}
-              <div className="flex items-center rounded-md border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-black/60 p-0.5 ml-1">
+              <div className="flex items-center rounded-md border border-line bg-surface-2 p-0.5 ml-1">
                 <button
                   type="button"
                   onClick={() => setMode('copilot')}
                   className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono transition-colors ${
                     mode === 'copilot'
-                      ? 'bg-white text-slate-900 font-medium shadow-sm dark:bg-zinc-800 dark:text-white'
-                      : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      ? 'bg-surface text-fg font-medium shadow-sm'
+                      : 'text-fg-subtle hover:text-fg'
                   }`}
                 >
                   <Sparkles className="h-2.5 w-2.5" />
@@ -334,8 +334,8 @@ export function MiaTerminal() {
                   onClick={() => setMode('cli')}
                   className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono transition-colors ${
                     mode === 'cli'
-                      ? 'bg-white text-slate-900 font-medium shadow-sm dark:bg-zinc-800 dark:text-white'
-                      : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      ? 'bg-surface text-fg font-medium shadow-sm'
+                      : 'text-fg-subtle hover:text-fg'
                   }`}
                 >
                   <Terminal className="h-2.5 w-2.5" />
@@ -353,7 +353,7 @@ export function MiaTerminal() {
                 className={`flex h-6 w-6 items-center justify-center rounded border transition-colors ${
                   customApiKey
                     ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
-                    : 'border-slate-200 dark:border-white/[0.08] text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-zinc-500 dark:hover:text-zinc-200 dark:hover:bg-white/[0.06]'
+                    : 'border-line text-fg-subtle hover:text-fg hover:bg-surface-2'
                 }`}
               >
                 <Key className="h-3 w-3" />
@@ -363,7 +363,7 @@ export function MiaTerminal() {
                 type="button"
                 onClick={clearMessages}
                 title="Limpiar consola"
-                className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-white/[0.06] transition-colors"
+                className="flex h-6 w-6 items-center justify-center rounded text-fg-subtle hover:text-fg-muted hover:bg-surface-2 transition-colors"
               >
                 <Trash2 className="h-3 w-3" />
               </button>
@@ -371,7 +371,7 @@ export function MiaTerminal() {
                 type="button"
                 onClick={() => setOpen(false)}
                 title="Cerrar panel (Esc / ⌘J)"
-                className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:text-zinc-500 dark:hover:text-zinc-200 dark:hover:bg-white/[0.06] transition-colors"
+                className="flex h-6 w-6 items-center justify-center rounded text-fg-subtle hover:text-fg-muted hover:bg-surface-2 transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -379,8 +379,8 @@ export function MiaTerminal() {
           </div>
 
           {/* Model Selector Bar (Gemini, Claude, GPT-4o, DeepSeek) */}
-          <div className="px-3.5 py-1.5 border-b border-slate-200 dark:border-white/[0.06] bg-slate-100/50 dark:bg-[#0A0A0A] flex items-center justify-between gap-2 text-[10px] font-mono">
-            <span className="text-slate-500 dark:text-zinc-500 shrink-0">MODELO:</span>
+          <div className="px-3.5 py-1.5 border-b border-line bg-surface-2/50 flex items-center justify-between gap-2 text-[10px] font-mono">
+            <span className="text-fg-subtle shrink-0">MODELO:</span>
             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
               {AVAILABLE_MODELS.map((m) => (
                 <button
@@ -389,8 +389,8 @@ export function MiaTerminal() {
                   onClick={() => setSelectedModel(m.id)}
                   className={`shrink-0 rounded px-2 py-0.5 transition-colors ${
                     selectedModel === m.id
-                      ? 'bg-white text-slate-900 font-semibold border border-slate-200 shadow-sm dark:bg-zinc-800 dark:text-white dark:border-white/20'
-                      : 'text-slate-500 hover:text-slate-800 bg-slate-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:bg-zinc-950/60'
+                      ? 'bg-surface text-fg font-semibold border border-line shadow-sm'
+                      : 'text-fg-subtle hover:text-fg bg-surface-2/50'
                   }`}
                 >
                   <span>{m.name}</span>
@@ -401,10 +401,10 @@ export function MiaTerminal() {
 
           {/* API Key Dropdown Popover */}
           {showKeyModal && (
-            <div className="p-3 border-b border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-zinc-950 space-y-2.5 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between text-[11px] text-slate-800 dark:text-zinc-300">
+            <div className="p-3 border-b border-line bg-surface-2 space-y-2.5 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between text-[11px] text-fg">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-slate-900 dark:text-white">Pool de API Keys (Google Gemini)</span>
+                  <span className="font-semibold text-fg">Pool de API Keys (Google Gemini)</span>
                   <span className="font-mono text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1 rounded">
                     Failover Automático
                   </span>
@@ -412,7 +412,7 @@ export function MiaTerminal() {
                 <button
                   type="button"
                   onClick={() => setShowKeyModal(false)}
-                  className="text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-300 text-xs"
+                  className="text-fg-subtle hover:text-fg-muted text-xs"
                 >
                   ✕
                 </button>
@@ -424,7 +424,7 @@ export function MiaTerminal() {
                   value={tempApiKey}
                   onChange={(e) => setTempApiKey(e.target.value)}
                   placeholder="Pega una o varias llaves de Gemini separadas por comas o saltos de línea:&#10;AIzaSyKey1..., AIzaSyKey2..., AIzaSyKey3..."
-                  className="w-full rounded border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-black p-2 font-mono text-[11px] text-slate-900 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500 dark:focus:border-white/30 resize-none"
+                  className="w-full rounded border border-line bg-surface p-2 font-mono text-[11px] text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent resize-none"
                 />
                 <div className="flex items-center justify-between">
                   <div className="font-mono text-[10px]">
@@ -434,10 +434,10 @@ export function MiaTerminal() {
                           ⚡ Modo Pool Activo: Varias llaves registradas con rotación por agotamiento
                         </span>
                       ) : (
-                        <span className="text-slate-600 dark:text-zinc-400">✓ 1 llave registrada</span>
+                        <span className="text-fg-muted">✓ 1 llave registrada</span>
                       )
                     ) : (
-                      <span className="text-slate-400 dark:text-zinc-500">Sin llaves personalizadas (usa .env.local o modo local)</span>
+                      <span className="text-fg-subtle">Sin llaves personalizadas (usa .env.local o modo local)</span>
                     )}
                   </div>
                   <button
@@ -446,26 +446,26 @@ export function MiaTerminal() {
                       setCustomApiKey(tempApiKey);
                       setShowKeyModal(false);
                     }}
-                    className="rounded bg-slate-900 text-white dark:bg-white dark:text-black px-3.5 py-1 font-mono text-[10px] font-medium hover:bg-slate-800 dark:hover:bg-zinc-200 shrink-0 shadow-sm"
+                    className="rounded bg-fg text-bg px-3.5 py-1 font-mono text-[10px] font-medium hover:bg-fg/85 shrink-0 shadow-sm"
                   >
                     Guardar Pool
                   </button>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1 text-[10px] text-slate-500 dark:text-zinc-400 leading-relaxed font-sans border-t border-slate-200 dark:border-white/[0.04] pt-2">
-                <div className="flex items-center gap-1 text-slate-700 dark:text-zinc-300">
+              <div className="flex flex-col gap-1 text-[10px] text-fg-subtle leading-relaxed font-sans border-t border-line pt-2">
+                <div className="flex items-center gap-1 text-fg-muted">
                   <span>Genera tus llaves gratis o de tu plan en:</span>
                   <a
                     href="https://aistudio.google.com/app/apikey"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-500 font-mono"
+                    className="text-accent underline hover:text-accent font-mono"
                   >
                     aistudio.google.com/app/apikey
                   </a>
                 </div>
-                <p className="text-slate-500 dark:text-zinc-500">
+                <p className="text-fg-subtle">
                   💡 <strong>¿Cómo funciona el Failover?</strong> Si una llave se agota por límite de cuota (error 429), el Asistente cambia automáticamente a la siguiente sin que tengas que hacer nada.
                 </p>
               </div>
@@ -473,14 +473,14 @@ export function MiaTerminal() {
           )}
 
           {/* Subheader / Preset Pills */}
-          <div className="px-3.5 py-1.5 border-b border-slate-200/60 dark:border-white/[0.04] bg-slate-50/50 dark:bg-zinc-950/40 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <div className="px-3.5 py-1.5 border-b border-line bg-surface-2/50 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             {mode === 'copilot'
               ? quickPrompts.map((p, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => handleSend(p)}
-                    className="shrink-0 rounded border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-zinc-900/60 px-2 py-0.5 text-[10px] font-mono text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:border-slate-300 dark:hover:border-white/20 transition-colors shadow-2xs"
+                    className="shrink-0 rounded border border-line bg-surface px-2 py-0.5 text-[10px] font-mono text-fg-muted hover:text-fg hover:border-line-strong transition-colors shadow-2xs"
                   >
                     {p}
                   </button>
@@ -490,9 +490,9 @@ export function MiaTerminal() {
                     key={idx}
                     type="button"
                     onClick={() => handleSend(item.cmd)}
-                    className="shrink-0 flex items-center gap-1 rounded border border-slate-200 dark:border-white/[0.06] bg-white dark:bg-zinc-900/60 px-2 py-0.5 text-[10px] font-mono text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:border-slate-300 dark:hover:border-white/20 transition-colors shadow-2xs"
+                    className="shrink-0 flex items-center gap-1 rounded border border-line bg-surface px-2 py-0.5 text-[10px] font-mono text-fg-muted hover:text-fg hover:border-line-strong transition-colors shadow-2xs"
                   >
-                    <Play className="h-2 w-2 text-slate-400 dark:text-zinc-500" />
+                    <Play className="h-2 w-2 text-fg-subtle" />
                     <span>{item.label}</span>
                   </button>
                 ))}
@@ -518,8 +518,8 @@ export function MiaTerminal() {
                   <div
                     className={`max-w-[95%] rounded-xl p-3 ${
                       isAssistant
-                        ? 'border border-slate-200 dark:border-white/[0.07] bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-200'
-                        : 'bg-slate-900 text-white dark:bg-zinc-800 dark:text-white'
+                        ? 'border border-line bg-surface-2 text-fg'
+                        : 'bg-fg text-bg'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1 opacity-60 text-[10px]">
@@ -534,22 +534,22 @@ export function MiaTerminal() {
 
                     <pre
                       className={`whitespace-pre-wrap font-mono text-xs leading-relaxed ${
-                        isAssistant ? 'text-slate-800 dark:text-zinc-300' : 'text-white'
-                      } ${isCliOutput ? 'text-slate-500 dark:text-zinc-400 text-[11px]' : ''}`}
+                        isAssistant ? 'text-fg' : 'text-white'
+                      } ${isCliOutput ? 'text-fg-subtle text-[11px]' : ''}`}
                     >
                       {m.content}
                     </pre>
 
                     {/* One-Click Ingest Action Button */}
                     {isAssistant && m.id !== 'welcome' && activeTool && !isCliOutput && (
-                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-white/[0.06] flex items-center justify-between">
+                      <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between">
                         <button
                           type="button"
                           onClick={() => handleInject(m.id, m.content)}
                           className={`inline-flex items-center gap-1.5 rounded px-2 py-1 font-mono text-[10px] transition-colors ${
                             isInjected
                               ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-                              : 'bg-white hover:bg-slate-100 text-slate-700 dark:bg-white/[0.06] dark:text-zinc-300 dark:hover:bg-white dark:hover:text-black border border-slate-200 dark:border-white/[0.08] shadow-2xs'
+                              : 'bg-surface hover:bg-surface-2 text-fg-muted border border-line shadow-2xs'
                           }`}
                         >
                           {isInjected ? (
@@ -572,8 +572,8 @@ export function MiaTerminal() {
             })}
 
             {isLoading && (
-              <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-500 text-xs font-mono">
-                <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 dark:bg-zinc-400 animate-ping" />
+              <div className="flex items-center gap-2 text-fg-subtle text-xs font-mono">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent animate-ping" />
                 <span>
                   {mode === 'cli'
                     ? 'Ejecutando comando local...'
@@ -587,19 +587,19 @@ export function MiaTerminal() {
 
           {/* Attached Local Files Preview Tray */}
           {attachedFiles.length > 0 && (
-            <div className="px-3 py-2 border-t border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-zinc-950/80 flex flex-wrap gap-2">
+            <div className="px-3 py-2 border-t border-line bg-surface-2 flex flex-wrap gap-2">
               {attachedFiles.map((file, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-2 rounded-md border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 px-2 py-1 text-[11px] font-mono text-slate-700 dark:text-zinc-300 shadow-2xs"
+                  className="flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1 text-[11px] font-mono text-fg-muted shadow-2xs"
                 >
                   {getFileIcon(file.type)}
                   <span className="truncate max-w-[130px]">{file.name}</span>
-                  <span className="text-slate-400 dark:text-zinc-500 text-[10px]">{file.size}</span>
+                  <span className="text-fg-subtle text-[10px]">{file.size}</span>
                   <button
                     type="button"
                     onClick={() => removeAttachment(idx)}
-                    className="text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200"
+                    className="text-fg-subtle hover:text-fg-muted"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -609,15 +609,15 @@ export function MiaTerminal() {
           )}
 
           {/* Terminal Input Bar */}
-          <div className="p-3 border-t border-slate-200 dark:border-white/[0.07] bg-slate-50 dark:bg-black">
+          <div className="p-3 border-t border-line bg-surface-2">
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSend();
               }}
-              className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-white/[0.1] bg-white dark:bg-zinc-950 px-3 py-2 focus-within:border-indigo-500 dark:focus-within:border-white/30 shadow-2xs"
+              className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 focus-within:border-accent shadow-2xs"
             >
-              <span className="font-mono text-slate-400 dark:text-zinc-500 text-xs">
+              <span className="font-mono text-fg-subtle text-xs">
                 {mode === 'cli' ? '$' : '>'}
               </span>
               <input
@@ -632,12 +632,12 @@ export function MiaTerminal() {
                     ? `Pide al Asistente un guion o arrastra archivos locales...`
                     : 'Pide al Asistente un guion o consulta el CLI local...'
                 }
-                className="flex-1 bg-transparent text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 focus:outline-none font-sans"
+                className="flex-1 bg-transparent text-xs text-fg placeholder:text-fg-subtle focus:outline-none font-sans"
               />
               <button
                 type="submit"
                 disabled={isLoading || (!input.trim() && attachedFiles.length === 0)}
-                className="flex h-6 w-6 items-center justify-center rounded bg-slate-900 text-white dark:bg-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-200 disabled:opacity-30 transition-colors shadow-2xs"
+                className="flex h-6 w-6 items-center justify-center rounded bg-fg text-bg hover:bg-fg/85 disabled:opacity-30 transition-colors shadow-2xs"
                 title="Ejecutar"
               >
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -645,7 +645,7 @@ export function MiaTerminal() {
             </form>
 
             {/* Quick File Drop Hint */}
-            <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-slate-400 dark:text-zinc-600 px-1">
+            <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-fg-subtle px-1">
               <span>Arrastra archivos desde el explorador</span>
               <span>Atajo: ⌘J / Ctrl+J</span>
             </div>

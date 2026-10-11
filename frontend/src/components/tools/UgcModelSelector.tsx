@@ -78,17 +78,17 @@ export function UGCModelSelector({
           ===================================================================== */}
       <div className="flex items-center justify-between pb-1">
         <div>
-          <h3 className="text-xs font-medium text-slate-800 dark:text-zinc-300">
+          <h3 className="text-xs font-medium text-fg">
             Motor de síntesis de video
           </h3>
-          <p className="text-[11px] text-slate-500 dark:text-zinc-500">
+          <p className="text-[11px] text-fg-subtle">
             Modelos de IA generativa calibrados para UGC
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Segmented Provider Tabs */}
-          <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.06]">
+          <div className="inline-flex p-0.5 rounded-lg bg-surface-2 border border-line">
             {(
               [
                 { id: 'all', label: 'Todos' },
@@ -102,8 +102,8 @@ export function UGCModelSelector({
                 onClick={() => setProviderFilter(tab.id)}
                 className={`px-2 py-0.5 text-[11px] font-medium rounded-md transition-all ${
                   providerFilter === tab.id
-                    ? 'bg-white text-slate-900 shadow-sm border border-slate-200 dark:bg-white/[0.08] dark:text-white dark:border-transparent'
-                    : 'text-slate-500 dark:text-zinc-500 hover:text-slate-800 dark:hover:text-zinc-300'
+                    ? 'bg-surface text-fg shadow-sm border border-line dark:border-transparent'
+                    : 'text-fg-subtle hover:text-fg'
                 }`}
               >
                 {tab.label}
@@ -118,7 +118,7 @@ export function UGCModelSelector({
               className={`p-1.5 rounded-lg border transition-all ${
                 hasApiMartKey
                   ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400'
-                  : 'border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.02] text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200'
+                  : 'border-line bg-surface-2 text-fg-subtle hover:text-fg'
               }`}
               title={hasApiMartKey ? 'API Key configurada' : 'Configurar API Key'}
             >
@@ -144,18 +144,18 @@ export function UGCModelSelector({
               onMouseLeave={() => setHoveredModel(null)}
               className={`group relative cursor-pointer rounded-xl p-3.5 transition-all duration-150 ${
                 isSelected
-                  ? 'border border-indigo-500/50 bg-indigo-50/40 dark:border-white/30 dark:bg-white/[0.04] shadow-sm ring-1 ring-indigo-500/20 dark:ring-white/10'
-                  : 'border border-slate-200 dark:border-white/[0.06] bg-slate-50/70 hover:bg-slate-100/80 dark:bg-zinc-900/30 dark:hover:bg-zinc-900/60 hover:border-slate-300 dark:hover:border-white/[0.12]'
+                  ? 'border border-accent/50 bg-accent/40 shadow-sm ring-1 ring-accent/20'
+                  : 'border border-line bg-surface-2/70 hover:bg-surface-2/80 hover:border-line-strong'
               }`}
             >
               {/* Encabezado sutil: Tag & Proveedor */}
               <div className="flex items-center justify-between gap-1 mb-2">
-                <span className="text-[10px] font-medium text-slate-500 dark:text-zinc-400 tracking-wide">
+                <span className="text-[10px] font-medium text-fg-subtle tracking-wide">
                   {model.tag}
                 </span>
 
                 <div className="flex items-center gap-1.5">
-                  <span className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-zinc-500 font-medium">
+                  <span className="flex items-center gap-1 text-[10px] text-fg-subtle font-medium">
                     <span
                       className={`h-1.5 w-1.5 rounded-full ${
                         isApimart ? 'bg-amber-500' : 'bg-sky-500'
@@ -165,24 +165,24 @@ export function UGCModelSelector({
                   </span>
 
                   {isSelected && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-white shadow-[0_0_8px_rgba(99,102,241,0.6)] dark:shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_8px_rgba(99,102,241,0.6)] dark:shadow-[0_0_8px_rgba(255,255,255,0.9)]" />
                   )}
                 </div>
               </div>
 
               {/* Nombre comercial */}
-              <h4 className="text-xs font-medium text-slate-800 group-hover:text-slate-950 dark:text-zinc-200 dark:group-hover:text-white transition-colors truncate">
+              <h4 className="text-xs font-medium text-fg group-hover:text-fg transition-colors truncate">
                 {model.name}
               </h4>
 
               {/* Tarifa base por segundo y límite oficial */}
-              <div className="mt-3 flex items-center justify-between border-t border-slate-200/80 dark:border-white/[0.04] pt-2 text-xs">
-                <span className="text-slate-800 dark:text-zinc-300 font-medium">
+              <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-xs">
+                <span className="text-fg font-medium">
                   ${model.costPerSecondUSD.toFixed(4)}
-                  <span className="text-slate-400 dark:text-zinc-500 font-normal text-[10px]">/s</span>
+                  <span className="text-fg-subtle font-normal text-[10px]">/s</span>
                 </span>
 
-                <span className="text-[10px] text-slate-500 dark:text-zinc-500 font-normal">
+                <span className="text-[10px] text-fg-subtle font-normal">
                   Máx {model.apiMaxClipDurationSeconds}s/clip
                 </span>
               </div>
@@ -193,23 +193,23 @@ export function UGCModelSelector({
 
       {/* Popover Flotante Refinado en Hover */}
       {hoveredModel && (
-        <div className="pointer-events-none rounded-xl border border-slate-200 dark:border-white/10 bg-white/95 dark:bg-zinc-950/95 p-3.5 shadow-xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 space-y-1.5">
+        <div className="pointer-events-none rounded-xl border border-line bg-surface/95 p-3.5 shadow-xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 space-y-1.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-medium text-slate-800 dark:text-zinc-200 flex items-center gap-1.5">
-              <Info className="h-3 w-3 text-slate-500 dark:text-zinc-400" />
+            <span className="font-medium text-fg flex items-center gap-1.5">
+              <Info className="h-3 w-3 text-fg-subtle" />
               {hoveredModel.name}
             </span>
-            <span className="text-slate-600 dark:text-zinc-400 text-[11px] font-medium">
+            <span className="text-fg-muted text-[11px] font-medium">
               ${hoveredModel.costPerSecondUSD.toFixed(4)}/seg
             </span>
           </div>
 
-          <p className="text-[11px] text-slate-600 dark:text-zinc-400 leading-relaxed">
+          <p className="text-[11px] text-fg-muted leading-relaxed">
             {hoveredModel.description}
           </p>
 
-          <p className="text-[10px] text-slate-500 dark:text-zinc-500 pt-1 border-t border-slate-200 dark:border-white/[0.04]">
-            <span className="text-slate-800 dark:text-zinc-300 font-medium">Rendimiento: </span>
+          <p className="text-[10px] text-fg-subtle pt-1 border-t border-line">
+            <span className="text-fg font-medium">Rendimiento: </span>
             {hoveredModel.recommendedPerformance}
           </p>
         </div>
@@ -218,14 +218,14 @@ export function UGCModelSelector({
       {/* =====================================================================
           3. CONTROL DE DURACIÓN CONSOLIDADO Y MINIMALISTA
           ===================================================================== */}
-      <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-slate-50/80 dark:bg-zinc-900/20 p-3.5 space-y-3">
+      <div className="rounded-xl border border-line bg-surface-2/80 p-3.5 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-800 dark:text-zinc-300">
+          <span className="text-xs font-medium text-fg">
             Duración del video
           </span>
 
           {/* Presets segmentados sin marcos duros */}
-          <div className="inline-flex p-0.5 rounded-lg bg-slate-200/60 dark:bg-zinc-900/80 border border-slate-200 dark:border-white/[0.06]">
+          <div className="inline-flex p-0.5 rounded-lg bg-surface-2/60 border border-line">
             {DURATION_PRESETS.map((sec) => (
               <button
                 key={sec}
@@ -233,8 +233,8 @@ export function UGCModelSelector({
                 onClick={() => handleDurationChange(sec)}
                 className={`px-2.5 py-1 text-xs rounded-md font-medium transition-all ${
                   activeDuration === sec
-                    ? 'bg-white text-slate-900 shadow-sm dark:bg-white/[0.09] dark:text-white'
-                    : 'text-slate-600 dark:text-zinc-500 hover:text-slate-900 dark:hover:text-zinc-300'
+                    ? 'bg-surface text-fg shadow-sm'
+                    : 'text-fg-muted hover:text-fg'
                 }`}
               >
                 {sec}s
@@ -255,9 +255,9 @@ export function UGCModelSelector({
             className="slider-minimal w-full"
           />
 
-          <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-500">
+          <div className="flex items-center justify-between text-[11px] text-fg-subtle">
             <span>{activeDuration} segundos seleccionados</span>
-            <span className="text-slate-700 dark:text-zinc-400 font-medium">
+            <span className="text-fg-muted font-medium">
               {breakdown.summary}
             </span>
           </div>

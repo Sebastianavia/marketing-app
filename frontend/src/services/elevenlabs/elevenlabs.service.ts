@@ -1,4 +1,9 @@
 import {
+  ElevenLabsClient,
+  ElevenLabsError,
+  ElevenLabsTimeoutError,
+} from '@elevenlabs/elevenlabs-js';
+import {
   ElevenLabsVoiceSettings,
   SupportedLanguageCode,
   CloneVoiceParams,
@@ -12,14 +17,149 @@ import {
   AudioSynthesisResult as LegacyAudioSynthesisResult,
   PipelineError,
 } from '@/types/pipeline.types';
-import { saveStoredVoice, getStoredVoices } from '@/lib/storage/voice-storage';
+import {
+  saveStoredVoice,
+  getStoredVoices,
+  deleteStoredVoice,
+  syncStoredVoices,
+} from '@/lib/storage/voice-storage';
 
-const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
-const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel (Natural / Conversational)
-const MANDATORY_MODEL_ID = 'eleven_multilingual_v2'; // Requisito estricto: modelo multilingüe
+const ELEVENLABS_API_ORIGIN = 'https://api.elevenlabs.io';
+const ELEVENLABS_BASE_URL = `${ELEVENLABS_API_ORIGIN}/v1`;
+const FALLBACK_PREMADE_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel (solo si no hay voz clonada configurada)
+const MANDATORY_MODEL_ID = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+const OUTPUT_FORMAT = 'mp3_44100_128';
+/** Límite de caracteres por petición de eleven_multilingual_v2 (docs oficiales). */
+export const ELEVENLABS_MAX_CHARS_PER_REQUEST = 10_000;
+
+/**
+ * voice_id de la voz clonada del estudio. Se lee en servidor primero
+ * (ELEVENLABS_VOICE_ID) y luego la variante pública para compatibilidad.
+ */
+export function getConfiguredVoiceId(): string | null {
+  const id =
+    process.env.ELEVENLABS_VOICE_ID?.trim() ||
+    process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID?.trim() ||
+    '';
+  return id.length > 0 ? id : null;
+}
+
+export type ElevenLabsErrorCode =
+  | 'not_configured'
+  | 'auth'
+  | 'quota_exceeded'
+  | 'text_too_long'
+  | 'voice_not_found'
+  | 'invalid_input'
+  | 'rate_limited'
+  | 'timeout'
+  | 'network'
+  | 'unknown';
+
+/** Error tipado de ElevenLabs: la UI usa `code` para mostrar el toast adecuado. */
+export class ElevenLabsTTSError extends PipelineError {
+  readonly code: ElevenLabsErrorCode;
+  readonly httpStatus: number;
+
+  constructor(message: string, code: ElevenLabsErrorCode, httpStatus: number, details?: unknown) {
+    const retryable = code === 'rate_limited' || code === 'timeout' || code === 'network';
+    super(message, 'tts_generation', retryable, details);
+    this.name = 'ElevenLabsTTSError';
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/** Traduce las excepciones del SDK a mensajes claros en español. */
+function mapSdkError(err: unknown): ElevenLabsTTSError {
+  if (err instanceof ElevenLabsTTSError) return err;
+
+  if (err instanceof ElevenLabsTimeoutError) {
+    return new ElevenLabsTTSError(
+      'ElevenLabs tardó demasiado en responder. Intenta de nuevo en unos segundos.',
+      'timeout',
+      504
+    );
+  }
+
+  if (err instanceof ElevenLabsError) {
+    const status = err.statusCode ?? 500;
+    const body: any = err.body ?? {};
+    const detail = body?.detail ?? {};
+    const apiStatus: string = typeof detail === 'object' ? detail.status || '' : '';
+    const apiMessage: string =
+      (typeof detail === 'object' ? detail.message : typeof detail === 'string' ? detail : '') ||
+      err.message;
+
+    // ElevenLabs devuelve la cuota agotada como 401 con detail.status = "quota_exceeded"
+    if (apiStatus === 'quota_exceeded' || status === 402) {
+      return new ElevenLabsTTSError(
+        'Cuota de caracteres de ElevenLabs agotada. Revisa tu plan o espera al siguiente ciclo de facturación.',
+        'quota_exceeded',
+        402,
+        body
+      );
+    }
+    if (status === 401 || status === 403) {
+      return new ElevenLabsTTSError(
+        'API Key de ElevenLabs inválida o sin permisos de Text-to-Speech. Revisa ELEVENLABS_API_KEY.',
+        'auth',
+        401,
+        body
+      );
+    }
+    if (apiStatus === 'voice_not_found' || status === 404) {
+      return new ElevenLabsTTSError(
+        'La voz clonada configurada no existe en tu cuenta de ElevenLabs. Revisa ELEVENLABS_VOICE_ID.',
+        'voice_not_found',
+        404,
+        body
+      );
+    }
+    if (apiStatus === 'max_character_limit_exceeded') {
+      return new ElevenLabsTTSError(
+        `El guion supera el límite de caracteres permitido por ElevenLabs: ${apiMessage}`,
+        'text_too_long',
+        400,
+        body
+      );
+    }
+    if (status === 429) {
+      return new ElevenLabsTTSError(
+        'Demasiadas peticiones simultáneas a ElevenLabs. Espera un momento y vuelve a renderizar.',
+        'rate_limited',
+        429,
+        body
+      );
+    }
+    if (status === 400 || status === 422) {
+      return new ElevenLabsTTSError(
+        `Parámetros inválidos para ElevenLabs: ${apiMessage}`,
+        'invalid_input',
+        400,
+        body
+      );
+    }
+    return new ElevenLabsTTSError(
+      `Error de ElevenLabs (${status}): ${apiMessage}`,
+      'unknown',
+      status,
+      body
+    );
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+  return new ElevenLabsTTSError(
+    `No se pudo contactar con ElevenLabs: ${message}`,
+    'network',
+    503,
+    err
+  );
+}
 
 export class ElevenLabsService {
   private apiKey: string;
+  private client: ElevenLabsClient | null = null;
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.ELEVENLABS_API_KEY || '';
@@ -27,6 +167,24 @@ export class ElevenLabsService {
 
   get isConfigured(): boolean {
     return Boolean(this.apiKey && this.apiKey.trim().length > 0);
+  }
+
+  /** Cliente oficial del SDK, inicializado de forma perezosa con la API key del entorno. */
+  private getClient(): ElevenLabsClient {
+    if (!this.isConfigured) {
+      throw new ElevenLabsTTSError(
+        'ELEVENLABS_API_KEY no está configurada en frontend/.env.local. Añádela y reinicia el servidor.',
+        'not_configured',
+        500
+      );
+    }
+    if (!this.client) {
+      this.client = new ElevenLabsClient({
+        apiKey: this.apiKey.trim(),
+        baseUrl: ELEVENLABS_API_ORIGIN,
+      });
+    }
+    return this.client;
   }
 
   // ===========================================================================
@@ -166,105 +324,120 @@ export class ElevenLabsService {
   }
 
   // ===========================================================================
-  // FLUJO B: GENERACIÓN TEXT-TO-SPEECH (/v1/text-to-speech/{voice_id})
+  // FLUJO B: GENERACIÓN TEXT-TO-SPEECH (SDK: textToSpeech.convert)
   // ===========================================================================
   /**
-   * Genera síntesis de voz neuronal utilizando obligatoriamente el modelo
-   * 'eleven_multilingual_v2' para soporte fluido en Español (por defecto), Inglés y Portugués.
+   * Genera síntesis de voz neuronal utilizando obligatoriamente el SDK oficial
+   * de ElevenLabs y el modelo 'eleven_multilingual_v2' para locución hiperrealista.
    *
-   * @param text Guion o texto a locutar
-   * @param voiceId ID de la voz (clonada o predeterminada)
+   * Utiliza de manera predeterminada la voz clonada configurada en el entorno
+   * (ELEVENLABS_VOICE_ID) o la voz especificada por el usuario.
+   *
+   * @param text Guion o texto a locutar (máximo 10,000 caracteres)
+   * @param voiceId ID de la voz (si se omite, usa la voz clonada de ELEVENLABS_VOICE_ID)
    * @param language Idioma objetivo ('es' | 'en' | 'pt', por defecto 'es')
-   * @returns Buffer binario MP3 y metadatos de duración estimada
+   * @returns Buffer binario MP3 procesado listo para Cloudinary y metadatos
    */
   async generateAudio(
     text: string,
-    voiceId: string = DEFAULT_VOICE_ID,
-    language: string = 'es'
+    voiceId?: string,
+    language: string = 'es',
+    modelId?: string,
+    voiceSettings?: Partial<ElevenLabsVoiceSettings>
   ): Promise<AudioSynthesisResult> {
     const cleanText = text?.trim();
     if (!cleanText) {
-      throw new PipelineError(
+      throw new ElevenLabsTTSError(
         'El texto para la síntesis de voz no puede estar vacío.',
-        'tts_generation',
-        false
+        'invalid_input',
+        400
       );
     }
 
-    const cleanLanguage = (language || 'es').toLowerCase();
+    if (cleanText.length > ELEVENLABS_MAX_CHARS_PER_REQUEST) {
+      throw new ElevenLabsTTSError(
+        `El guion supera el límite de ${ELEVENLABS_MAX_CHARS_PER_REQUEST.toLocaleString()} caracteres por solicitud de ElevenLabs (actual: ${cleanText.length.toLocaleString()}).`,
+        'text_too_long',
+        400
+      );
+    }
 
-    // Contingencia si no hay API Key configurada
+    // Sin API Key, rechazar de inmediato de forma explícita (sin audios falsos ni fallbacks silenciosos)
     if (!this.isConfigured) {
-      console.warn(
-        '[ElevenLabsService] ELEVENLABS_API_KEY no configurada. Generando audio fallback simulado.'
+      throw new ElevenLabsTTSError(
+        'ELEVENLABS_API_KEY no está configurada en frontend/.env.local. Configúrala para generar voz neuronal con tu voz clonada.',
+        'not_configured',
+        500
       );
-      return this.generateDevelopmentFallback(cleanText);
     }
 
-    const endpoint = `${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}`;
+    // Resolución de la voz: voz solicitada -> voz clonada configurada -> fallback predeterminado
+    const configuredVoice = getConfiguredVoiceId();
+    const effectiveVoiceId =
+      (voiceId && voiceId.trim().length > 0 ? voiceId.trim() : null) ||
+      configuredVoice ||
+      FALLBACK_PREMADE_VOICE_ID;
 
-    const payload = {
-      text: cleanText,
-      model_id: MANDATORY_MODEL_ID, // Requisito estricto eleven_multilingual_v2
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0.0,
-        use_speaker_boost: true,
-      },
+    // Resolución del modelo: modelo seleccionado -> variable de entorno -> eleven_multilingual_v2
+    const effectiveModelId =
+      (modelId && modelId.trim().length > 0 ? modelId.trim() : null) ||
+      MANDATORY_MODEL_ID;
+
+    // Normalización de parámetros: Para eleven_v4 se utiliza la estructura simplificada optimizada (stability + similarityBoost)
+    const isV4Model = effectiveModelId === 'eleven_v4';
+
+    const effectiveSettings: Record<string, any> = {
+      stability: typeof voiceSettings?.stability === 'number' ? voiceSettings.stability : 0.5,
+      similarityBoost:
+        typeof voiceSettings?.similarityBoost === 'number'
+          ? voiceSettings.similarityBoost
+          : typeof voiceSettings?.similarity_boost === 'number'
+          ? voiceSettings.similarity_boost
+          : 0.75,
     };
 
+    if (typeof voiceSettings?.speed === 'number') {
+      effectiveSettings.speed = voiceSettings.speed;
+    }
+
+    // Parámetros adicionales soportados únicamente en modelos compatibles (como eleven_multilingual_v2)
+    if (!isV4Model) {
+      if (typeof voiceSettings?.style === 'number') {
+        effectiveSettings.style = voiceSettings.style;
+      }
+      if (typeof voiceSettings?.useSpeakerBoost === 'boolean') {
+        effectiveSettings.useSpeakerBoost = voiceSettings.useSpeakerBoost;
+      } else if (typeof voiceSettings?.use_speaker_boost === 'boolean') {
+        effectiveSettings.useSpeakerBoost = voiceSettings.use_speaker_boost;
+      } else {
+        effectiveSettings.useSpeakerBoost = true;
+      }
+    }
+
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'xi-api-key': this.apiKey,
-          Accept: 'audio/mpeg',
-        },
-        body: JSON.stringify(payload),
+      const client = this.getClient();
+
+      // Invocación a través del SDK oficial de ElevenLabs con modelo dinámico y parámetros de síntesis
+      const audioStream = await client.textToSpeech.convert(effectiveVoiceId, {
+        text: cleanText,
+        modelId: effectiveModelId,
+        outputFormat: OUTPUT_FORMAT,
+        voiceSettings: effectiveSettings,
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        let parsedMessage = errorText;
-        try {
-          const parsed = JSON.parse(errorText);
-          parsedMessage = parsed.detail?.message || parsed.message || errorText;
-        } catch {
-          // Continuar
-        }
+      // Transformación segura de ReadableStream<Uint8Array> a Node Buffer
+      const arrayBuffer = await new Response(audioStream as any).arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-        if (response.status === 401) {
-          throw new PipelineError(
-            'API Key de ElevenLabs inválida o no autorizada (401).',
-            'tts_generation',
-            false,
-            { status: 401, errorText }
-          );
-        }
-
-        if (response.status === 429 || response.status === 402) {
-          throw new PipelineError(
-            'Límite de caracteres o cuota de ElevenLabs agotada (429/402).',
-            'tts_generation',
-            true,
-            { status: response.status, errorText }
-          );
-        }
-
-        throw new PipelineError(
-          `Error en ElevenLabs TTS (${response.status}): ${parsedMessage}`,
-          'tts_generation',
-          response.status >= 500,
-          { status: response.status, errorText }
+      if (!buffer || buffer.length === 0) {
+        throw new ElevenLabsTTSError(
+          'ElevenLabs retornó un flujo de audio vacío.',
+          'unknown',
+          500
         );
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      // Estimación de duración: ~15 caracteres por segundo en locución comercial
+      // Estimación de duración de locución en español (~14-16 caracteres/segundo)
       const estimatedDurationSeconds = Math.max(2, Math.round(cleanText.length / 15));
 
       return {
@@ -274,13 +447,136 @@ export class ElevenLabsService {
         durationEstimatedSeconds: estimatedDurationSeconds,
       };
     } catch (err: any) {
-      if (err instanceof PipelineError) throw err;
-      throw new PipelineError(
-        `Falla de red o conexión al contactar ElevenLabs: ${err.message}`,
-        'tts_generation',
-        true,
-        err
+      throw mapSdkError(err);
+    }
+  }
+
+  /**
+   * Obtiene la información de la voz clonada principal configurada en el entorno
+   */
+  async getConfiguredVoiceMetadata(): Promise<{
+    id: string;
+    name: string;
+    isCloned: boolean;
+  } | null> {
+    const voiceId = getConfiguredVoiceId();
+    if (!voiceId) return null;
+
+    if (!this.isConfigured) {
+      return { id: voiceId, name: 'Mi Voz Clonada (Configurada)', isCloned: true };
+    }
+
+    try {
+      const client = this.getClient();
+      const voice = await client.voices.get(voiceId);
+      return {
+        id: voiceId,
+        name: voice.name || 'Mi Voz Clonada',
+        isCloned: voice.category === 'cloned' || voice.category === 'generated',
+      };
+    } catch {
+      return { id: voiceId, name: 'Mi Voz Clonada (Personalizada)', isCloned: true };
+    }
+  }
+
+  /**
+   * Elimina una voz clonada tanto en la API oficial de ElevenLabs como en el almacenamiento local.
+   * Valida errores de existencia para garantizar limpieza idempotente.
+   *
+   * @param voiceId ID de la voz a eliminar
+   */
+  async deleteVoice(voiceId: string): Promise<{ success: boolean; message: string }> {
+    if (!voiceId || !voiceId.trim()) {
+      throw new PipelineError('El voice_id es obligatorio para eliminar.', 'voice_cloning', false);
+    }
+
+    const id = voiceId.trim();
+
+    // 1. Eliminar en la API oficial de ElevenLabs si está configurada
+    if (this.isConfigured) {
+      try {
+        const client = this.getClient();
+        await client.voices.delete(id);
+      } catch (apiErr: any) {
+        const status = apiErr?.statusCode || apiErr?.status;
+        // Si el estado es 404, la voz ya no existía en ElevenLabs, lo cual es aceptable
+        if (status !== 404) {
+          console.warn(
+            `[ElevenLabsService] Advertencia al eliminar voz remota (${status}):`,
+            apiErr?.message
+          );
+        }
+      }
+    }
+
+    // 2. Eliminar del almacenamiento local (cloned_voices.json)
+    const localRemoved = await deleteStoredVoice(id);
+
+    return {
+      success: true,
+      message: localRemoved
+        ? 'Voz eliminada correctamente de ElevenLabs y almacenamiento local.'
+        : 'Voz eliminada en ElevenLabs.',
+    };
+  }
+
+  /**
+   * Sincroniza la lista de voces locales con la API de ElevenLabs:
+   * 1. Consulta las voces reales en ElevenLabs.
+   * 2. Purga del almacenamiento local (cloned_voices.json) cualquier voz fantasma que haya sido borrada en la web.
+   * 3. Descubre e incorpora nuevas voces clonadas generadas externamente.
+   */
+  async syncAndGetVoices(): Promise<{ storedVoices: ClonedVoiceRecord[]; remoteCount?: number }> {
+    if (!this.isConfigured) {
+      const local = await getStoredVoices();
+      return { storedVoices: local };
+    }
+
+    try {
+      const client = this.getClient();
+      const remoteRes = await client.voices.getAll();
+      const remoteVoices: any[] = (remoteRes as any)?.voices || [];
+
+      // Extraer todas las IDs válidas presentes en la cuenta de ElevenLabs
+      const validRemoteIds = new Set<string>(
+        remoteVoices.map((v: any) => v.voice_id || v.id).filter(Boolean)
       );
+
+      // Purgar de inmediato registros fantasma locales que ya no existan en ElevenLabs
+      await syncStoredVoices(validRemoteIds);
+
+      // Sincronizar hacia local cualquier voz clonada presente en ElevenLabs
+      const currentLocal = await getStoredVoices();
+      const localIds = new Set(currentLocal.map((v) => v.id));
+
+      for (const rv of remoteVoices) {
+        const vId = rv.voice_id || rv.id;
+        if (
+          vId &&
+          (rv.category === 'cloned' || rv.category === 'generated') &&
+          !localIds.has(vId)
+        ) {
+          await saveStoredVoice({
+            id: vId,
+            name: rv.name || 'Voz Clonada',
+            category: 'cloned',
+            createdAt: new Date().toISOString(),
+            description: rv.description || 'Sincronizada directamente de ElevenLabs',
+            samplesCount: rv.samples?.length || 1,
+            supportedLanguages: ['es', 'en', 'pt'],
+          });
+        }
+      }
+
+      const refreshed = await getStoredVoices();
+      return { storedVoices: refreshed, remoteCount: remoteVoices.length };
+    } catch (err: any) {
+      console.warn(
+        '[ElevenLabsService] No se pudo conectar para sincronizar con ElevenLabs, usando caché local:',
+        err?.message
+      );
+      const fallback = await getStoredVoices();
+      return { storedVoices: fallback };
     }
   }
 
@@ -293,7 +589,7 @@ export class ElevenLabsService {
   async synthesizeSpeech(options: GenerateSpeechOptions): Promise<LegacyAudioSynthesisResult> {
     return this.generateAudio(
       options.text,
-      options.voiceId || DEFAULT_VOICE_ID,
+      options.voiceId,
       'es'
     );
   }
@@ -321,21 +617,6 @@ export class ElevenLabsService {
     } catch (storageErr) {
       console.warn('[ElevenLabsService] No se pudo persistir la voz clonada en disco:', storageErr);
     }
-  }
-
-  private generateDevelopmentFallback(text: string): AudioSynthesisResult {
-    // Cabecera MP3 ID3v2 dummy para testing seguro
-    const dummyMp3Header = Buffer.from([
-      0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xff, 0xfb, 0x90, 0x64, 0x00,
-    ]);
-    const estimatedSeconds = Math.max(3, Math.round(text.length / 15));
-
-    return {
-      buffer: dummyMp3Header,
-      mimeType: 'audio/mpeg',
-      sizeBytes: dummyMp3Header.length,
-      durationEstimatedSeconds: estimatedSeconds,
-    };
   }
 }
 

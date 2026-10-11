@@ -6,8 +6,11 @@
 export interface ElevenLabsVoiceSettings {
   stability: number; // 0.0 a 1.0 (default recomendado: 0.5)
   similarity_boost: number; // 0.0 a 1.0 (default recomendado: 0.75)
-  style?: number; // 0.0 a 1.0 (default: 0.0)
+  style?: number; // 0.0 a 1.0 (exageración de estilo / dinamismo, default: 0.0)
+  speed?: number; // 0.7 a 1.25 (velocidad y ritmo de locución, default: 1.0)
   use_speaker_boost?: boolean; // default: true
+  similarityBoost?: number;
+  useSpeakerBoost?: boolean;
 }
 
 export type SupportedLanguageCode = 'es' | 'en' | 'pt';
@@ -90,6 +93,8 @@ export interface CloneVoiceApiRequest {
 
 export interface GenerateAudioApiRequest {
   text: string;
-  voiceId: string;
-  language: SupportedLanguageCode;
+  voiceId?: string;
+  language?: SupportedLanguageCode | string;
+  modelId?: string;
+  voiceSettings?: Partial<ElevenLabsVoiceSettings>;
 }
