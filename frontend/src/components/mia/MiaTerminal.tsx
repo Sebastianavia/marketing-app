@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
+import { LLM_MODELS } from '@/config/llm-models';
 
 interface DroppedLocalFile {
   name: string;
@@ -28,13 +29,8 @@ interface DroppedLocalFile {
   type: 'video' | 'audio' | 'image' | 'text' | 'other';
 }
 
-const AVAILABLE_MODELS = [
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Tu Gemini)', badge: 'Directo' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', badge: 'Directo' },
-  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', badge: 'OpenRouter' },
-  { id: 'openai/gpt-4o', name: 'GPT-4o', badge: 'OpenRouter' },
-  { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3', badge: 'OpenRouter' },
-];
+// Gemini usa tu pool gratis; el resto va por OpenRouter (de pago). Ver config/llm-models.ts
+const AVAILABLE_MODELS = LLM_MODELS.map((m) => ({ id: m.id, name: m.name, badge: m.badge }));
 
 const QUICK_PROMPTS_BY_TOOL: Record<string, string[]> = {
   'avatar-studio': [

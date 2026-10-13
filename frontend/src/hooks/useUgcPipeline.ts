@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { UgcPipelineInput, UgcPipelineState } from '@/types/ugc.types';
 import { MarketingScriptOutput } from '@/types/openrouter.types';
 import { HeyGenVideoStatusResponse } from '@/types/heygen.types';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 
 export function useUgcPipeline() {
   const [state, setState] = useState<UgcPipelineState>({
@@ -37,21 +38,21 @@ export function useUgcPipeline() {
         progressPercent: 15,
       });
 
-      const scriptResponse = await fetch('/api/openrouter/script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const scriptResponse = await postOrchestrated(
+        '/api/openrouter/script',
+        {
           productName: input.productName,
           productDescription: input.productDescription,
           targetAudience: input.targetAudience,
           keyBenefit: input.keyBenefit,
           format: input.format || 'ugc_testimonial',
-        }),
-        signal,
-      });
+        },
+        { signal }
+      );
 
       if (!scriptResponse.ok) {
-        throw new Error('Fallo al generar el guion de marketing.');
+        const errData = await scriptResponse.json().catch(() => ({}));
+        throw new Error(errData.error || 'Fallo al generar el guion de marketing.');
       }
 
       const script: MarketingScriptOutput = await scriptResponse.json();

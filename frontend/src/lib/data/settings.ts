@@ -9,6 +9,8 @@ export interface AppSettings {
   personName?: string;
   /** Límite de gasto diario en USD (0 o vacío = sin límite). */
   dailyLimitUSD?: number;
+  /** Quién maneja guiones y escenas: gratis (Gemini) o Claude. */
+  orchestrator?: 'free' | 'claude-cheap' | 'claude-quality';
 }
 
 async function settingsPath() {

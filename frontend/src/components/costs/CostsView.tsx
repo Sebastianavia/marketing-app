@@ -56,9 +56,11 @@ const toolName = (id: string) => {
   return t ? TOOLS[t].title : id;
 };
 
+const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const monthLabel = (m: string) => {
   const [y, mm] = m.split('-').map(Number);
-  return new Date(y, mm - 1, 1).toLocaleDateString('es', { month: 'long', year: 'numeric' });
+  return capFirst(new Date(y, mm - 1, 1).toLocaleDateString('es', { month: 'long', year: 'numeric' }));
 };
 
 const dayKey = (iso: string) => new Date(iso).toDateString();
@@ -69,7 +71,7 @@ const dayLabel = (iso: string) => {
   yesterday.setDate(today.getDate() - 1);
   if (d.toDateString() === today.toDateString()) return 'Hoy';
   if (d.toDateString() === yesterday.toDateString()) return 'Ayer';
-  return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  return capFirst(d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
 };
 
 const dirOf = (filePath: string) => filePath.replace(/[\\/][^\\/]*$/, '');
@@ -224,7 +226,7 @@ export function CostsView() {
           <select
             value={currentMonth}
             onChange={(e) => setMonth(e.target.value)}
-            className="input-clean h-9 px-2.5 text-[13px] capitalize"
+            className="input-clean h-9 px-2.5 text-[13px]"
             aria-label="Mes"
           >
             {(data?.months ?? [currentMonth]).map((m) => (
@@ -265,7 +267,7 @@ export function CostsView() {
           )}
         </div>
         <div className="surface-card p-4">
-          <p className="text-[12px] capitalize text-fg-muted">{monthLabel(currentMonth)}</p>
+          <p className="text-[12px] text-fg-muted">{monthLabel(currentMonth)}</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-fg">{usd(stats.monthCost)}</p>
           <p className="mt-1 text-[11px] text-fg-subtle">{stats.count} generaciones</p>
         </div>
@@ -384,7 +386,7 @@ export function CostsView() {
                 {groups.map((g) => (
                   <React.Fragment key={g.key}>
                     <tr className="bg-surface-2/60">
-                      <td colSpan={6} className="px-5 py-2 text-[12px] font-medium capitalize text-fg-muted">
+                      <td colSpan={6} className="px-5 py-2 text-[12px] font-medium text-fg-muted">
                         {g.label}
                       </td>
                       <td className="px-3 py-2 text-right text-[12px] font-medium tabular-nums text-fg">{usd(g.total)}</td>

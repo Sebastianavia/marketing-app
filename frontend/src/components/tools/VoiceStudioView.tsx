@@ -25,6 +25,7 @@ import {
 import { ClonedVoiceRecord, SUPPORTED_LANGUAGES, SupportedLanguageCode } from '@/types/elevenlabs.types';
 import { useMiaStore } from '@/store/useMiaStore';
 import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 import {
   DEFAULT_ELEVEN_MODEL,
   DEFAULT_VOICE_SETTINGS,
@@ -248,20 +249,12 @@ export function VoiceStudioView() {
 
     const promptIdea = scriptText.trim() || 'Crea un gancho publicitario para video de alta conversión';
     try {
-      const res = await fetch('/api/script/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: promptIdea }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.script) {
-          setScriptText(data.script);
-        }
-      }
+      const res = await postOrchestrated('/api/script/generate', { prompt: promptIdea, tool: 'voice-studio' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo redactar el guion.');
+      if (data.script) setScriptText(data.script);
     } catch (err) {
-      console.warn('Error al auto-generar guion con Gemini:', err);
+      setErrorMessage(err instanceof Error ? err.message : 'No se pudo redactar el guion.');
     } finally {
       setIsGeneratingAiScript(false);
     }
@@ -641,10 +634,10 @@ export function VoiceStudioView() {
                     disabled={isGeneratingAiScript}
                     onClick={handleGenerateScriptWithGemini}
                     className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors disabled:opacity-40 cursor-pointer"
-                    title="Usa el pool de Gemini a cero costos para redactar un gancho comercial"
+                    title="Lo redacta el orquestador elegido arriba (IA)"
                   >
                     <Sparkles className="h-3 w-3" />
-                    <span>{isGeneratingAiScript ? 'Generando con Gemini...' : 'Perfeccionar con Gemini'}</span>
+                    <span>{isGeneratingAiScript ? 'Escribiendo…' : 'Escribir guion con IA'}</span>
                   </button>
                 </div>
 

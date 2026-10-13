@@ -1,33 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateText } from 'ai';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { getGeminiKeyPool, maskApiKey } from '@/lib/ai/gemini-pool';
-import { recordUsage } from '@/lib/usage/usage-store';
-import { scriptCost } from '@/config/cost-rates';
+import { orchestrateText, orchestratorErrorResponse } from '@/lib/ai/orchestrator';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
 
-export async function POST(req: NextRequest) {
-  try {
-    const { prompt, format = 'ugc_testimonial', tool = 'avatar-studio' } = await req.json();
-
-    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
-      return NextResponse.json(
-        { error: 'El prompt o idea para el guion es obligatorio.' },
-        { status: 400 }
-      );
-    }
-
-    const geminiKeys = getGeminiKeyPool();
-    if (geminiKeys.length === 0) {
-      return NextResponse.json(
-        { error: 'No se encontraron API Keys de Gemini en el archivo .env.local (GEMINI_API_KEYS).' },
-        { status: 500 }
-      );
-    }
-
-    const systemPrompt = `Eres un director de video marketing y guionista publicitario de élite.
+const SYSTEM_PROMPT = `Eres un director de video marketing y guionista publicitario de élite.
 Tu objetivo es redactar un guion corto y de altísima retención en español neutro para ser leído por un avatar con lip-sync en formato vertical (TikTok, Instagram Reels, YouTube Shorts).
 Reglas estrictas:
 - Duración: 15 a 30 segundos de locución (máximo 50 a 65 palabras).
@@ -35,62 +12,32 @@ Reglas estrictas:
 - PROHIBIDO incluir acotaciones de cámara, notas entre corchetes, nombres de personajes o indicaciones de audio.
 - Retorna ÚNICAMENTE las palabras textuales que el avatar dirá frente a cámara.`;
 
-    let lastError: any = null;
+/** Guion corto para avatar o voz. Lo genera el orquestador (Gemini gratis o Claude). */
+export async function POST(req: NextRequest) {
+  try {
+    const { prompt, tool = 'avatar-studio', orchestrator } = await req.json();
 
-    // Rotación por el Pool de API Keys de Gemini para garantizar 100% disponibilidad a coste cero
-    for (let i = 0; i < geminiKeys.length; i++) {
-      const key = geminiKeys[i];
-      const masked = maskApiKey(key);
-
-      try {
-        const google = createGoogleGenerativeAI({ apiKey: key });
-
-        const { text } = await generateText({
-          model: google('gemini-2.5-flash'),
-          system: systemPrompt,
-          prompt: `Idea o producto para el anuncio: ${prompt.trim()}`,
-          temperature: 0.7,
-        });
-
-        const cleanScript = text.trim().replace(/^["']|["']$/g, '');
-
-        await recordUsage({
-          tool: String(tool),
-          kind: 'script',
-          provider: 'gemini',
-          model: 'gemini-2.5-flash',
-          description: `Guion · "${prompt.trim().slice(0, 60)}${prompt.trim().length > 60 ? '…' : ''}"`,
-          units: 1,
-          unit: 'guion',
-          costUSD: scriptCost('gemini-2.5-flash'),
-          estimated: true,
-        });
-
-        return NextResponse.json({
-          script: cleanScript,
-          model: 'gemini-2.5-flash',
-          keyUsed: masked,
-          keyIndex: i + 1,
-          totalKeys: geminiKeys.length,
-          provider: 'Google Gemini (Pool Gratuito)',
-        });
-      } catch (keyErr: any) {
-        lastError = keyErr;
-        console.warn(`[Gemini Script Pool] Llave #${i + 1} (${masked}) con error: ${keyErr.message}. Conmutando a la siguiente...`);
-        // Continuar al siguiente ciclo del pool
-      }
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return NextResponse.json({ error: 'El prompt o idea para el guion es obligatorio.' }, { status: 400 });
     }
 
-    return NextResponse.json(
-      {
-        error: `Todas las llaves del pool de Gemini fallaron: ${lastError?.message || 'Error desconocido'}.`,
-      },
-      { status: 500 }
-    );
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'Error interno al generar guion con Gemini.' },
-      { status: 500 }
-    );
+    const { text, meta } = await orchestrateText({
+      tool: String(tool),
+      description: `Guion · "${prompt.trim().slice(0, 60)}${prompt.trim().length > 60 ? '…' : ''}"`,
+      system: SYSTEM_PROMPT,
+      prompt: `Idea o producto para el anuncio: ${prompt.trim()}`,
+      temperature: 0.7,
+      mode: orchestrator,
+    });
+
+    return NextResponse.json({
+      script: text.trim().replace(/^["']|["']$/g, ''),
+      model: meta.model,
+      provider: meta.mode === 'free' ? 'Gemini (gratis)' : 'Claude vía OpenRouter',
+      orchestrator: meta.mode,
+      costUSD: meta.costUSD,
+    });
+  } catch (error) {
+    return orchestratorErrorResponse(error);
   }
 }

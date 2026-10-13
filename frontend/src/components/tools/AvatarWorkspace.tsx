@@ -28,6 +28,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 import {
   DEFAULT_ELEVEN_MODEL,
   DEFAULT_VOICE_SETTINGS,
@@ -364,28 +365,24 @@ export function AvatarWorkspace() {
     setCloudinaryImageInfo(null);
   };
 
-  // 1. Módulo de Texto: Generar Guion con Google Gemini (Cero Costos / Pool de Keys)
+  // 1. Módulo de Texto: guion con el orquestador (Gemini gratis o Claude, según Ajustes)
   const handleGenerateScriptWithAI = async () => {
     if (!scriptPrompt.trim()) return;
     setIsGeneratingScript(true);
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/script/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: scriptPrompt }),
-      });
+      const res = await postOrchestrated('/api/script/generate', { prompt: scriptPrompt, tool: 'avatar-studio' });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Error al conectar con Google Gemini para redactar el guion.');
+        throw new Error(errData.error || 'No se pudo redactar el guion.');
       }
 
       const data = await res.json();
       setScriptText(data.script || scriptPrompt);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error generando guion con Gemini.');
+      setErrorMsg(err.message || 'Error generando el guion.');
     } finally {
       setIsGeneratingScript(false);
     }
@@ -986,7 +983,7 @@ export function AvatarWorkspace() {
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-fg-muted flex items-center gap-1.5">
                 <Bot className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                <span>1. Guion de Locución (Gemini 2.5 Flash • Cero Costos)</span>
+                <span>1. Guion de locución</span>
               </label>
 
               <button
@@ -996,7 +993,7 @@ export function AvatarWorkspace() {
                 className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors disabled:opacity-40 cursor-pointer"
               >
                 <Sparkles className="h-3 w-3" />
-                <span>{isGeneratingScript ? 'Redactando con Gemini...' : 'Generar con Gemini'}</span>
+                <span>{isGeneratingScript ? 'Redactando…' : 'Generar con IA'}</span>
               </button>
             </div>
 

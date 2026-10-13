@@ -79,7 +79,7 @@ export const UGC_MODELS_CATALOG: AIModelConfig[] = [
   // BLOQUE 2: OPENROUTER (Documentación Oficial: openrouter.ai/docs/videos)
   // ===========================================================================
   {
-    id: 'bytedance/seedance-1.5-pro',
+    id: 'bytedance/seedance-1-5-pro',
     name: 'ByteDance: Seedance 1.5 Pro',
     provider: 'openrouter',
     costPerSecondUSD: 0.02306,
@@ -89,9 +89,9 @@ export const UGC_MODELS_CATALOG: AIModelConfig[] = [
       'El rey del presupuesto UGC. Desarrollado por ByteDance (TikTok), altamente optimizado para estética social y costes menores a $2 por anuncio completo.',
     recommendedPerformance: 'Ideal para ganchos rápidos de 3s y pruebas A/B masivas de bajo presupuesto.',
     apiMinDurationSeconds: 5,
-    apiMaxClipDurationSeconds: 15,
+    apiMaxClipDurationSeconds: 12, // catálogo OpenRouter: 4–12 s
     apiDefaultDurationSeconds: 5,
-    supportedClipDurations: [5, 10, 15],
+    supportedClipDurations: [5, 10],
     multiClipCompositionSupported: true,
   },
   {

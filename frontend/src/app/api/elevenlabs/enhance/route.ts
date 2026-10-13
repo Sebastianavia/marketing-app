@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateText } from 'ai';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { getGeminiKeyPool, maskApiKey } from '@/lib/ai/gemini-pool';
-import { recordUsage } from '@/lib/usage/usage-store';
 import { getElevenModel } from '@/config/elevenlabs-models';
-import { errorMessage } from '@/lib/errors';
+import { orchestrateText, orchestratorErrorResponse } from '@/lib/ai/orchestrator';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
 
 /**
  * "Dar emoción": prepara el guion para la voz sin cambiar sus palabras.
+ * Lo genera el orquestador (Gemini gratis o Claude).
  * Sigue las reglas del botón Enhance que documenta ElevenLabs
  * (elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices#enhancing-input):
  * - modelos con etiquetas (v4, v4 Turbo, v3): añade etiquetas de voz entre corchetes;
@@ -42,62 +39,32 @@ const normalize = (s: string) =>
 
 export async function POST(req: NextRequest) {
   try {
-    const { text, modelId, tool = 'voice-studio' } = await req.json();
+    const { text, modelId, tool = 'voice-studio', orchestrator } = await req.json();
     if (!text || typeof text !== 'string' || !text.trim()) {
       return NextResponse.json({ error: 'Escribe primero el guion.' }, { status: 400 });
     }
 
     const spec = getElevenModel(modelId);
-    const keys = getGeminiKeyPool();
-    if (keys.length === 0) {
+    const { text: out } = await orchestrateText({
+      tool: String(tool),
+      description: `Dar emoción (${spec.name}) · "${text.trim().slice(0, 50)}${text.trim().length > 50 ? '…' : ''}"`,
+      system: spec.audioTags ? SYSTEM_TAGS : SYSTEM_PUNCTUATION,
+      prompt: text.trim(),
+      temperature: 0.4,
+      mode: orchestrator,
+    });
+    const enhanced = out.trim().replace(/^["'“]|["'”]$/g, '');
+
+    // Comprobación: las palabras deben ser las mismas que en el original
+    if (normalize(enhanced) !== normalize(text)) {
       return NextResponse.json(
-        { error: 'No hay claves de Gemini en .env.local (GEMINI_API_KEYS).' },
-        { status: 500 }
+        { error: 'La IA cambió palabras del guion, así que se descartó. Prueba otra vez.' },
+        { status: 422 }
       );
     }
 
-    let lastError: unknown = null;
-    for (let i = 0; i < keys.length; i++) {
-      try {
-        const google = createGoogleGenerativeAI({ apiKey: keys[i] });
-        const { text: out } = await generateText({
-          model: google('gemini-2.5-flash'),
-          system: spec.audioTags ? SYSTEM_TAGS : SYSTEM_PUNCTUATION,
-          prompt: text.trim(),
-          temperature: 0.4,
-        });
-        const enhanced = out.trim().replace(/^["'“]|["'”]$/g, '');
-
-        // Comprobación: las palabras deben ser las mismas que en el original
-        if (normalize(enhanced) !== normalize(text)) {
-          lastError = new Error('El modelo cambió palabras del guion; se descartó el resultado.');
-          continue;
-        }
-
-        await recordUsage({
-          tool: String(tool),
-          kind: 'script',
-          provider: 'gemini',
-          model: 'gemini-2.5-flash',
-          description: `Dar emoción (${spec.name}) · "${text.trim().slice(0, 50)}${text.trim().length > 50 ? '…' : ''}"`,
-          units: 1,
-          unit: 'texto',
-          costUSD: 0,
-          estimated: true,
-        });
-
-        return NextResponse.json({ text: enhanced, mode: spec.audioTags ? 'tags' : 'punctuation' });
-      } catch (err) {
-        lastError = err;
-        console.warn(`[Dar emoción] Llave #${i + 1} (${maskApiKey(keys[i])}) falló:`, errorMessage(err, ''));
-      }
-    }
-
-    return NextResponse.json(
-      { error: errorMessage(lastError, 'No se pudo preparar el guion.') },
-      { status: 502 }
-    );
+    return NextResponse.json({ text: enhanced, mode: spec.audioTags ? 'tags' : 'punctuation' });
   } catch (err) {
-    return NextResponse.json({ error: errorMessage(err, 'Error interno.') }, { status: 500 });
+    return orchestratorErrorResponse(err);
   }
 }

@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { GenerateScriptRequestPayload } from '@/types/openrouter.types';
+import { buildMarketingScriptPrompt, marketingScriptSchema } from '@/services/openrouter.service';
+import { orchestrateObject, orchestratorErrorResponse } from '@/lib/ai/orchestrator';
 
 export const runtime = 'nodejs';
-import { openRouterService } from '@/services/openrouter.service';
-import { GenerateScriptRequestPayload } from '@/types/openrouter.types';
-import { recordUsage } from '@/lib/usage/usage-store';
-import { scriptCost } from '@/config/cost-rates';
+export const maxDuration = 60;
 
+/**
+ * Guion UGC estructurado. Lo genera el orquestador elegido en Ajustes
+ * (Gemini gratis o Claude). Se mantiene la ruta por compatibilidad.
+ */
 export async function POST(req: NextRequest) {
   try {
-    const body: GenerateScriptRequestPayload = await req.json();
+    const body: GenerateScriptRequestPayload & { orchestrator?: unknown } = await req.json();
 
     if (!body.productName || !body.keyBenefit) {
       return NextResponse.json(
@@ -17,23 +21,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const script = await openRouterService.generateMarketingScript(body);
-    await recordUsage({
+    const { object } = await orchestrateObject({
       tool: 'ugc-generator',
-      kind: 'script',
-      provider: 'openrouter',
-      model: 'anthropic/claude-3.5-sonnet',
       description: `Guion UGC · ${body.productName}`,
-      units: 1,
-      unit: 'guion',
-      costUSD: scriptCost('anthropic/claude-3.5-sonnet'),
-      estimated: true,
+      prompt: buildMarketingScriptPrompt(body),
+      schema: marketingScriptSchema,
+      mode: body.orchestrator,
     });
-    return NextResponse.json(script);
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || 'Error al generar guion en OpenRouter.' },
-      { status: 500 }
-    );
+    return NextResponse.json(object);
+  } catch (error) {
+    return orchestratorErrorResponse(error);
   }
 }

@@ -13,6 +13,7 @@ import {
   hasAudioTags,
   type VoiceSettingsState,
 } from '@/config/elevenlabs-models';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 
 interface Props {
   modelId: string;
@@ -50,11 +51,7 @@ export function VoiceModelPanel({ modelId, onModelChange, settings, onSettingsCh
     setEnhancing(true);
     setEnhanceError(null);
     try {
-      const res = await fetch('/api/elevenlabs/enhance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, modelId: spec.id, tool }),
-      });
+      const res = await postOrchestrated('/api/elevenlabs/enhance', { text, modelId: spec.id, tool });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || typeof data.text !== 'string') throw new Error(data.error || 'No se pudo dar emoción al guion.');
       onTextChange(data.text);
