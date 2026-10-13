@@ -49,6 +49,7 @@ function NavButton({ label, shortcut, icon: Icon, active, preview, onClick }: Na
 
 export function DesktopSidebar({ activeTool, onSelectTool }: DesktopSidebarProps) {
   const projects = TOOLS.projects;
+  const costs = TOOLS.costs;
 
   return (
     <aside className="no-drag z-30 hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-line bg-bg py-3 sm:flex">
@@ -77,13 +78,22 @@ export function DesktopSidebar({ activeTool, onSelectTool }: DesktopSidebarProps
         })}
       </nav>
 
-      <NavButton
-        label={projects.title}
-        shortcut={projects.shortcut}
-        icon={projects.icon}
-        active={activeTool === 'projects'}
-        onClick={() => onSelectTool('projects')}
-      />
+      <div className="flex w-full flex-col items-center gap-1">
+        <NavButton
+          label={projects.title}
+          shortcut={projects.shortcut}
+          icon={projects.icon}
+          active={activeTool === 'projects'}
+          onClick={() => onSelectTool('projects')}
+        />
+        <NavButton
+          label={costs.title}
+          shortcut={costs.shortcut}
+          icon={costs.icon}
+          active={activeTool === 'costs'}
+          onClick={() => onSelectTool('costs')}
+        />
+      </div>
     </aside>
   );
 }

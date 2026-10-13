@@ -24,6 +24,12 @@ import {
 } from 'lucide-react';
 import { ClonedVoiceRecord, SUPPORTED_LANGUAGES, SupportedLanguageCode } from '@/types/elevenlabs.types';
 import { useMiaStore } from '@/store/useMiaStore';
+import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import {
+  DEFAULT_ELEVEN_MODEL,
+  DEFAULT_VOICE_SETTINGS,
+  type VoiceSettingsState,
+} from '@/config/elevenlabs-models';
 
 export function VoiceStudioView() {
   // Pestaña activa: 'clone' (Clonar Nueva Voz) | 'tts' (Estudio de Generación)
@@ -54,6 +60,9 @@ export function VoiceStudioView() {
     'Hola, bienvenido a nuestro estudio de producción. Esta es una demostración de clonación de voz neuronal multilingüe con ElevenLabs. Calidad de estudio lista para tus videos publicitarios.'
   );
   const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [modelId, setModelId] = useState<string>(DEFAULT_ELEVEN_MODEL);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
+  const [synthNotice, setSynthNotice] = useState<string | null>(null);
   const [isGeneratingAiScript, setIsGeneratingAiScript] = useState(false);
 
   // Reproductor de audio
@@ -201,9 +210,13 @@ export function VoiceStudioView() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tool: 'voice-studio',
           text: scriptText.trim(),
           voiceId: selectedVoiceId,
+          voiceName: voices.find((v) => v.id === selectedVoiceId)?.name,
           language: selectedLanguage,
+          modelId,
+          voiceSettings,
         }),
       });
 
@@ -212,6 +225,11 @@ export function VoiceStudioView() {
         throw new Error(errJson.error || 'Error al sintetizar el audio en ElevenLabs.');
       }
 
+      setSynthNotice(
+        res.headers.get('X-Tags-Removed')
+          ? 'Se quitaron las etiquetas entre corchetes porque este modelo no las admite.'
+          : null
+      );
       const blob = await res.blob();
       setGeneratedAudioBlob(blob);
       const url = URL.createObjectURL(blob);
@@ -584,11 +602,8 @@ export function VoiceStudioView() {
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium text-fg-muted flex items-center gap-1.5">
                     <Languages className="h-3.5 w-3.5 text-accent" />
-                    <span>Idioma Objetivo (Modelo eleven_multilingual_v2)</span>
+                    <span>Idioma</span>
                   </label>
-                  <span className="tabular-nums text-[10px] text-fg-muted border border-line bg-surface-2 px-2 py-0.5 rounded">
-                    eleven_multilingual_v2
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
@@ -641,11 +656,22 @@ export function VoiceStudioView() {
                   className="w-full rounded-2xl bg-surface-2 hover:bg-surface-2/50 border border-line focus:border-accent/60 focus:ring-1 focus:ring-accent/40 p-4 text-xs text-fg placeholder:text-fg-subtle outline-none transition-all resize-none leading-relaxed"
                 />
 
-                <div className="flex justify-between text-[11px] text-fg-subtle tabular-nums">
-                  <span>~{Math.round(scriptText.trim().length / 15)}s estimados de locución</span>
-                  <span>{scriptText.length} caracteres</span>
+                <div className="text-[11px] text-fg-subtle tabular-nums">
+                  ~{Math.round(scriptText.trim().length / 15)}s estimados de locución
                 </div>
               </div>
+
+              <VoiceModelPanel
+                modelId={modelId}
+                onModelChange={setModelId}
+                settings={voiceSettings}
+                onSettingsChange={setVoiceSettings}
+                text={scriptText}
+                onTextChange={setScriptText}
+                tool="voice-studio"
+              />
+
+              {synthNotice && <p className="text-[11px] text-fg-muted">{synthNotice}</p>}
 
               {/* Botón Principal: Sintetizar Audio */}
               <button

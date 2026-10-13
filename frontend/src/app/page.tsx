@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { TitleBar } from '@/components/layout/TitleBar';
 import { DesktopSidebar } from '@/components/layout/DesktopSidebar';
 import { ToolCard } from '@/components/dashboard/ToolCard';
@@ -10,12 +10,13 @@ import { UgcGeneratorView } from '@/components/tools/UgcGeneratorView';
 import { DeepSwapView } from '@/components/tools/DeepSwapView';
 import { TextToVideoView } from '@/components/tools/TextToVideoView';
 import { VoiceStudioView } from '@/components/tools/VoiceStudioView';
-import { BusiDemoView } from '@/components/tools/BusiDemoView';
+import { BuzzyView } from '@/components/tools/BuzzyView';
+import { CostsView } from '@/components/costs/CostsView';
 import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
-import { PRIMARY_TOOLS, TOOLS, getToolByShortcut, type ToolId } from '@/config/tools.config';
+import { PRIMARY_TOOLS, TOOLS, getToolByShortcut, normalizeToolId, type ToolId } from '@/config/tools.config';
 
 export default function Home() {
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
@@ -42,7 +43,11 @@ export default function Home() {
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg text-fg">
-      <TitleBar activeToolTitle={tool?.title} onNavigateHome={() => setActiveTool(null)} />
+      <TitleBar
+        activeToolTitle={tool?.title}
+        onNavigateHome={() => setActiveTool(null)}
+        onOpenCosts={() => setActiveTool('costs')}
+      />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <DesktopSidebar activeTool={activeTool} onSelectTool={setActiveTool} />
@@ -80,14 +85,15 @@ export default function Home() {
               {activeTool === 'deep-swap' && <DeepSwapView />}
               {activeTool === 'text-to-video' && <TextToVideoView />}
               {activeTool === 'voice-studio' && <VoiceStudioView />}
-              {activeTool === 'busi' && <BusiDemoView onBack={() => setActiveTool(null)} />}
+              {activeTool === 'buzzy' && <BuzzyView />}
+              {activeTool === 'costs' && <CostsView />}
               {activeTool === 'projects' && (
                 <ProjectsLibraryView
                   onOpenTool={(toolId, initialData) => {
                     if (initialData) {
                       useProjectHydrationStore.getState().loadProject(initialData);
                     }
-                    setActiveTool(toolId as ToolId);
+                    setActiveTool(normalizeToolId(toolId));
                   }}
                 />
               )}
@@ -104,6 +110,7 @@ export default function Home() {
 function Dashboard({ onOpen }: { onOpen: (id: ToolId) => void }) {
   const voice = TOOLS['voice-studio'];
   const projects = TOOLS.projects;
+  const costs = TOOLS.costs;
 
   return (
     <div className="animate-view-enter mx-auto w-full max-w-6xl px-4 pb-20 pt-12 sm:px-8 lg:pt-16">
@@ -120,29 +127,14 @@ function Dashboard({ onOpen }: { onOpen: (id: ToolId) => void }) {
         ))}
       </section>
 
-      <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2" aria-label="Más herramientas">
+      <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3" aria-label="Más herramientas">
         <ToolCard tool={voice} onSelect={onOpen} size="compact" />
-
-        <button
-          type="button"
-          onClick={() => onOpen('projects')}
-          className="surface-card surface-card-interactive group flex items-center justify-between gap-4 p-5 text-left"
-        >
-          <div className="flex items-center gap-4">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-line bg-surface-2 text-fg">
-              <projects.icon className="h-[18px] w-[18px]" />
-            </span>
-            <div>
-              <h3 className="text-[15px] font-semibold text-fg">{projects.title}</h3>
-              <p className="mt-0.5 text-[13px] text-fg-muted">{projects.description}</p>
-            </div>
-          </div>
-          <ArrowRight className="h-4 w-4 shrink-0 text-fg-subtle transition-transform group-hover:translate-x-0.5 group-hover:text-fg" />
-        </button>
+        <ToolCard tool={projects} onSelect={onOpen} size="compact" />
+        <ToolCard tool={costs} onSelect={onOpen} size="compact" />
       </section>
 
       <p className="mt-10 text-[12px] text-fg-subtle">
-        Atajos: <kbd className="rounded border border-line px-1">⌘1</kbd>–<kbd className="rounded border border-line px-1">⌘7</kbd>{' '}
+        Atajos: <kbd className="rounded border border-line px-1">⌘1</kbd>–<kbd className="rounded border border-line px-1">⌘8</kbd>{' '}
         para cambiar de herramienta, <kbd className="rounded border border-line px-1">⌘0</kbd> para volver aquí.
       </p>
     </div>

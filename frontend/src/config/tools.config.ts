@@ -6,7 +6,8 @@ import {
   ScanFace,
   UserRound,
   Megaphone,
-  LineChart,
+  Sparkles,
+  Receipt,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -20,8 +21,9 @@ export type ToolId =
   | 'ugc-generator'
   | 'text-to-video'
   | 'voice-studio'
-  | 'busi'
-  | 'projects';
+  | 'buzzy'
+  | 'projects'
+  | 'costs';
 
 export interface ToolDefinition {
   id: ToolId;
@@ -87,12 +89,13 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     engines: 'ElevenLabs',
     shortcut: '5',
   },
-  busi: {
-    id: 'busi',
-    title: 'Auditor de campañas',
-    formula: 'Métricas → variantes ganadoras',
-    description: 'Detecta fatiga de creativos y propone nuevas variantes para Meta y TikTok.',
-    icon: LineChart,
+  buzzy: {
+    id: 'buzzy',
+    title: 'Buzzy',
+    formula: 'Idea → escenas consistentes',
+    description: 'Videos largos y anuncios UGC con Seedance 2.5, Wan 3.0 y MiniMax H3 a través de Buzzy.',
+    icon: Sparkles,
+    engines: 'Buzzy · MCP',
     preview: true,
     shortcut: '6',
   },
@@ -104,7 +107,23 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     icon: FolderOpen,
     shortcut: '7',
   },
+  costs: {
+    id: 'costs',
+    title: 'Costos',
+    formula: 'Cada generación, con fecha, hora y precio',
+    description: 'Registro de todo lo que se gastó en este PC, por día, herramienta y proveedor, exportable a Excel.',
+    icon: Receipt,
+    shortcut: '8',
+  },
 };
+
+/** Identificadores antiguos que pueden venir de proyectos guardados o atajos viejos. */
+export const LEGACY_TOOL_IDS: Record<string, ToolId> = { busi: 'buzzy' };
+
+export function normalizeToolId(id: string): ToolId | null {
+  if (id in TOOLS) return id as ToolId;
+  return LEGACY_TOOL_IDS[id] ?? null;
+}
 
 /** Las cuatro herramientas principales del dashboard. */
 export const PRIMARY_TOOLS: ToolId[] = ['avatar-studio', 'deep-swap', 'ugc-generator', 'text-to-video'];
@@ -116,7 +135,7 @@ export const NAV_ORDER: ToolId[] = [
   'ugc-generator',
   'text-to-video',
   'voice-studio',
-  'busi',
+  'buzzy',
 ];
 
 export const HOME_ICON = LayoutGrid;

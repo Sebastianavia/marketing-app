@@ -23,14 +23,30 @@ import {
   deleteStoredVoice,
   syncStoredVoices,
 } from '@/lib/storage/voice-storage';
+import {
+  DEFAULT_ELEVEN_MODEL,
+  buildApiVoiceSettings,
+  getElevenModel,
+  hasAudioTags,
+  isKnownElevenModel,
+  stripAudioTags,
+} from '@/config/elevenlabs-models';
 
 const ELEVENLABS_API_ORIGIN = 'https://api.elevenlabs.io';
 const ELEVENLABS_BASE_URL = `${ELEVENLABS_API_ORIGIN}/v1`;
 const FALLBACK_PREMADE_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel (solo si no hay voz clonada configurada)
-const MANDATORY_MODEL_ID = process.env.ELEVENLABS_MODEL_ID?.trim() || 'eleven_multilingual_v2';
+const ENV_MODEL_ID = process.env.ELEVENLABS_MODEL_ID?.trim();
 const OUTPUT_FORMAT = 'mp3_44100_128';
-/** Límite de caracteres por petición de eleven_multilingual_v2 (docs oficiales). */
+/** Límite general; el de cada modelo está en config/elevenlabs-models.ts. */
 export const ELEVENLABS_MAX_CHARS_PER_REQUEST = 10_000;
+
+/** Modelo a usar: el pedido, el de .env.local o el predeterminado (el más barato con emoción). */
+export function resolveElevenModelId(requested?: string | null): string {
+  const r = requested?.trim();
+  if (r) return r;
+  if (ENV_MODEL_ID) return ENV_MODEL_ID;
+  return DEFAULT_ELEVEN_MODEL;
+}
 
 /**
  * voice_id de la voz clonada del estudio. Se lee en servidor primero
@@ -327,8 +343,8 @@ export class ElevenLabsService {
   // FLUJO B: GENERACIÓN TEXT-TO-SPEECH (SDK: textToSpeech.convert)
   // ===========================================================================
   /**
-   * Genera síntesis de voz neuronal utilizando obligatoriamente el SDK oficial
-   * de ElevenLabs y el modelo 'eleven_multilingual_v2' para locución hiperrealista.
+   * Genera voz con el SDK oficial de ElevenLabs. El modelo y sus ajustes válidos
+   * se definen en config/elevenlabs-models.ts.
    *
    * Utiliza de manera predeterminada la voz clonada configurada en el entorno
    * (ELEVENLABS_VOICE_ID) o la voz especificada por el usuario.
@@ -354,9 +370,22 @@ export class ElevenLabsService {
       );
     }
 
-    if (cleanText.length > ELEVENLABS_MAX_CHARS_PER_REQUEST) {
+    // Resolución del modelo: modelo seleccionado -> variable de entorno -> predeterminado
+    const effectiveModelId = resolveElevenModelId(modelId);
+    const spec = getElevenModel(effectiveModelId);
+
+    // Los modelos sin etiquetas de emoción (v2, Flash) no deben recibir [excited], [sighs]…
+    let textToSpeak = cleanText;
+    let tagsRemoved = false;
+    if (isKnownElevenModel(effectiveModelId) && !spec.audioTags && hasAudioTags(cleanText)) {
+      textToSpeak = stripAudioTags(cleanText);
+      tagsRemoved = true;
+    }
+
+    const charLimit = isKnownElevenModel(effectiveModelId) ? spec.charLimit : ELEVENLABS_MAX_CHARS_PER_REQUEST;
+    if (textToSpeak.length > charLimit) {
       throw new ElevenLabsTTSError(
-        `El guion supera el límite de ${ELEVENLABS_MAX_CHARS_PER_REQUEST.toLocaleString()} caracteres por solicitud de ElevenLabs (actual: ${cleanText.length.toLocaleString()}).`,
+        `El guion supera el límite de ${charLimit.toLocaleString()} caracteres de ${isKnownElevenModel(effectiveModelId) ? spec.name : effectiveModelId} (actual: ${textToSpeak.length.toLocaleString()}).`,
         'text_too_long',
         400
       );
@@ -378,48 +407,15 @@ export class ElevenLabsService {
       configuredVoice ||
       FALLBACK_PREMADE_VOICE_ID;
 
-    // Resolución del modelo: modelo seleccionado -> variable de entorno -> eleven_multilingual_v2
-    const effectiveModelId =
-      (modelId && modelId.trim().length > 0 ? modelId.trim() : null) ||
-      MANDATORY_MODEL_ID;
-
-    // Normalización de parámetros: Para eleven_v4 se utiliza la estructura simplificada optimizada (stability + similarityBoost)
-    const isV4Model = effectiveModelId === 'eleven_v4';
-
-    const effectiveSettings: Record<string, any> = {
-      stability: typeof voiceSettings?.stability === 'number' ? voiceSettings.stability : 0.5,
-      similarityBoost:
-        typeof voiceSettings?.similarityBoost === 'number'
-          ? voiceSettings.similarityBoost
-          : typeof voiceSettings?.similarity_boost === 'number'
-          ? voiceSettings.similarity_boost
-          : 0.75,
-    };
-
-    if (typeof voiceSettings?.speed === 'number') {
-      effectiveSettings.speed = voiceSettings.speed;
-    }
-
-    // Parámetros adicionales soportados únicamente en modelos compatibles (como eleven_multilingual_v2)
-    if (!isV4Model) {
-      if (typeof voiceSettings?.style === 'number') {
-        effectiveSettings.style = voiceSettings.style;
-      }
-      if (typeof voiceSettings?.useSpeakerBoost === 'boolean') {
-        effectiveSettings.useSpeakerBoost = voiceSettings.useSpeakerBoost;
-      } else if (typeof voiceSettings?.use_speaker_boost === 'boolean') {
-        effectiveSettings.useSpeakerBoost = voiceSettings.use_speaker_boost;
-      } else {
-        effectiveSettings.useSpeakerBoost = true;
-      }
-    }
+    // Solo se envían los ajustes que admite el modelo (v4: estabilidad + similitud; v3: solo estabilidad…)
+    const effectiveSettings = buildApiVoiceSettings(effectiveModelId, voiceSettings ?? {});
 
     try {
       const client = this.getClient();
 
       // Invocación a través del SDK oficial de ElevenLabs con modelo dinámico y parámetros de síntesis
       const audioStream = await client.textToSpeech.convert(effectiveVoiceId, {
-        text: cleanText,
+        text: textToSpeak,
         modelId: effectiveModelId,
         outputFormat: OUTPUT_FORMAT,
         voiceSettings: effectiveSettings,
@@ -438,13 +434,16 @@ export class ElevenLabsService {
       }
 
       // Estimación de duración de locución en español (~14-16 caracteres/segundo)
-      const estimatedDurationSeconds = Math.max(2, Math.round(cleanText.length / 15));
+      const estimatedDurationSeconds = Math.max(2, Math.round(textToSpeak.length / 15));
 
       return {
         buffer,
         mimeType: 'audio/mpeg',
         sizeBytes: buffer.length,
         durationEstimatedSeconds: estimatedDurationSeconds,
+        modelId: effectiveModelId,
+        charactersBilled: textToSpeak.length,
+        tagsRemoved,
       };
     } catch (err: any) {
       throw mapSdkError(err);

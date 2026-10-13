@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { getGeminiKeyPool, maskApiKey } from '@/lib/ai/gemini-pool';
+import { recordUsage } from '@/lib/usage/usage-store';
+import { scriptCost } from '@/config/cost-rates';
 
 export const runtime = 'nodejs';
 export const maxDuration = 45;
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, format = 'ugc_testimonial' } = await req.json();
+    const { prompt, format = 'ugc_testimonial', tool = 'avatar-studio' } = await req.json();
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return NextResponse.json(
@@ -51,6 +53,18 @@ Reglas estrictas:
         });
 
         const cleanScript = text.trim().replace(/^["']|["']$/g, '');
+
+        await recordUsage({
+          tool: String(tool),
+          kind: 'script',
+          provider: 'gemini',
+          model: 'gemini-2.5-flash',
+          description: `Guion · "${prompt.trim().slice(0, 60)}${prompt.trim().length > 60 ? '…' : ''}"`,
+          units: 1,
+          unit: 'guion',
+          costUSD: scriptCost('gemini-2.5-flash'),
+          estimated: true,
+        });
 
         return NextResponse.json({
           script: cleanScript,

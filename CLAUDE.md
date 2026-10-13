@@ -121,10 +121,34 @@ Guía de cuál usar en cada tarea: `docs/context/skills.md`. Para buscar nuevas:
 Plan completo: https://claude.ai/code/artifact/5321e959-43c0-467d-8114-330e35a1983f ("Lulo Studio — Plan estratégico de mejora y arquitectura").
 
 - **Equipo de 4 personas, cada una ejecuta la app en su propio PC.** Sin servidor ni base de datos en la nube; costo de infraestructura cero.
-- **Persistencia local:** SQLite (`lulo.db` en la carpeta de proyectos) con `better-sqlite3` + Drizzle; resultados (MP4, audios) en disco local como hoy.
-- **Render en segundo plano:** tabla `render_jobs` + *runner* dentro del servidor Next.js (arrancado en `src/instrumentation.ts`), que consulta a los proveedores cada 10 s. Sin webhooks (un PC no es alcanzable desde internet). La UI consulta `/api/jobs/[id]` cada 3 s. El navegador nunca espera un render.
+- **Persistencia (implementado 2026-10-12):** NO SQLite. Archivos JSON en la **carpeta de datos del usuario**, fuera de la app, para que nada se pierda al actualizar o empaquetar como `.exe`: `getDataDir()` en `src/lib/data/data-dir.ts` = `LULO_DATA_DIR` o `%APPDATA%\LuloStudio` (Windows) o `~/.lulo-studio`. Contiene `meta.json` (schemaVersion, migraciones solo hacia adelante), `settings.json` (basePath, personName, dailyLimitUSD; antes `frontend/storage-config.json`, se migra solo), `usage/AAAA-MM.jsonl` (registro de costos, solo se añade) y `jobs/<id>.json` (trabajos de render). Escrituras atómicas (`writeJsonAtomic`).
+- **Todo lo generado se guarda solo:** `src/lib/storage/generated-library.ts` copia cada MP3 (ruta TTS) y cada MP4 (runner) a `<carpeta de proyectos>\Generados\AAAA-MM\`, aunque no se pulse "Guardar proyecto".
+- **Render en segundo plano (implementado para Avatar Studio):** `src/lib/jobs/runner.ts` arrancado en `src/instrumentation.ts`; `POST /api/render-jobs` crea el trabajo y responde al instante; `GET /api/jobs/[id]` para seguirlo. Reintenta 3 veces, timeout 30 min, retoma trabajos al reiniciar. La vista guarda el jobId en localStorage (`lulo_avatar_active_job`) y lo retoma al volver.
+- **Costos (implementado):** `recordUsage()` en `src/lib/usage/usage-store.ts`, llamado desde TTS, guiones (Gemini $0, OpenRouter estimado) y runner de video. Tarifas en `src/config/cost-rates.ts` (fuente: `docs/finops/`). Vista `components/costs/CostsView.tsx` (herramienta `costs`, ⌘8): totales hoy/mes, gasto por herramienta, tabla por día con hora, persona, proveedor, cantidad y costo, exportar CSV (`/api/usage/export`), nombre de la persona y límite diario editables (`/api/settings/profile`). Indicador "Hoy $X" en la barra superior (`TodaySpend`).
 - **Entradas para proveedores:** Cloudinary (ya integrado) solo como almacenamiento temporal con URL pública; se borra tras el render.
 - **Consumo:** tabla local `usage_events` (persona, proveedor, modelo, unidades, costo) + vista "Consumo" + exportar CSV para comparar entre los 4. Recomendado: una clave de API por persona.
-- **"Busi" es en realidad Buzzy (https://www.buzzy.now/)**: plataforma externa de video (Seedance 2.5, Wan 3.0, MiniMax H3) que se integra por MCP desde el servidor (`src/lib/buzzy/client.ts`, `BUZZY_MCP_URL`, `BUZZY_MCP_TOKEN`). Renombrar `busi` → `buzzy` con alias de compatibilidad. Pendiente: URL y autenticación del MCP de Buzzy (no son públicas).
+- **"Busi" es en realidad Buzzy (https://www.buzzy.now/)**: plataforma externa de video (Seedance 2.5, Wan 3.0, MiniMax H3) que se integra por MCP desde el servidor (`src/lib/buzzy/client.ts`, `BUZZY_MCP_URL`, `BUZZY_MCP_TOKEN`). Renombrado `busi` → `buzzy` (alias en `LEGACY_TOOL_IDS`); `BuzzyView` muestra el estado de conexión (`/api/buzzy/status`). Pendiente: URL y autenticación del MCP de Buzzy (no son públicas) y el cliente MCP.
 - **Proveedor de avatar por defecto:** OpenRouter `heygen/avatar-iv` ($0.05/s, la mitad que la API directa de HeyGen a $0.10/s). Respaldo: fal Kling AI Avatar v2 ($0.0562/s). Lipsync sobre video: sync.so.
 - **Gráficos de campañas:** plantillas propias en React (Satori / Remotion) antes que Canva, Bannerbear o Placid.
+- **Voz ElevenLabs (2026-10-12):** los modelos, precios, límites y ajustes válidos viven en `frontend/src/config/elevenlabs-models.ts` (fuente única, cliente y servidor). Predeterminado `eleven_v4_turbo` ($0.04/1k, el más barato con etiquetas de emoción). `buildApiVoiceSettings()` envía a la API solo los ajustes que admite cada modelo (v4: stability+similarity; v3: solo stability 0/0.5/1; v2 y Flash: todos, speed 0.7–1.2). UI compartida en `components/voice/VoiceModelPanel.tsx` (Voice Studio y Avatar Studio). Botón "Dar emoción" → `api/elevenlabs/enhance` (Gemini, rechaza si cambia palabras). Modelos sin etiquetas: el servidor quita `[..]` antes de generar (`X-Tags-Removed`).
+
+## Pendiente del plan (al 2026-10-12)
+
+- Generador UGC: usar de verdad el modelo elegido (hoy aún va por `useUgcPipeline` → HeyGen directo).
+- Guion a video y Clonación y reemplazo: siguen simulados.
+- Cliente MCP de Buzzy (falta URL y clave).
+- Campañas automáticas (Fase 2 del plan).
+- Errores de lint previos en `AvatarWorkspace.tsx` y otros archivos antiguos (setState en efectos, `any`).
+
+## context-mode (MCP)
+
+El proyecto declara el servidor `context-mode` en `.mcp.json` (para Claude Code) y en `.agents/mcp_config.json` (para Antigravity). Cuando sus herramientas estén disponibles en la sesión (`ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`, `ctx_search`, `ctx_fetch_and_index`, `ctx_index`):
+
+- Para analizar, buscar, contar o resumir archivos y salidas largas, usar `ctx_execute` / `ctx_execute_file` e imprimir solo el resultado, nunca el archivo entero.
+- Para varias órdenes de exploración, usar `ctx_batch_execute` en una sola llamada.
+- Para páginas web, `ctx_fetch_and_index` y luego `ctx_search`.
+- Leer un archivo completo solo cuando se va a editar.
+- Si las herramientas no están disponibles (por ejemplo en una sesión en la nube), filtrar a mano: `grep`, rangos de líneas, solo los errores.
+
+Instalación recomendada en Claude Code (añade también los hooks de enrutado automático):
+`/plugin marketplace add mksglu/context-mode` → `/plugin install context-mode@context-mode` → `/reload-plugins` → comprobar con `/context-mode:ctx-doctor`.

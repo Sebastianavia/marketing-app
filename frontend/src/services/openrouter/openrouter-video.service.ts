@@ -54,10 +54,12 @@ export class OpenRouterVideoService {
     }
 
     if (!this.isConfigured) {
-      console.warn(
-        '[OpenRouterVideoService] OPENROUTER_API_KEY no configurada. Iniciando simulación de renderizado para entorno de desarrollo.'
+      // Sin clave no se simula nada: un video de muestra haría creer que el render funcionó.
+      throw new PipelineError(
+        'Falta OPENROUTER_API_KEY en .env.local: no se puede generar el video.',
+        'video_dispatch',
+        false
       );
-      return this.createMockTask(model);
     }
 
     // El payload solo se construye cuando ambas URLs son strings válidos.

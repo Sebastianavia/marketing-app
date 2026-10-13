@@ -5,10 +5,12 @@ import { Minus, Square, Copy, X, Sparkles } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { CloudinaryCleanWidget } from '@/components/storage/CloudinaryCleanWidget';
+import { TodaySpend } from '@/components/layout/TodaySpend';
 
 interface TitleBarProps {
   activeToolTitle?: string;
   onNavigateHome?: () => void;
+  onOpenCosts?: () => void;
 }
 
 // APIs de ventana nativa (Electron / Tauri), si la app corre empaquetada
@@ -42,7 +44,7 @@ function hasNativeWindow() {
   );
 }
 
-export function TitleBar({ activeToolTitle, onNavigateHome }: TitleBarProps) {
+export function TitleBar({ activeToolTitle, onNavigateHome, onOpenCosts }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const toggleMia = useMiaStore((s) => s.toggleOpen);
   const isMiaOpen = useMiaStore((s) => s.isOpen);
@@ -92,6 +94,7 @@ export function TitleBar({ activeToolTitle, onNavigateHome }: TitleBarProps) {
 
       {/* Acciones */}
       <div className="no-drag flex items-center gap-1.5">
+        <TodaySpend onClick={onOpenCosts} />
         <CloudinaryCleanWidget />
 
         <button

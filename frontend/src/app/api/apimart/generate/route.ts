@@ -10,16 +10,10 @@ export async function POST(req: NextRequest) {
     const client = new ApiMartClient(apiKey);
 
     if (!client.isConfigured) {
-      // Modo preparación / simulación si el usuario aún no ingresa su ApiMart Key
-      const mockTaskId = `apimart_task_${Date.now()}`;
-      return NextResponse.json({
-        taskId: mockTaskId,
-        status: 'processing',
-        model,
-        durationSeconds,
-        isSimulated: true,
-        message: 'Modo preparación ApiMart. Configura APIMART_API_KEY para renderizado en producción.',
-      });
+      return NextResponse.json(
+        { error: 'Falta APIMART_API_KEY en .env.local (o tu clave de APIMart en la herramienta): no se puede generar el video.' },
+        { status: 400 }
+      );
     }
 
     const task = await client.generateVideo({

@@ -3,7 +3,7 @@ import fsSync from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'storage-config.json');
+import { getSettings, updateSettings } from '@/lib/data/settings';
 
 export interface ProjectMetadata {
   id: string;
@@ -66,19 +66,20 @@ const DEFAULT_CATEGORIES = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu'] as const
  * Si no está configurado, usa por defecto D:\LuloStudio_Projects (o C:\LuloStudio_Projects si D: no existe).
  */
 export async function getStorageBasePath(): Promise<string> {
+  // La ruta vive en la carpeta de datos del usuario (fuera de la app), así sobrevive a actualizaciones.
   try {
-    if (fsSync.existsSync(CONFIG_FILE_PATH)) {
-      const data = await fs.readFile(CONFIG_FILE_PATH, 'utf-8');
-      const parsed = JSON.parse(data);
-      if (parsed.basePath && typeof parsed.basePath === 'string') {
-        return parsed.basePath;
+    const { basePath } = await getSettings();
+    if (basePath && typeof basePath === 'string') {
+      if (!fsSync.existsSync(basePath)) {
+        await fs.mkdir(basePath, { recursive: true });
       }
+      return basePath;
     }
   } catch (err) {
-    console.error('Error leyendo storage-config.json:', err);
+    console.error('Error leyendo la configuración de almacenamiento:', err);
   }
 
-  // Fallback inteligente: probar D: primero (solicitud del usuario), luego C:
+  // Valor por defecto: D:\LuloStudio_Projects, o C:\LuloStudio_Projects si no existe D:
   let defaultPath = 'D:\\LuloStudio_Projects';
   try {
     if (!fsSync.existsSync('D:\\')) {
@@ -88,15 +89,13 @@ export async function getStorageBasePath(): Promise<string> {
     defaultPath = 'C:\\LuloStudio_Projects';
   }
 
-  // Asegurar que exista
   try {
     if (!fsSync.existsSync(defaultPath)) {
       await fs.mkdir(defaultPath, { recursive: true });
     }
-    // Guardar en config
-    await fs.writeFile(CONFIG_FILE_PATH, JSON.stringify({ basePath: defaultPath }, null, 2));
-  } catch (e) {
-    defaultPath = path.join(process.cwd(), '..', 'LuloStudio_Projects');
+    await updateSettings({ basePath: defaultPath });
+  } catch {
+    defaultPath = path.join(/*turbopackIgnore: true*/ process.cwd(), '..', 'LuloStudio_Projects');
     if (!fsSync.existsSync(defaultPath)) {
       await fs.mkdir(defaultPath, { recursive: true });
     }
@@ -124,8 +123,8 @@ export async function setStorageBasePath(newPath: string): Promise<string> {
     }
   }
 
-  // Guardar configuración
-  await fs.writeFile(CONFIG_FILE_PATH, JSON.stringify({ basePath: sanitizedPath }, null, 2));
+  // Guardar configuración en la carpeta de datos del usuario
+  await updateSettings({ basePath: sanitizedPath });
   return sanitizedPath;
 }
 

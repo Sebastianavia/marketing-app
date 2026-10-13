@@ -24,16 +24,20 @@ import {
   FolderOpen,
   Receipt,
   RefreshCw,
-  SlidersHorizontal,
   ChevronDown,
   KeyRound,
 } from 'lucide-react';
+import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import {
+  DEFAULT_ELEVEN_MODEL,
+  DEFAULT_VOICE_SETTINGS,
+  type VoiceSettingsState,
+} from '@/config/elevenlabs-models';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useProjectHydration } from '@/store/useProjectHydrationStore';
 import { SaveProjectWidget } from '../storage/SaveProjectWidget';
 import { usePricingStore } from '@/store/usePricingStore';
 import { useCloudinaryStore } from '@/store/useCloudinaryStore';
-import { extractVideoDurationSeconds } from '@/lib/video/video-metadata';
 
 export interface VoiceOption {
   id: string;
@@ -50,45 +54,6 @@ const DEFAULT_ELEVENLABS_VOICES: VoiceOption[] = [
   { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', style: 'Comercial / Cercana', category: 'premade' },
 ];
 
-export interface ElevenLabsModelOption {
-  id: string;
-  name: string;
-  badge?: string;
-  description: string;
-  speed: string;
-}
-
-const ELEVENLABS_MODELS: ElevenLabsModelOption[] = [
-  {
-    id: 'eleven_v4',
-    name: 'Eleven v4',
-    badge: 'Nuevo • Hyper-Speed',
-    description: 'Mayor velocidad de síntesis, menor latencia y alta expresividad emocional.',
-    speed: '⚡ 2x Más Rápido',
-  },
-  {
-    id: 'eleven_multilingual_v2',
-    name: 'Multilingual v2',
-    badge: 'Estándar Consistente',
-    description: 'El modelo estándar para máxima neutralidad y consistencia en español e inglés.',
-    speed: '🎯 Precisión Alta',
-  },
-];
-
-export interface VoiceSettingsState {
-  stability: number; // 0.0 a 1.0 (default: 0.50)
-  similarityBoost: number; // 0.0 a 1.0 (default: 0.75)
-  style: number; // 0.0 a 1.0 (default: 0.00)
-  speed: number; // 0.70 a 1.25 (default: 1.00)
-}
-
-const DEFAULT_VOICE_SETTINGS: VoiceSettingsState = {
-  stability: 0.5,
-  similarityBoost: 0.75,
-  style: 0.0,
-  speed: 1.0,
-};
-
 // Error específico de subida a Cloudinary (permite mostrar el toast correcto en la UI)
 class CloudinaryUploadError extends Error {
   constructor(message: string) {
@@ -96,6 +61,8 @@ class CloudinaryUploadError extends Error {
     this.name = 'CloudinaryUploadError';
   }
 }
+
+const ACTIVE_JOB_KEY = 'lulo_avatar_active_job';
 
 export function AvatarWorkspace() {
   // Integración de Hidratación de Proyectos Guardados en Disco
@@ -125,7 +92,7 @@ export function AvatarWorkspace() {
   const [audioMode, setAudioMode] = useState<'generar' | 'local'>('generar');
   const [availableVoices, setAvailableVoices] = useState<VoiceOption[]>(DEFAULT_ELEVENLABS_VOICES);
   const [selectedVoiceId, setSelectedVoiceId] = useState(DEFAULT_ELEVENLABS_VOICES[0].id);
-  const [selectedModelId, setSelectedModelId] = useState<string>('eleven_v4');
+  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_ELEVEN_MODEL);
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
   const [isElevenLabsConfigured, setIsElevenLabsConfigured] = useState<boolean>(true);
   const [localAudioFile, setLocalAudioFile] = useState<File | null>(null);
@@ -258,6 +225,20 @@ export function AvatarWorkspace() {
   // Facturación y Recibo de Consumo Final
   const [finalCostUSD, setFinalCostUSD] = useState<number | null>(null);
   const [videoDurationReal, setVideoDurationReal] = useState<number | null>(null);
+  // Ruta del MP4 guardado automáticamente en la biblioteca (Generados/AAAA-MM)
+  const [finalVideoPath, setFinalVideoPath] = useState<string | null>(null);
+
+  // El render corre en el servidor; la vista solo sigue el trabajo. Si se cierra
+  // la vista o la app, el trabajo continúa y se retoma al volver (ver efecto de reanudación).
+  const followingJobRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      followingJobRef.current = null;
+    };
+  }, []);
 
   // Sincronización dinámica de precios al montar el componente
   useEffect(() => {
@@ -419,6 +400,91 @@ export function AvatarWorkspace() {
     setTimeout(() => setToast(null), 5000);
   };
 
+  /**
+   * Sigue un trabajo de render del servidor hasta que termine.
+   * Si la vista se desmonta, deja de consultar (el trabajo sigue en el servidor).
+   */
+  const followJob = async (jobId: string, startedAtMs: number) => {
+    followingJobRef.current = jobId;
+    setIsRendering(true);
+    const tick = setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
+    }, 1000);
+
+    try {
+      while (mountedRef.current && followingJobRef.current === jobId) {
+        const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+        if (res.status === 404) {
+          throw new Error('El trabajo de render ya no existe.');
+        }
+        if (res.ok) {
+          const job = await res.json();
+          setRenderPhase(job.phase || 'Generando el video…');
+
+          if (job.status === 'completed' && job.videoUrl) {
+            setFinalVideoUrl(job.videoUrl);
+            setFinalVideoPath(job.outputPath ?? null);
+            setVideoDurationReal(job.durationSec ?? null);
+            setFinalCostUSD(typeof job.costUSD === 'number' ? Number(job.costUSD.toFixed(2)) : null);
+            setRenderProgress(100);
+            setRenderPhase('Video listo y guardado en tu biblioteca');
+            setIsRendering(false);
+            try {
+              localStorage.removeItem(ACTIVE_JOB_KEY);
+            } catch {}
+            return;
+          }
+
+          if (job.status === 'failed') {
+            try {
+              localStorage.removeItem(ACTIVE_JOB_KEY);
+            } catch {}
+            throw new Error(`${job.error || 'El render falló en el proveedor.'} Puedes reintentar.`);
+          }
+
+          // Avance aproximado mientras el proveedor procesa
+          setRenderProgress((prev) => (job.status === 'queued' ? Math.max(prev, 62) : Math.min(Math.max(prev, 70) + 1, 95)));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    } finally {
+      clearInterval(tick);
+    }
+  };
+
+  // Reanudar un render que seguía en curso al cerrar la vista o la app
+  useEffect(() => {
+    let jobId: string | null = null;
+    try {
+      jobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    } catch {}
+    if (!jobId) return;
+
+    (async () => {
+      const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' }).catch(() => null);
+      if (!res || !res.ok) {
+        try {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        } catch {}
+        return;
+      }
+      const job = await res.json();
+      if (job.status === 'queued' || job.status === 'processing' || job.status === 'completed') {
+        setErrorMsg(null);
+        setRenderProgress(job.status === 'completed' ? 100 : 70);
+        followJob(job.id, Date.parse(job.createdAt)).catch((err) => {
+          setErrorMsg(err.message);
+          setIsRendering(false);
+        });
+      } else {
+        try {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        } catch {}
+      }
+    })();
+    // Solo al montar la vista
+  }, []);
+
   const handleRender = async () => {
     // Resolver foto activa (archivo seleccionado o hidratado desde preview / disco / nube)
     let activeImageFile = photoFile;
@@ -468,6 +534,9 @@ export function AvatarWorkspace() {
     setElapsedSeconds(0);
     setErrorMsg(null);
     setFinalVideoUrl(null);
+    setFinalVideoPath(null);
+    setFinalCostUSD(null);
+    setVideoDurationReal(null);
 
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
@@ -523,16 +592,13 @@ export function AvatarWorkspace() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              tool: 'avatar-studio',
               text: scriptText.trim(),
               voiceId: effectiveVoiceId,
               language: 'es',
               modelId: selectedModelId,
-              voiceSettings: {
-                stability: voiceSettings.stability,
-                similarity_boost: voiceSettings.similarityBoost,
-                style: voiceSettings.style,
-                speed: voiceSettings.speed,
-              },
+              // El servidor envía a ElevenLabs solo los ajustes que admite el modelo
+              voiceSettings,
             }),
           });
 
@@ -560,157 +626,41 @@ export function AvatarWorkspace() {
       }
 
       // -----------------------------------------------------------------------
-      // PASO 3: CAMBIAR ESTADO A "Enviando a OpenRouter..."
+      // PASO 3: CREAR EL TRABAJO DE RENDER EN SEGUNDO PLANO
+      //         El servidor envía a OpenRouter (heygen/avatar-iv), espera el
+      //         resultado, guarda el MP4 en la biblioteca y registra el costo.
       // -----------------------------------------------------------------------
-      setRenderPhase('Enviando a OpenRouter...');
+      setRenderPhase('Enviando el trabajo…');
       setRenderProgress(60);
 
-      // -----------------------------------------------------------------------
-      // PASO 4: LLAMAR A OPENROUTER (/v1/videos) CON MODELO heygen/avatar-iv
-      //         PASÁNDOLE ESTRICTAMENTE LAS URLs DE CLOUDINARY EN input_references
-      // -----------------------------------------------------------------------
-      const generateResponse = await fetch('/api/openrouter/videos/generate', {
+      const jobResponse = await fetch('/api/render-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tool: 'avatar-studio',
+          title: activeProject?.title || activeProject?.name || 'Avatar Studio',
+          provider: 'openrouter',
           model: 'heygen/avatar-iv',
           imageUrl: publicImageUrl,
           audioUrl: publicAudioUrl,
           aspectRatio,
+          estimatedSeconds,
         }),
       });
 
-      if (!generateResponse.ok) {
-        const errData = await generateResponse.json().catch(() => ({}));
-        throw new Error(errData.error || 'Fallo al despachar la tarea en OpenRouter.');
+      const jobData = await jobResponse.json().catch(() => ({}));
+      if (!jobResponse.ok || !jobData.jobId) {
+        throw new Error(jobData.error || 'No se pudo crear el trabajo de render.');
       }
 
-      const { taskId } = await generateResponse.json();
-
-      // -----------------------------------------------------------------------
-      // PASO 5: INICIAR POLLING HASTA QUE OPENROUTER DEVUELVA EL MP4
-      // -----------------------------------------------------------------------
-      setRenderPhase('Renderizando fotorrealismo y lip-sync en OpenRouter...');
-      setRenderProgress(70);
-
-      let completed = false;
-      const startTime = Date.now();
-      // Holgura extendida a 10 minutos (600,000 ms) para videos pesados o de alta duración
-      const TIMEOUT_MS = 600000;
-      let completedWithoutUrlCount = 0;
-
-      while (!completed) {
-        await new Promise((resolve) => setTimeout(resolve, 3500));
-
-        const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
-        const elapsedMin = Math.floor(elapsedSec / 60);
-        const secRemainder = elapsedSec % 60;
-        const timeFormatted = elapsedMin > 0 ? `${elapsedMin}m ${secRemainder}s` : `${secRemainder}s`;
-
-        if (Date.now() - startTime > TIMEOUT_MS) {
-          clearInterval(timer);
-          setIsRendering(false);
-          throw new Error(
-            `Tiempo de espera agotado (${Math.round(TIMEOUT_MS / 60000)} min). El procesamiento en la nube está tomando más tiempo del habitual. Puedes pulsar en "Reintentar".`
-          );
-        }
-
-        const pollRes = await fetch(`/api/openrouter/videos/status/${taskId}`);
-        if (!pollRes.ok) {
-          console.warn('[Polling] Advertencia temporal de red consultando OpenRouter.');
-          continue;
-        }
-
-        const pollData = await pollRes.json();
-        console.log('[Polling check]:', JSON.stringify(pollData, null, 2));
-
-        const status = (pollData.status || pollData.state || pollData.rawStatus || '').toLowerCase();
-
-        // ---------------------------------------------------------------------
-        // Extracción exhaustiva de la URL del video resultante:
-        // Prioridad 1: Captura de la primera URL válida en unsigned_urls de OpenRouter
-        // ---------------------------------------------------------------------
-        const unsignedList: any[] =
-          (Array.isArray(pollData.unsigned_urls) && pollData.unsigned_urls) ||
-          (Array.isArray(pollData.unsignedUrls) && pollData.unsignedUrls) ||
-          (Array.isArray(pollData.data?.unsigned_urls) && pollData.data.unsigned_urls) ||
-          (Array.isArray(pollData.output?.unsigned_urls) && pollData.output.unsigned_urls) ||
-          [];
-
-        const firstUnsignedUrl =
-          unsignedList.find((item) => typeof item === 'string' && item.trim().startsWith('http'))?.trim() || null;
-
-        // Prioridad 2: Propiedades directas de URL
-        const videoUrl: string | null =
-          firstUnsignedUrl ||
-          (typeof pollData.videoUrl === 'string' && pollData.videoUrl.startsWith('http') ? pollData.videoUrl : null) ||
-          (typeof pollData.video_url === 'string' && pollData.video_url.startsWith('http') ? pollData.video_url : null) ||
-          (typeof pollData.url === 'string' && pollData.url.startsWith('http') ? pollData.url : null) ||
-          (typeof pollData.output_url === 'string' && pollData.output_url.startsWith('http') ? pollData.output_url : null) ||
-          (typeof pollData.result_url === 'string' && pollData.result_url.startsWith('http') ? pollData.result_url : null) ||
-          (typeof pollData.output === 'string' && pollData.output.startsWith('http') ? pollData.output : null) ||
-          (typeof pollData.result?.url === 'string' && pollData.result.url.startsWith('http') ? pollData.result.url : null) ||
-          (typeof pollData.output?.video_url === 'string' && pollData.output.video_url.startsWith('http') ? pollData.output.video_url : null) ||
-          null;
-
-        const isFinished =
-          ['completed', 'succeeded', 'success', 'done'].includes(status) || Boolean(videoUrl);
-
-        // Resolución Exitosa Inmediata
-        if (isFinished && videoUrl) {
-          completed = true;
-          clearInterval(timer);
-
-          setRenderPhase('Extrayendo duración real y procesando recibo...');
-          setRenderProgress(98);
-
-          // 2. Extracción de Duración Real del MP4 vía metadatos
-          let realDuration = 10;
-          try {
-            realDuration = await extractVideoDurationSeconds(videoUrl);
-          } catch (metaErr) {
-            console.warn('[Metadata] No se pudo extraer duración vía metadatos, usando fallback:', metaErr);
-          }
-          const verifiedRate = usePricingStore.getState().getRatePerSecond('heygen/avatar-iv');
-          const finalCost = Number((realDuration * verifiedRate).toFixed(2));
-
-          setFinalCostUSD(finalCost);
-          setVideoDurationReal(realDuration);
-          setFinalVideoUrl(videoUrl);
-          setRenderProgress(100);
-          setRenderPhase('¡Video completado con éxito!');
-          setIsRendering(false);
-          return;
-        }
-
-        // Si el estado es "completed" pero la URL aún no está en unsigned_urls, esperar hasta 4 sondeos de gracia
-        if (['completed', 'succeeded', 'success', 'done'].includes(status) && !videoUrl) {
-          completedWithoutUrlCount += 1;
-          if (completedWithoutUrlCount > 4) {
-            clearInterval(timer);
-            setIsRendering(false);
-            throw new Error(
-              'OpenRouter marcó el renderizado como completado pero aún no generó la URL de descarga. Por favor reintenta.'
-            );
-          }
-        }
-
-        // Manejo de Errores del Proveedor (failed, error, canceled)
-        if (['failed', 'error', 'canceled'].includes(status)) {
-          clearInterval(timer);
-          setIsRendering(false);
-          const providerError =
-            pollData.error?.message ||
-            pollData.error ||
-            `El renderizado fue rechazado por el proveedor (${status}).`;
-          throw new Error(`${providerError} Puedes reintentar la operación.`);
-        }
-
-        // Actualizar mensaje de progreso con tiempo transcurrido
-        setRenderPhase(`Generando video con lip-sync en OpenRouter (${timeFormatted})...`);
-        // Incrementar barra suavemente entre 70% y 95%
-        setRenderProgress((prev) => Math.min(prev + 2, 95));
+      try {
+        localStorage.setItem(ACTIVE_JOB_KEY, jobData.jobId);
+      } catch {
+        // Sin localStorage la reanudación no funciona, pero el render sigue en el servidor
       }
+
+      clearInterval(timer);
+      await followJob(jobData.jobId, Date.now());
     } catch (err: any) {
       console.error('[Render Error]:', err);
       if (err instanceof CloudinaryUploadError) {
@@ -1256,189 +1206,17 @@ export function AvatarWorkspace() {
                   </div>
                 </div>
 
-                {/* Selector de Modelos de Síntesis Vocal (eleven_v4 vs eleven_multilingual_v2) */}
-                <div className="space-y-1.5 pt-2 border-t border-line">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-medium text-fg-muted flex items-center gap-1.5">
-                      <Sparkles className="h-3 w-3 text-accent" />
-                      <span>Motor de Síntesis Vocal (Model):</span>
-                    </span>
-                    <span className="text-[10px] tabular-nums text-fg-subtle">
-                      {selectedModelId === 'eleven_v4' ? '⚡ eleven_v4 activo' : '🎯 eleven_multilingual_v2 activo'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {ELEVENLABS_MODELS.map((model) => {
-                      const isSelected = selectedModelId === model.id;
-                      return (
-                        <button
-                          key={model.id}
-                          type="button"
-                          onClick={() => setSelectedModelId(model.id)}
-                          className={`flex items-start justify-between p-2 rounded-xl border text-left transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-accent/70 border-accent text-fg shadow-xs ring-1 ring-accent/40'
-                              : 'bg-surface-2 border-line text-fg-muted hover:text-fg hover:bg-surface-2'
-                          }`}
-                        >
-                          <div className="space-y-0.5 pr-2">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-semibold">{model.name}</span>
-                              <span
-                                className={`text-[9px] tabular-nums px-1.5 py-0.5 rounded font-medium ${
-                                  model.id === 'eleven_v4'
-                                    ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/20 dark:text-emerald-300 border border-emerald-500/20'
-                                    : 'bg-accent/10 text-accent border border-accent/20'
-                                }`}
-                              >
-                                {model.badge}
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-fg-subtle leading-tight">
-                              {model.description}
-                            </p>
-                          </div>
-                          <span className="text-[10px] tabular-nums text-fg-subtle shrink-0 self-center">
-                            {model.speed}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 3. Controles de Audio Alineados al Modelo (Sliders ElevenLabs) */}
-                <div className="space-y-2 pt-2 border-t border-line">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <SlidersHorizontal className="h-3 w-3 text-accent" />
-                      <span className="text-[11px] font-semibold text-fg">
-                        {selectedModelId === 'eleven_v4'
-                          ? 'Parámetros Optimizados (eleven_v4)'
-                          : 'Parámetros de Síntesis (ElevenLabs)'}
-                      </span>
-                      {selectedModelId === 'eleven_v4' && (
-                        <span className="text-[9px] tabular-nums px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/20 dark:text-emerald-300 border border-emerald-500/20">
-                          Estructura Simplificada
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setVoiceSettings(DEFAULT_VOICE_SETTINGS)}
-                      className="text-[10px] tabular-nums text-accent hover:underline cursor-pointer"
-                      title="Restablecer valores predeterminados de ElevenLabs"
-                    >
-                      Restablecer
-                    </button>
-                  </div>
-
-                  <div className={`grid gap-2.5 p-3 rounded-xl bg-surface-2/70 border border-line ${
-                    selectedModelId === 'eleven_v4' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'
-                  }`}>
-                    {/* Estabilidad: Creativo a Robusto */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-medium text-fg-muted">
-                          Estabilidad (stability)
-                        </label>
-                        <span className="text-[10px] tabular-nums px-1.5 py-0.2 rounded bg-accent/10 text-accent font-semibold">
-                          {Math.round(voiceSettings.stability * 100)}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={voiceSettings.stability}
-                        onChange={(e) => setVoiceSettings((prev) => ({ ...prev, stability: parseFloat(e.target.value) }))}
-                        className="w-full h-1.5 bg-surface-2 rounded-lg appearance-none cursor-pointer accent-indigo-600 dark:accent-indigo-400"
-                      />
-                      <div className="flex justify-between text-[9px] text-fg-subtle tabular-nums">
-                        <span>Creativo (0.0)</span>
-                        <span>Robusto (1.0)</span>
-                      </div>
-                    </div>
-
-                    {/* Similitud: Baja a Alta */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-medium text-fg-muted">
-                          Similitud (similarity_boost)
-                        </label>
-                        <span className="text-[10px] tabular-nums px-1.5 py-0.2 rounded bg-accent/10 text-accent font-semibold">
-                          {Math.round(voiceSettings.similarityBoost * 100)}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        value={voiceSettings.similarityBoost}
-                        onChange={(e) => setVoiceSettings((prev) => ({ ...prev, similarityBoost: parseFloat(e.target.value) }))}
-                        className="w-full h-1.5 bg-surface-2 rounded-lg appearance-none cursor-pointer accent-indigo-600 dark:accent-indigo-400"
-                      />
-                      <div className="flex justify-between text-[9px] text-fg-subtle tabular-nums">
-                        <span>Baja (0.0)</span>
-                        <span>Alta (1.0)</span>
-                      </div>
-                    </div>
-
-                    {/* Exageración de estilo (solo visible en modelos compatibles como Multilingual v2) */}
-                    {selectedModelId !== 'eleven_v4' && (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-medium text-fg-muted">
-                            Exageración de estilo (style)
-                          </label>
-                          <span className="text-[10px] tabular-nums px-1.5 py-0.2 rounded bg-accent/10 text-accent font-semibold">
-                            {Math.round(voiceSettings.style * 100)}%
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.01"
-                          value={voiceSettings.style}
-                          onChange={(e) => setVoiceSettings((prev) => ({ ...prev, style: parseFloat(e.target.value) }))}
-                          className="w-full h-1.5 bg-surface-2 rounded-lg appearance-none cursor-pointer accent-indigo-600 dark:accent-indigo-400"
-                        />
-                        <div className="flex justify-between text-[9px] text-fg-subtle tabular-nums">
-                          <span>Neutro (0%)</span>
-                          <span>Dinámico (100%)</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Velocidad */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[11px] font-medium text-fg-muted">
-                          Velocidad de locución (speed)
-                        </label>
-                        <span className="text-[10px] tabular-nums px-1.5 py-0.2 rounded bg-accent/10 text-accent font-semibold">
-                          {voiceSettings.speed.toFixed(2)}x
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0.70"
-                        max="1.25"
-                        step="0.05"
-                        value={voiceSettings.speed}
-                        onChange={(e) => setVoiceSettings((prev) => ({ ...prev, speed: parseFloat(e.target.value) }))}
-                        className="w-full h-1.5 bg-surface-2 rounded-lg appearance-none cursor-pointer accent-indigo-600 dark:accent-indigo-400"
-                      />
-                      <div className="flex justify-between text-[9px] text-fg-subtle tabular-nums">
-                        <span>Lento (0.70x)</span>
-                        <span>Rápido (1.25x)</span>
-                      </div>
-                    </div>
-                  </div>
+                {/* Modelo de ElevenLabs y sus ajustes (solo los que admite cada modelo) */}
+                <div className="pt-2 border-t border-line">
+                  <VoiceModelPanel
+                    modelId={selectedModelId}
+                    onModelChange={setSelectedModelId}
+                    settings={voiceSettings}
+                    onSettingsChange={setVoiceSettings}
+                    text={scriptText}
+                    onTextChange={setScriptText}
+                    tool="avatar-studio"
+                  />
                 </div>
 
                 {!isElevenLabsConfigured && (
@@ -1580,6 +1358,7 @@ export function AvatarWorkspace() {
             audioName: localAudioFile ? localAudioFile.name : (loadedAudioName || activeProject?.audioName || undefined),
             ratio: aspectRatio,
             videoUrl: finalVideoUrl || undefined,
+            videoPath: finalVideoPath || activeProject?.videoPath || undefined,
             status: finalVideoUrl ? 'rendered' : 'draft',
             finalCostUSD: finalCostUSD ?? undefined,
             videoDurationReal: videoDurationReal ?? undefined,
