@@ -50,22 +50,25 @@ export class OpenRouterVideoService {
     durationSec: number;
     aspectRatio: string;
     resolution?: string;
+    /** true = el modelo genera su propia voz y sonido. */
+    generateAudio?: boolean;
   }): Promise<OpenRouterVideoTask> {
     if (!this.isConfigured) {
       throw new PipelineError('Falta OPENROUTER_API_KEY en .env.local: no se puede generar el video.', 'video_dispatch', false);
     }
-    if (!/^https?:\/\//i.test(params.frameImageUrl || '')) {
+    if (params.frameImageUrl && !/^https?:\/\//i.test(params.frameImageUrl)) {
       throw new PipelineError('La imagen de la escena debe ser una URL pública (https).', 'video_dispatch', false);
     }
+    // Sin imagen = texto→video, solo con la descripción de la toma
     const payload: Record<string, unknown> = {
       model: params.model,
       prompt: params.prompt,
-      frame_images: [
-        { type: 'image_url', image_url: { url: params.frameImageUrl.trim() }, frame_type: 'first_frame' },
-      ],
+      ...(params.frameImageUrl
+        ? { frame_images: [{ type: 'image_url', image_url: { url: params.frameImageUrl.trim() }, frame_type: 'first_frame' }] }
+        : {}),
       duration: params.durationSec,
       aspect_ratio: params.aspectRatio,
-      generate_audio: false,
+      generate_audio: Boolean(params.generateAudio),
     };
     if (params.resolution) payload.resolution = params.resolution;
 

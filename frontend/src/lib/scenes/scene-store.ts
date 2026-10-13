@@ -44,6 +44,8 @@ export interface SceneProject {
   person?: string;
   aspectRatio: '9:16' | '16:9' | '1:1';
   brollModel: string;
+  /** voiceover = ElevenLabs de fondo · native = voz del modelo · avatar = HeyGen + ElevenLabs. */
+  voiceMode?: 'voiceover' | 'native' | 'avatar';
   voice: {
     voiceId: string;
     voiceName?: string;

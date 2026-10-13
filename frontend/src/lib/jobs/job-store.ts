@@ -28,6 +28,8 @@ export interface RenderJob {
     prompt?: string;
     durationSec?: number;
     resolution?: string;
+    /** El modelo genera su propio audio (voz). */
+    generateAudio?: boolean;
   };
   /** Si pertenece a un video por escenas. */
   sceneProjectId?: string;

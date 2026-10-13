@@ -27,7 +27,7 @@ import {
   getElevenModel,
   type VoiceSettingsState,
 } from '@/config/elevenlabs-models';
-import { BROLL_MODELS, DEFAULT_BROLL_MODEL } from '@/config/broll-models';
+import { BROLL_MODELS, DEFAULT_BROLL_MODEL, VOICE_MODES, brollRate, getBrollModel, type VoiceMode } from '@/config/broll-models';
 import { estimateSceneProject } from '@/lib/scenes/scene-estimate';
 import { estimateSeconds } from '@/lib/scenes/scene-plan';
 
@@ -110,6 +110,7 @@ export function TextToVideoView() {
   const [voiceModel, setVoiceModel] = useState<string>(DEFAULT_ELEVEN_MODEL);
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
   const [brollModel, setBrollModel] = useState(DEFAULT_BROLL_MODEL);
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>('voiceover');
   const [ffmpeg, setFfmpeg] = useState<{ available: boolean } | null>(null);
 
   // Render
@@ -150,6 +151,7 @@ export function TextToVideoView() {
           if (d.aspect) setAspect(d.aspect);
           if (d.voiceModel) setVoiceModel(d.voiceModel);
           if (d.brollModel) setBrollModel(d.brollModel);
+          if (d.voiceMode) setVoiceMode(d.voiceMode);
           if (typeof d.confidential === 'boolean') setConfidential(d.confidential);
         }
         const active = localStorage.getItem(ACTIVE_KEY);
@@ -181,11 +183,11 @@ export function TextToVideoView() {
   useEffect(() => {
     if (!restored.current) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, title, scenes, aspect, voiceModel, brollModel, confidential }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, title, scenes, aspect, voiceModel, brollModel, confidential, voiceMode }));
     } catch {
       // ignorar
     }
-  }, [text, title, scenes, aspect, voiceModel, brollModel, confidential]);
+  }, [text, title, scenes, aspect, voiceModel, brollModel, confidential, voiceMode]);
 
   // Seguimiento del proyecto en curso
   const poll = useCallback(async (id: string) => {
@@ -217,14 +219,22 @@ export function TextToVideoView() {
   }, [activeId, poll]);
 
   const persona = images.find((i) => i.id === personaId) ?? images[0];
+  // Las tomas de apoyo parten de una foto de producto si hay; si no, solo de la descripción.
+  // (Veo rechaza algunas fotos de personas, así que la persona no se usa por defecto.)
+  const defaultBrollImage =
+    voiceMode === 'native'
+      ? persona?.id ?? 'none' // misma persona en todas las escenas
+      : images.find((i) => i.id !== persona?.id)?.id ?? 'none';
+  const brollSpec = getBrollModel(brollModel);
+  const availableModels = BROLL_MODELS.filter((m) => voiceMode !== 'native' || m.audio);
   const fullText = scenes.map((s) => s.narration.trim()).join(' ');
   const voiceSpec = getElevenModel(voiceModel);
   const estimate = useMemo(
     () =>
       scenes.length
-        ? estimateSceneProject({ voiceModelId: voiceModel, brollModel, scenes: scenes.filter((s) => s.narration.trim()) })
+        ? estimateSceneProject({ voiceModelId: voiceModel, brollModel, voiceMode, scenes: scenes.filter((s) => s.narration.trim()) })
         : null,
-    [scenes, voiceModel, brollModel]
+    [scenes, voiceModel, brollModel, voiceMode]
   );
 
   // ----- Acciones -----
@@ -241,7 +251,8 @@ export function TextToVideoView() {
         pdfBase64: source === 'pdf' && pdf ? pdf.dataUrl.replace(/^data:[^;]+;base64,/, '') : undefined,
         pdfName: pdf?.name,
         targetSeconds,
-        emotionTags: voiceSpec.audioTags,
+        emotionTags: voiceMode !== 'native' && voiceSpec.audioTags,
+        voiceMode,
         confidential,
       });
       const data = await res.json().catch(() => ({}));
@@ -316,8 +327,9 @@ export function TextToVideoView() {
     setError(null);
     const valid = scenes.filter((s) => s.narration.trim());
     if (!valid.length) return setError('Añade al menos una escena con texto.');
-    if (!persona) return setError('Sube al menos la foto de la persona.');
-    if (!voiceId) return setError('Elige una voz.');
+    if (voiceMode === 'avatar' && valid.some((s) => s.type === 'avatar') && !persona)
+      return setError('Sube la foto de la persona para las escenas donde habla.');
+    if (voiceMode !== 'native' && !voiceId) return setError('Elige una voz.');
     setSubmitting(true);
     try {
       const res = await fetch('/api/scenes', {
@@ -327,18 +339,27 @@ export function TextToVideoView() {
           title: title.trim() || 'Video',
           aspectRatio: aspect,
           brollModel,
-          voice: {
-            voiceId,
-            voiceName: voices.find((v) => v.id === voiceId)?.name,
-            modelId: voiceModel,
-            settings: voiceSettings,
-          },
+          voiceMode,
+          voice:
+            voiceMode === 'native'
+              ? undefined
+              : {
+                  voiceId,
+                  voiceName: voices.find((v) => v.id === voiceId)?.name,
+                  modelId: voiceModel,
+                  settings: voiceSettings,
+                },
           images: images.map((img) => ({ id: img.id, name: img.name, dataBase64: img.dataUrl })),
           scenes: valid.map((s) => ({
-            type: s.type,
+            type: voiceMode === 'avatar' ? s.type : 'broll',
             narration: s.narration.trim(),
             visualPrompt: s.visualPrompt.trim(),
-            imageId: s.type === 'avatar' ? persona.id : s.imageId || persona.id,
+            imageId:
+              voiceMode === 'avatar' && s.type === 'avatar'
+                ? persona!.id
+                : s.imageId && (s.imageId === 'none' || images.some((i) => i.id === s.imageId))
+                ? s.imageId
+                : defaultBrollImage,
           })),
         }),
       });
@@ -495,7 +516,25 @@ export function TextToVideoView() {
 
       {/* 1. Material */}
       <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
-        <h2 className="text-[13px] font-semibold text-fg">1. ¿De dónde sale el video?</h2>
+        <h2 className="text-[13px] font-semibold text-fg">1. ¿Cómo suena y de dónde sale el video?</h2>
+        <div className="grid gap-1.5 sm:grid-cols-3">
+          {VOICE_MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => {
+                setVoiceMode(m.id);
+                if (m.id === 'native' && !getBrollModel(brollModel).audio) setBrollModel(DEFAULT_BROLL_MODEL);
+              }}
+              className={`rounded-lg border p-2.5 text-left transition-colors cursor-pointer ${
+                voiceMode === m.id ? 'border-accent bg-accent/5' : 'border-line hover:bg-surface-2'
+              }`}
+            >
+              <span className="block text-[12.5px] font-medium text-fg">{m.label}</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-fg-subtle">{m.description}</span>
+            </button>
+          ))}
+        </div>
         <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1">
           {sourceTabs.map((t) => (
             <button
@@ -662,6 +701,12 @@ export function TextToVideoView() {
             <div className="flex items-center gap-2">
               <span className="text-[12px] font-medium tabular-nums text-fg">Escena {i + 1}</span>
               <span className="text-[11px] tabular-nums text-fg-subtle">~{estimateSeconds(s.narration).toFixed(0)} s</span>
+              {voiceMode === 'native' && estimateSeconds(s.narration) > Math.max(...brollSpec.durations) - 1 && (
+                <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Muy largo para un clip de {Math.max(...brollSpec.durations)} s: acórtalo o divídelo
+                </span>
+              )}
+              {voiceMode === 'avatar' && (
               <div className="ml-2 flex rounded-md bg-surface-2 p-0.5 text-[11px]">
                 {(['avatar', 'broll'] as const).map((t) => (
                   <button
@@ -674,6 +719,7 @@ export function TextToVideoView() {
                   </button>
                 ))}
               </div>
+              )}
               <div className="ml-auto flex items-center gap-1 text-fg-subtle">
                 <button type="button" onClick={() => moveScene(i, -1)} className="p-1 hover:text-fg" aria-label="Subir escena">
                   <ArrowUp className="h-3.5 w-3.5" />
@@ -695,10 +741,10 @@ export function TextToVideoView() {
               rows={2}
               value={s.narration}
               onChange={(e) => patchScene(s.key, { narration: e.target.value })}
-              placeholder="Lo que dice la voz en esta escena"
+              placeholder={voiceMode === 'native' ? 'Lo que dice la persona en este clip (máx. ~6 s)' : 'Lo que dice la voz en esta escena'}
               className="input-clean w-full resize-y p-2.5 text-[13px] leading-relaxed"
             />
-            {s.type === 'broll' && (
+            {(s.type === 'broll' || voiceMode !== 'avatar') && (
               <div className="grid gap-2 sm:grid-cols-[1fr_180px]">
                 <textarea
                   rows={2}
@@ -708,15 +754,16 @@ export function TextToVideoView() {
                   className="input-clean w-full resize-y p-2.5 text-[12px] leading-relaxed"
                 />
                 <select
-                  value={s.imageId ?? persona?.id ?? ''}
+                  value={s.imageId && (s.imageId === 'none' || images.some((i) => i.id === s.imageId)) ? s.imageId : defaultBrollImage}
                   onChange={(e) => patchScene(s.key, { imageId: e.target.value })}
                   className="input-clean h-9 px-2 text-[12px]"
                   title="Imagen de la que parte la toma"
                 >
-                  {images.length === 0 && <option value="">Sube una imagen abajo</option>}
+                  <option value="none">Sin imagen: solo la descripción</option>
                   {images.map((img) => (
                     <option key={img.id} value={img.id}>
                       Parte de: {img.name}
+                      {img.id === persona?.id ? ' (persona)' : ''}
                     </option>
                   ))}
                 </select>
@@ -739,7 +786,8 @@ export function TextToVideoView() {
             </div>
             <p className="text-[11px] text-fg-subtle">
               La foto marcada como persona se usa en las escenas donde habla. Cada toma de apoyo parte de la imagen que elijas en su
-              escena (por ejemplo, una foto del producto).
+              escena (por ejemplo, una foto del producto) o solo de su descripción. Veo puede rechazar fotos de personas: si pasa,
+              la toma se reintenta sola sin imagen.
             </p>
             {images.length > 0 && (
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
@@ -776,6 +824,7 @@ export function TextToVideoView() {
           </section>
 
           {/* 4. Voz */}
+          {voiceMode !== 'native' && (
           <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
             <h2 className="text-[13px] font-semibold text-fg">4. Voz</h2>
             <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
@@ -793,12 +842,15 @@ export function TextToVideoView() {
               tool="text-to-video"
             />
           </section>
+          )}
 
           {/* 5. Tomas de apoyo */}
           <section className="space-y-2 rounded-xl border border-line bg-surface p-5">
-            <h2 className="text-[13px] font-semibold text-fg">5. Modelo para las tomas de apoyo</h2>
+            <h2 className="text-[13px] font-semibold text-fg">
+              {voiceMode === 'native' ? '4. Modelo de video (genera la persona y su voz)' : '5. Modelo para las tomas de apoyo'}
+            </h2>
             <div className="grid gap-1.5">
-              {BROLL_MODELS.map((m) => (
+              {availableModels.map((m) => (
                 <label
                   key={m.id}
                   className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${
@@ -817,11 +869,20 @@ export function TextToVideoView() {
                       {missingModels.includes(m.id) ? 'Ya no está disponible en OpenRouter.' : m.note}
                     </span>
                   </span>
-                  <span className="text-[11px] tabular-nums text-fg-muted">${m.pricePerSecond.toFixed(3)}/s</span>
+                  <span className="text-[11px] tabular-nums text-fg-muted">${brollRate(m, voiceMode === 'native').toFixed(3)}/s</span>
                 </label>
               ))}
             </div>
-            <p className="text-[11px] text-fg-subtle">Las escenas donde habla la persona usan HeyGen Avatar IV ($0.05/s).</p>
+            {voiceMode === 'avatar' && (
+              <p className="text-[11px] text-fg-subtle">Las escenas donde habla la persona usan HeyGen Avatar IV ($0.05/s).</p>
+            )}
+            {voiceMode === 'native' && (
+              <p className="text-[11px] leading-snug text-fg-subtle">
+                Precio con audio incluido. Cada clip genera su propia voz, así que puede sonar distinta entre escenas (la API no
+                permite fijar una voz). Si subes la foto de la persona se usa como primer fotograma de cada clip para que se parezca;
+                si el modelo la rechaza, la escena se reintenta sin foto.
+              </p>
+            )}
           </section>
 
           {/* Resumen y generar */}

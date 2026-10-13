@@ -10,7 +10,7 @@ import { wakeSceneRunner } from '@/lib/scenes/scene-runner';
 import { ffmpegVersion } from '@/lib/video/ffmpeg';
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
 import { getElevenModel } from '@/config/elevenlabs-models';
-import { BROLL_MODELS } from '@/config/broll-models';
+import { BROLL_MODELS, getBrollModel } from '@/config/broll-models';
 import { localMediaUrl } from '@/lib/storage/generated-library';
 import { errorMessage } from '@/lib/errors';
 import { assertVideoModelAvailable } from '@/lib/video/video-catalog';
@@ -23,12 +23,15 @@ const Create = z.object({
   title: z.string().trim().min(1).max(80),
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
   brollModel: z.string().refine((m) => BROLL_MODELS.some((b) => b.id === m), 'Modelo de tomas de apoyo no válido.'),
-  voice: z.object({
-    voiceId: z.string().min(1, 'Elige una voz.'),
-    voiceName: z.string().optional(),
-    modelId: z.string().min(1),
-    settings: z.record(z.string(), z.unknown()).default({}),
-  }),
+  voiceMode: z.enum(['voiceover', 'native', 'avatar']).default('avatar'),
+  voice: z
+    .object({
+      voiceId: z.string().min(1, 'Elige una voz.'),
+      voiceName: z.string().optional(),
+      modelId: z.string().min(1),
+      settings: z.record(z.string(), z.unknown()).default({}),
+    })
+    .optional(),
   images: z
     .array(
       z.object({
@@ -37,8 +40,8 @@ const Create = z.object({
         dataBase64: z.string().max(14_000_000, 'Cada imagen debe pesar menos de 10 MB.'),
       })
     )
-    .min(1, 'Sube al menos una imagen: la foto de la persona.')
-    .max(8),
+    .max(8)
+    .default([]),
   scenes: z
     .array(
       z.object({
@@ -56,11 +59,25 @@ const Create = z.object({
 export async function POST(req: NextRequest) {
   try {
     const body = Create.parse(await req.json());
+    const native = body.voiceMode === 'native';
+    if (!native && !body.voice) {
+      return NextResponse.json({ error: 'Elige una voz.' }, { status: 400 });
+    }
+    if (body.voiceMode !== 'avatar') {
+      // En voz en off y en "los personajes hablan" todas las escenas son clips del modelo de video
+      body.scenes = body.scenes.map((s) => ({ ...s, type: 'broll' as const }));
+    }
+    if (body.scenes.some((s) => s.type === 'avatar') && body.images.length === 0) {
+      return NextResponse.json({ error: 'Sube la foto de la persona para las escenas donde habla.' }, { status: 400 });
+    }
+    if (native && !getBrollModel(body.brollModel).audio) {
+      return NextResponse.json({ error: 'Ese modelo no genera voz; elige Veo, Kling o Wan.' }, { status: 400 });
+    }
 
     // Comprobaciones antes de gastar nada
     const missing: string[] = [];
     if (!process.env.OPENROUTER_API_KEY?.trim()) missing.push('OPENROUTER_API_KEY');
-    if (!process.env.ELEVENLABS_API_KEY?.trim()) missing.push('ELEVENLABS_API_KEY');
+    if (!native && !process.env.ELEVENLABS_API_KEY?.trim()) missing.push('ELEVENLABS_API_KEY');
     if (missing.length) {
       return NextResponse.json({ error: `Falta ${missing.join(' y ')} en .env.local.` }, { status: 400 });
     }
@@ -80,12 +97,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorMessage(e, 'Modelo no disponible.') }, { status: 400 });
     }
     const fullText = body.scenes.map((s) => s.narration).join(' ');
-    const spec = getElevenModel(body.voice.modelId);
-    if (fullText.length > spec.charLimit) {
-      return NextResponse.json({ error: `El guion completo supera los ${spec.charLimit.toLocaleString()} caracteres de ${spec.name}.` }, { status: 400 });
+    if (body.voice) {
+      const spec = getElevenModel(body.voice.modelId);
+      if (!native && fullText.length > spec.charLimit) {
+        return NextResponse.json({ error: `El guion completo supera los ${spec.charLimit.toLocaleString()} caracteres de ${spec.name}.` }, { status: 400 });
+      }
     }
 
-    const estimate = estimateSceneProject({ voiceModelId: body.voice.modelId, brollModel: body.brollModel, scenes: body.scenes });
+    const estimate = estimateSceneProject({
+      voiceModelId: body.voice?.modelId ?? '',
+      brollModel: body.brollModel,
+      voiceMode: body.voiceMode,
+      scenes: body.scenes,
+    });
     const settings = await getSettings();
     await assertWithinDailyLimit(estimate.totalUSD, settings.dailyLimitUSD);
 
@@ -108,14 +132,20 @@ export async function POST(req: NextRequest) {
       person: await getPersonName(),
       aspectRatio: body.aspectRatio,
       brollModel: body.brollModel,
-      voice: body.voice,
+      voiceMode: body.voiceMode,
+      voice: body.voice ?? { voiceId: '', modelId: '', settings: {} },
       images,
       scenes: body.scenes.map((s) => ({
         id: crypto.randomUUID(),
         type: s.type,
         narration: s.narration,
         visualPrompt: s.visualPrompt,
-        imageId: s.imageId && images.some((i) => i.id === s.imageId) ? s.imageId : images[0].id,
+        imageId:
+          s.type === 'broll' && s.imageId === 'none'
+            ? 'none'
+            : s.imageId && images.some((i) => i.id === s.imageId)
+            ? s.imageId
+            : images[0]?.id ?? 'none',
         status: 'pending',
       })),
       crossfade: 0.5,

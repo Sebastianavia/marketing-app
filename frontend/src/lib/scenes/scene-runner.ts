@@ -6,11 +6,14 @@ import { cloudinaryStorageService } from '@/services/storage/cloudinary.service'
 import { saveGenerated, getGeneratedDir } from '@/lib/storage/generated-library';
 import { recordUsage } from '@/lib/usage/usage-store';
 import { ttsCost } from '@/config/cost-rates';
-import { getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { brollRate, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { estimateSeconds } from './scene-plan';
 import { getElevenModel, hasAudioTags, stripAudioTags, isKnownElevenModel } from '@/config/elevenlabs-models';
-import { getJob, saveJob, type RenderJob } from '@/lib/jobs/job-store';
+import { getJob, saveJob, listJobs, type RenderJob } from '@/lib/jobs/job-store';
+import { isTransientFsError } from '@/lib/data/data-dir';
+import { saveProject as saveLibraryProject } from '@/lib/storage/project-storage';
 import { wakeRunner } from '@/lib/jobs/runner';
-import { sliceAudio, stitchScenes, frameSize } from '@/lib/video/ffmpeg';
+import { sliceAudio, stitchScenes, frameSize, probeMedia } from '@/lib/video/ffmpeg';
 import { errorMessage } from '@/lib/errors';
 import { computeSceneStarts, safeCrossfade } from './scene-timing';
 import { getProject, listProjects, projectDir, saveProject, type SceneProject } from './scene-store';
@@ -23,6 +26,8 @@ import { getProject, listProjects, projectDir, saveProject, type SceneProject } 
  */
 
 const TICK_MS = 5_000;
+/** Rechazos por políticas de contenido de la imagen (Veo/Vertex y similares). */
+export const POLICY_RE = /usage guidelines|violates|policy|safety|prohibited|not allowed|person|people|minor/i;
 const AVATAR_MODEL = 'heygen/avatar-iv';
 
 const g = globalThis as unknown as { __luloScenes?: { timer: NodeJS.Timeout | null; busy: boolean } };
@@ -48,8 +53,13 @@ async function tick() {
       try {
         await step(p);
       } catch (err) {
+        if (isTransientFsError(err)) {
+          // Windows bloqueó un archivo un instante: se reintenta en la siguiente vuelta
+          console.warn('[escenas] Archivo ocupado, se reintentará:', errorMessage(err, ''));
+          continue;
+        }
         console.error('[escenas] Error en el proyecto', p.id, err);
-        await saveProject({ ...p, status: 'failed', phase: 'Falló', error: errorMessage(err, 'Error inesperado.') });
+        await saveProject({ ...p, status: 'failed', phase: 'Falló', error: errorMessage(err, 'Error inesperado.') }).catch(() => {});
       }
     }
   } catch (err) {
@@ -60,6 +70,11 @@ async function tick() {
 }
 
 async function step(p: SceneProject) {
+  // "Los personajes hablan": sin ElevenLabs, directo a los clips con voz del modelo
+  if (p.voiceMode === 'native' && (p.status === 'queued' || p.status === 'voice')) {
+    await saveProject({ ...p, status: 'clips', phase: 'Preparando los clips…', crossfade: p.crossfade || 0.3 });
+    return;
+  }
   if (p.status === 'queued' || p.status === 'voice') return doVoice(p);
   if (p.status === 'clips') return doClips(p);
   if (p.status === 'stitching') return doStitch(p);
@@ -126,6 +141,7 @@ async function doVoice(p: SceneProject) {
 
 /** Sube una imagen del proyecto a Cloudinary (una sola vez) y devuelve su URL pública. */
 async function ensureImageUrl(p: SceneProject, imageId: string | undefined): Promise<string> {
+  if (imageId === 'none') return '';
   const img = p.images.find((i) => i.id === imageId) ?? p.images[0];
   if (!img) throw new Error('El proyecto no tiene imágenes: sube al menos la foto de la persona.');
   if (img.url) return img.url;
@@ -145,6 +161,20 @@ function sceneEnd(p: SceneProject, i: number): number {
 async function doClips(p: SceneProject) {
   const dir = await projectDir(p.id);
   let changed = false;
+
+  // 0. Recuperar trabajos ya lanzados para este proyecto (evita pagar dos veces el mismo clip
+  //    si el proyecto no se pudo guardar justo después de lanzarlos)
+  const existing = (await listJobs({ tool: 'text-to-video' })).filter(
+    (j) => j.sceneProjectId === p.id && j.status !== 'failed'
+  );
+  for (const s of p.scenes) {
+    if (s.clipJobId) continue;
+    const found = existing.find((j) => j.sceneId === s.id);
+    if (found) {
+      s.clipJobId = found.id;
+      s.status = 'rendering';
+    }
+  }
 
   // 1. Lanzar los clips que faltan
   for (let i = 0; i < p.scenes.length; i++) {
@@ -168,7 +198,21 @@ async function doClips(p: SceneProject) {
       updatedAt: now,
     };
     let job: RenderJob;
-    if (s.type === 'avatar') {
+    if (p.voiceMode === 'native') {
+      const model = getBrollModel(p.brollModel);
+      const spoken = stripAudioTags(s.narration.trim());
+      const duration = pickBrollDuration(model, Math.ceil(estimateSeconds(spoken) + 1));
+      // Formato de la guía de prompts de Veo para diálogo: "<persona> says: <frase>"
+      const prompt = `${s.visualPrompt || 'A person talking to the camera, natural light, vertical social video'}. The person speaks in Spanish, facing the camera, and says: "${spoken}"`;
+      job = {
+        ...base,
+        kind: 'broll',
+        title: `${p.title} · escena ${i + 1} (habla)`,
+        model: model.id,
+        input: { imageUrl, aspectRatio: p.aspectRatio, prompt, durationSec: duration, resolution: model.resolution, generateAudio: true },
+        estimatedCostUSD: duration * brollRate(model, true),
+      };
+    } else if (s.type === 'avatar' && p.voiceMode !== 'voiceover') {
       const slicePath = path.join(/*turbopackIgnore: true*/ dir, `voz_escena_${i + 1}.mp3`);
       await sliceAudio(p.voicePath!, start, end, slicePath);
       const up = await cloudinaryStorageService.uploadAudio(await fs.readFile(slicePath), `escena_${i + 1}.mp3`, 'lulo-studio/escenas');
@@ -248,7 +292,32 @@ async function doStitch(p: SceneProject) {
   const dir = await projectDir(p.id);
   const tmp = path.join(/*turbopackIgnore: true*/ dir, 'final.mp4');
   const { width, height } = frameSize(p.aspectRatio);
-  await stitchScenes({
+  if (p.voiceMode === 'native') {
+    // Cada clip trae su propia voz: se usan completos, uno tras otro, con fundido cruzado de imagen y sonido
+    const probes = await Promise.all(p.scenes.map((s) => probeMedia(s.clipPath!)));
+    const d = p.crossfade || 0.3;
+    const lens = probes.map((pr) => pr.duration ?? 5);
+    const starts: number[] = [];
+    let t = 0;
+    lens.forEach((l) => {
+      starts.push(t);
+      t += l - d;
+    });
+    const total = t + d;
+    await stitchScenes({
+      clips: p.scenes.map((s) => ({ path: s.clipPath! })),
+      starts,
+      lens,
+      total,
+      clipHasAudio: probes.map((pr) => pr.hasAudio),
+      output: tmp,
+      width,
+      height,
+      crossfade: d,
+    });
+    p.totalSeconds = total;
+    p.scenes.forEach((s, i) => (s.start = starts[i]));
+  } else await stitchScenes({
     clips: p.scenes.map((s) => ({ path: s.clipPath! })),
     starts: p.scenes.map((s) => s.start ?? 0),
     total: p.totalSeconds!,
@@ -266,6 +335,31 @@ async function doStitch(p: SceneProject) {
   await fs.copyFile(tmp, outputPath);
   await fs.rm(tmp, { force: true });
 
+  // También en Proyectos → Text-to-Video, como los demás videos
+  try {
+    const persona = p.images[0];
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', 'h');
+    await saveLibraryProject('TextToVideo', `${p.title} ${stamp}`, {
+      title: p.title,
+      script: p.scenes.map((s) => s.narration).join('\n\n'),
+      prompt: p.scenes.filter((s) => s.type === 'broll').map((s) => s.visualPrompt).join('\n'),
+      imagePath: persona?.path,
+      audioMode: 'generar',
+      voiceId: p.voice.voiceId,
+      audioPath: p.voicePath,
+      audioName: p.voice.voiceName,
+      ratio: p.aspectRatio,
+      videoPath: outputPath,
+      status: 'rendered',
+      finalCostUSD: p.costUSD,
+      videoDurationReal: p.totalSeconds,
+      modelUsed: `heygen/avatar-iv + ${p.brollModel}`,
+      tags: ['escenas'],
+    });
+  } catch (err) {
+    console.warn('[escenas] No se pudo añadir a Proyectos:', errorMessage(err, ''));
+  }
+
   // Limpieza de los archivos temporales en Cloudinary
   for (const t of p.tempUploads ?? []) {
     await cloudinaryStorageService.deleteAsset(t.publicId, t.resourceType);
@@ -281,20 +375,36 @@ async function doStitch(p: SceneProject) {
   });
 }
 
-/** Reintenta solo lo que falló. */
+/** Reintenta solo lo que falló (lo que ya se generó y pagó no se repite). */
 export async function retryProject(id: string): Promise<SceneProject | null> {
   const p = await getProject(id);
   if (!p) return null;
+  const scenes = [];
+  for (const s of p.scenes) {
+    const job = s.clipJobId ? await getJob(s.clipJobId).catch(() => null) : null;
+    if (job?.status === 'completed' && job.outputPath) {
+      scenes.push({ ...s, status: 'done' as const, clipPath: job.outputPath, error: undefined });
+      continue;
+    }
+    const failed = s.status === 'failed' || job?.status === 'failed' || (s.clipJobId && !job);
+    if (failed) {
+      const err = s.error ?? job?.error ?? '';
+      scenes.push({
+        ...s,
+        clipJobId: undefined,
+        status: 'pending' as const,
+        error: undefined,
+        // Si el proveedor rechazó la imagen (p. ej. Veo con fotos de personas), se reintenta solo con la descripción
+        imageId: s.type === 'broll' && POLICY_RE.test(err) ? 'none' : s.imageId,
+      });
+      continue;
+    }
+    scenes.push(s);
+  }
   let status: SceneProject['status'] = 'clips';
   if (!p.voicePath || !fsSync.existsSync(p.voicePath)) status = 'queued';
-  else if (p.scenes.every((s) => s.status === 'done')) status = 'stitching';
-  const next = await saveProject({
-    ...p,
-    status,
-    phase: 'Reintentando…',
-    error: undefined,
-    scenes: p.scenes.map((s) => (s.status === 'failed' ? { ...s, clipJobId: undefined, status: 'pending', error: undefined } : s)),
-  });
+  else if (scenes.every((s) => s.status === 'done')) status = 'stitching';
+  const next = await saveProject({ ...p, status, phase: 'Reintentando…', error: undefined, scenes });
   wakeSceneRunner();
   return next;
 }

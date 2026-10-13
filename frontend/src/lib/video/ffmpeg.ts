@@ -92,9 +92,14 @@ export interface StitchOptions {
   clips: StitchClip[];
   /** Segundo del video final en el que empieza cada escena (la primera en 0). */
   starts: number[];
-  /** Duración total = duración de la voz. */
+  /** Duración total = duración de la voz (o de los clips si se usa su propio audio). */
   total: number;
-  audioPath: string;
+  /** Voz continua encima de todo. Si falta, se usa el audio de cada clip (clipHasAudio). */
+  audioPath?: string;
+  /** Duración de cada clip a usar (si no, sale de los inicios). */
+  lens?: number[];
+  /** Con audio propio de los clips: si cada clip trae pista de audio. */
+  clipHasAudio?: boolean[];
   output: string;
   width: number;
   height: number;
@@ -115,14 +120,16 @@ export function buildStitchArgs(o: StitchOptions): string[] {
   const fps = o.fps ?? 30;
   const d = n > 1 ? Math.max(0, o.crossfade ?? 0.5) : 0;
 
-  const lens = o.clips.map((_, i) =>
-    i < n - 1 ? o.starts[i + 1] - o.starts[i] + d : o.total - o.starts[i]
-  );
+  const lens =
+    o.lens ??
+    o.clips.map((_, i) => (i < n - 1 ? o.starts[i + 1] - o.starts[i] + d : o.total - o.starts[i]));
+  const useClipAudio = !o.audioPath;
+  if (useClipAudio && !o.clipHasAudio) throw new Error('Falta saber qué clips traen audio.');
   if (lens.some((l) => !(l > d))) throw new Error('Hay una escena demasiado corta para el fundido.');
 
   const args: string[] = ['-y'];
   o.clips.forEach((c) => args.push('-i', c.path));
-  args.push('-i', o.audioPath);
+  if (o.audioPath) args.push('-i', o.audioPath);
 
   const f: string[] = [];
   o.clips.forEach((_, i) => {
@@ -140,9 +147,29 @@ export function buildStitchArgs(o: StitchOptions): string[] {
   }
   if (n === 1) f.push(`[v0]null[vout]`);
 
+  let audioMap = `${n}:a`;
+  if (useClipAudio) {
+    // Audio de cada clip (o silencio si no trae), recortado a su duración y unido con fundido cruzado
+    o.clips.forEach((_, i) => {
+      f.push(
+        o.clipHasAudio![i]
+          ? `[${i}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=duration=${lens[i].toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`
+          : `anullsrc=r=44100:cl=stereo,atrim=duration=${lens[i].toFixed(3)}[a${i}]`
+      );
+    });
+    let la = 'a0';
+    for (let k = 1; k < n; k++) {
+      const out = k === n - 1 ? 'aout' : `ax${k}`;
+      f.push(`[${la}][a${k}]acrossfade=d=${d.toFixed(3)}[${out}]`);
+      la = out;
+    }
+    if (n === 1) f.push(`[a0]anull[aout]`);
+    audioMap = '[aout]';
+  }
+
   args.push(
     '-filter_complex', f.join(';'),
-    '-map', '[vout]', '-map', `${n}:a`,
+    '-map', '[vout]', '-map', audioMap,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '192k',
     '-t', o.total.toFixed(3),
@@ -154,6 +181,21 @@ export function buildStitchArgs(o: StitchOptions): string[] {
 
 export async function stitchScenes(o: StitchOptions) {
   await runFfmpeg(buildStitchArgs(o));
+}
+
+/** Duración y si trae audio, leyendo la cabecera con FFmpeg. */
+export async function probeMedia(file: string): Promise<{ duration: number | null; hasAudio: boolean }> {
+  const bin = resolveFfmpegPath();
+  const stderr: string = await new Promise((resolve) => {
+    const child = spawn(bin, ['-hide_banner', '-i', file], { windowsHide: true });
+    let err = '';
+    child.stderr.on('data', (d) => (err += d.toString()));
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(err));
+  });
+  const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  const duration = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
+  return { duration, hasAudio: /Stream #\S+.*Audio:/.test(stderr) };
 }
 
 export function frameSize(aspect: '9:16' | '16:9' | '1:1'): { width: number; height: number } {

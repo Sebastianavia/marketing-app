@@ -19,6 +19,7 @@ const MAX_PARALLEL = 3;
 const MAX_ATTEMPTS = 3;
 const JOB_TIMEOUT_MS = 30 * 60 * 1000;
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const NOT_FOUND = 'El proveedor no encuentra este trabajo.';
 
 interface RunnerState {
   timer: NodeJS.Timeout | null;
@@ -74,6 +75,7 @@ async function submitJob(job: RenderJob) {
             durationSec: job.input.durationSec || 5,
             aspectRatio: job.input.aspectRatio,
             resolution: job.input.resolution,
+            generateAudio: job.input.generateAudio,
           })
         : await service.createVideoTask({
             model: job.model,
@@ -108,6 +110,10 @@ async function checkJob(job: RenderJob) {
   let result: { status: 'processing' | 'completed' | 'failed'; videoUrl?: string; error?: string };
   try {
     result = await fetchOpenRouterStatus(job.providerTaskId);
+    // Justo después de crear el trabajo, OpenRouter puede tardar en registrarlo: un 404 temprano no es un fallo
+    if (result.status === 'failed' && result.error === NOT_FOUND && Date.now() - started < 3 * 60 * 1000) {
+      return;
+    }
   } catch (err) {
     // Error de red temporal: se reintenta en la siguiente vuelta
     console.warn('[runner] Consulta de estado fallida, se reintentará:', err);
@@ -138,7 +144,7 @@ async function finishJob(job: RenderJob, videoUrl: string) {
       : undefined;
     const { path: outputPath, bytes } = await downloadToLibrary(videoUrl, 'video', 'mp4', job.id, auth);
     const durationSec = mp4DurationSeconds(bytes) || job.input.durationSec || 0;
-    const costUSD = Math.round(durationSec * videoRate(job.model) * 10000) / 10000;
+    const costUSD = Math.round(durationSec * videoRate(job.model, job.input.generateAudio) * 10000) / 10000;
 
     await updateJob(job.id, {
       status: 'completed',
@@ -169,7 +175,22 @@ async function finishJob(job: RenderJob, videoUrl: string) {
   }
 }
 
+/** Rechazo de la imagen por políticas del proveedor (Veo/Vertex no acepta ciertas fotos de personas). */
+const IMAGE_POLICY_RE = /usage guidelines|violates|policy|safety|prohibited|not allowed/i;
+
 async function failOrRetry(job: RenderJob, message: string) {
+  // B-roll con imagen rechazada: se reintenta sin imagen, solo con la descripción de la toma
+  if (job.kind === 'broll' && job.input.imageUrl && IMAGE_POLICY_RE.test(message) && job.attempts < MAX_ATTEMPTS) {
+    await updateJob(job.id, {
+      status: 'queued',
+      providerTaskId: undefined,
+      attempts: job.attempts,
+      input: { ...job.input, imageUrl: '' },
+      phase: 'El proveedor rechazó la imagen; reintentando solo con la descripción…',
+      error: message,
+    });
+    return;
+  }
   // job.attempts = envíos ya hechos (incluido el que acaba de fallar)
   if (job.attempts < MAX_ATTEMPTS) {
     await updateJob(job.id, {
@@ -210,7 +231,7 @@ async function fetchOpenRouterStatus(taskId: string) {
   });
   if (!response.ok) {
     if (response.status === 404) {
-      return { status: 'failed' as const, error: 'El proveedor no encuentra este trabajo.' };
+      return { status: 'failed' as const, error: NOT_FOUND };
     }
     throw new Error(`OpenRouter respondió ${response.status}`);
   }

@@ -25,7 +25,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         type: s.type,
         narration: s.narration,
         start: s.start,
-        status: s.status ?? 'pending',
+        // El estado real sale del trabajo (por si el proyecto no alcanzó a guardarse)
+        status:
+          job?.status === 'completed' ? 'done' : job?.status === 'failed' ? 'failed' : job ? 'rendering' : s.status ?? 'pending',
         phase: job?.phase,
         error: s.error ?? job?.error,
         clipUrl: s.clipPath ? localMediaUrl(s.clipPath) : null,

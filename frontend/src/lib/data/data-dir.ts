@@ -87,9 +87,33 @@ async function migrateLegacyStorageConfig(dir: string) {
 
 /** Escritura atómica: primero a un archivo temporal y luego renombrar, para no dejar JSON a medias. */
 export async function writeJsonAtomic(filePath: string, data: unknown) {
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fsp.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
-  await fsp.rename(tmp, filePath);
+  const text = JSON.stringify(data, null, 2);
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
+  await fsp.writeFile(tmp, text, 'utf-8');
+  // En Windows el renombrado falla (EPERM/EBUSY/EACCES) si otro proceso tiene el archivo
+  // abierto un instante (la propia app leyendo, el antivirus, OneDrive…): se reintenta.
+  for (let i = 0; i < 8; i++) {
+    try {
+      await fsp.rename(tmp, filePath);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') {
+        await fsp.rm(tmp, { force: true }).catch(() => {});
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 40 * (i + 1)));
+    }
+  }
+  // Último recurso: escribir directamente (menos seguro ante un corte de luz, pero no se pierde el estado)
+  await fsp.writeFile(filePath, text, 'utf-8');
+  await fsp.rm(tmp, { force: true }).catch(() => {});
+}
+
+/** Errores pasajeros del sistema de archivos que no deben dar por fallido un trabajo. */
+export function isTransientFsError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException)?.code;
+  return code === 'EPERM' || code === 'EBUSY' || code === 'EACCES' || code === 'EMFILE';
 }
 
 export async function readJson<T>(filePath: string, fallback: T): Promise<T> {

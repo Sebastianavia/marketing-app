@@ -16,6 +16,7 @@ const Body = z.object({
   emotionTags: z.boolean().default(true),
   /** Material confidencial: nunca el modo gratis. */
   confidential: z.boolean().default(false),
+  voiceMode: z.enum(['voiceover', 'native', 'avatar']).default('avatar'),
   orchestrator: z.unknown().optional(),
 });
 
@@ -27,6 +28,7 @@ Reglas:
 - Cada escena dura entre 4 y 8 segundos de locución (una o dos frases).
 - Empieza con una escena 'avatar' (gancho) y termina con una 'avatar' (llamado a la acción). Alterna con 'broll' cuando ayude a mostrar el producto.
 - visualPrompt de 'broll': una sola toma concreta y filmable (sujeto, acción, plano, luz, movimiento de cámara), sin texto en pantalla ni logotipos inventados.
+- En 'broll' NO muestres a una persona hablando a cámara (esas tomas no sincronizan labios con la voz): usa el producto, manos, detalles, entorno o personas de espaldas o sin hablar.
 - No inventes datos, precios, cifras ni promesas que no estén en el material.`;
 
 export async function POST(req: NextRequest) {
@@ -40,9 +42,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Para usar tu guion tal cual, pégalo en el cuadro de texto.' }, { status: 400 });
     }
 
-    const tagsRule = body.emotionTags
+    const tagsRule = body.emotionTags && body.voiceMode !== 'native'
       ? '- Puedes añadir etiquetas de voz en inglés entre corchetes al inicio de una frase, como [excited], [curious], [warmly], [sighs] (máximo una por escena).'
       : '- NO uses corchetes ni etiquetas; la emoción va solo con puntuación (¡!, ¿?, puntos suspensivos) y alguna palabra en MAYÚSCULAS.';
+
+    const modeRule =
+      body.voiceMode === 'voiceover'
+        ? `\nMODO VOZ EN OFF: TODAS las escenas son 'broll'. Nadie habla a cámara; la narración es una voz en off que suena encima de las tomas.`
+        : body.voiceMode === 'native'
+        ? `\nMODO LOS PERSONAJES HABLAN: TODAS las escenas son 'broll' y en cada una una persona dice la narración a cámara (el modelo de video genera su voz).
+- Cada narración debe poder decirse en 6 segundos o menos (máximo ~90 caracteres), porque cada clip dura como mucho 8 s.
+- visualPrompt: describe SIEMPRE a la misma persona con los mismos rasgos (edad, aspecto, ropa) y el lugar, igual en todas las escenas, más cómo habla (tono, gesto). La narración NO va en el visualPrompt.
+- No uses etiquetas entre corchetes.`
+        : '';
 
     let prompt: string;
     if (body.mode === 'keep') {
@@ -67,7 +79,7 @@ ${body.text.trim() ? `\nINDICACIONES / IDEA:\n${body.text.trim()}` : ''}`;
     const { object, meta } = await orchestrateObject({
       tool: 'text-to-video',
       description: `Armar escenas (${body.mode === 'keep' ? 'mi guion' : hasPdf ? 'desde PDF' : 'desde idea'})`,
-      system: SYSTEM,
+      system: SYSTEM + modeRule,
       prompt,
       files,
       schema: ScenePlanSchema,
@@ -89,9 +101,9 @@ ${body.text.trim() ? `\nINDICACIONES / IDEA:\n${body.text.trim()}` : ''}`;
     return NextResponse.json({
       title: object.title,
       scenes: object.scenes.map((s) => ({
-        type: s.type,
+        type: body.voiceMode === 'avatar' ? s.type : ('broll' as const),
         narration: s.narration.trim(),
-        visualPrompt: s.type === 'broll' ? s.visualPrompt.trim() : '',
+        visualPrompt: s.type === 'broll' || body.voiceMode !== 'avatar' ? s.visualPrompt.trim() : '',
       })),
       orchestrator: meta.mode,
       model: meta.model,

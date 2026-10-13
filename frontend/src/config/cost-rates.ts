@@ -33,7 +33,11 @@ export const SCRIPT_COST_ESTIMATES: Record<string, number> = {
   default: 0.02,
 };
 
-export function videoRate(model: string): number {
+export function videoRate(model: string, withAudio = false): number {
+  if (withAudio) {
+    const b = BROLL_MODELS.find((m) => m.id === model);
+    if (b?.pricePerSecondAudio) return b.pricePerSecondAudio;
+  }
   return VIDEO_RATES_PER_SECOND[model] ?? 0.05;
 }
 
