@@ -1,4 +1,4 @@
-import { generateObject, generateText } from 'ai';
+import { generateObject, generateText, streamText, type ModelMessage } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { z } from 'zod';
 import { openrouter } from '@/lib/ai/openrouter';
@@ -38,6 +38,8 @@ export interface OrchestratorCall {
   temperature?: number;
   /** Fuerza un modo solo para esta llamada (si no, el de Ajustes). */
   mode?: unknown;
+  /** Material confidencial: nunca se usa el modo gratis (Google puede usar esos datos). */
+  confidential?: boolean;
   /** Archivos adjuntos (p. ej. un PDF) que el modelo debe leer. */
   files?: Array<{ data: Uint8Array; mediaType: string; filename?: string }>;
 }
@@ -72,10 +74,16 @@ export interface OrchestratorMeta {
   costUSD: number;
 }
 
-export async function resolveMode(requested?: unknown): Promise<OrchestratorMode> {
-  if (isOrchestratorMode(requested)) return requested;
-  const s = await getSettings();
-  return isOrchestratorMode(s.orchestrator) ? s.orchestrator : DEFAULT_ORCHESTRATOR;
+export async function resolveMode(requested?: unknown, confidential = false): Promise<OrchestratorMode> {
+  let mode: OrchestratorMode;
+  if (isOrchestratorMode(requested)) mode = requested;
+  else {
+    const s = await getSettings();
+    mode = isOrchestratorMode(s.orchestrator) ? s.orchestrator : DEFAULT_ORCHESTRATOR;
+  }
+  // Confidencial: el free tier de Gemini puede usar los datos para mejorar productos de Google
+  if (confidential && mode === 'free') mode = 'claude-cheap';
+  return mode;
 }
 
 type Runner<T> = (model: Parameters<typeof generateText>[0]['model']) => Promise<{
@@ -85,7 +93,7 @@ type Runner<T> = (model: Parameters<typeof generateText>[0]['model']) => Promise
 }>;
 
 async function run<T>(call: OrchestratorCall, runner: Runner<T>): Promise<{ value: T; meta: OrchestratorMeta }> {
-  const mode = await resolveMode(call.mode);
+  const mode = await resolveMode(call.mode, call.confidential);
   const option = getOrchestratorOption(mode);
 
   let value: T;
@@ -161,6 +169,96 @@ export async function orchestrateObject<S extends z.ZodType>(call: OrchestratorC
     return { value: r.object as z.infer<S>, inputTokens: r.usage?.inputTokens, outputTokens: r.usage?.outputTokens };
   });
   return { object: value, meta };
+}
+
+/**
+ * Respuesta en streaming (chat de guiones, Mia). En modo gratis prueba cada clave
+ * leyendo el primer fragmento: si falla, pasa a la siguiente sin haber enviado nada.
+ */
+export async function orchestrateTextStream(call: {
+  tool: string;
+  description: string;
+  system?: string;
+  messages: ModelMessage[];
+  temperature?: number;
+  mode?: unknown;
+  confidential?: boolean;
+}): Promise<Response> {
+  const mode = await resolveMode(call.mode, call.confidential);
+  const option = getOrchestratorOption(mode);
+
+  const record = async (inputTokens = 0, outputTokens = 0) => {
+    const tokens = inputTokens + outputTokens;
+    await recordUsage({
+      tool: call.tool,
+      kind: 'script',
+      provider: mode === 'free' ? 'gemini' : 'openrouter',
+      model: option.model,
+      description: call.description,
+      units: tokens || 1,
+      unit: tokens ? 'tokens' : 'respuesta',
+      costUSD: mode === 'free' ? 0 : llmCost(option.model, inputTokens, outputTokens),
+      estimated: mode !== 'free' && tokens === 0,
+    });
+  };
+
+  const headers = {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'X-Orchestrator': mode,
+    'X-Model-Used': option.model,
+  };
+
+  if (mode !== 'free') {
+    if (!process.env.OPENROUTER_API_KEY) throw new Error('Falta OPENROUTER_API_KEY en .env.local para usar Claude.');
+    const result = streamText({
+      model: openrouter.chat(option.model),
+      system: call.system,
+      messages: call.messages,
+      temperature: call.temperature ?? 0.7,
+      onFinish: async ({ totalUsage }) => record(totalUsage?.inputTokens, totalUsage?.outputTokens),
+    });
+    return result.toTextStreamResponse({ headers });
+  }
+
+  const keys = getGeminiKeyPool();
+  if (keys.length === 0) throw new FreeQuotaError('no hay claves en GEMINI_API_KEYS');
+  let lastErr: unknown = null;
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      const google = createGoogleGenerativeAI({ apiKey: keys[i] });
+      const result = streamText({
+        model: google(option.model),
+        system: call.system,
+        messages: call.messages,
+        temperature: call.temperature ?? 0.7,
+        onFinish: async ({ totalUsage }) => record(totalUsage?.inputTokens, totalUsage?.outputTokens),
+      });
+      const reader = result.textStream.getReader();
+      const first = await reader.read(); // lanza aquí si la clave no tiene cuota
+      const encoder = new TextEncoder();
+      const body = new ReadableStream({
+        async start(controller) {
+          if (first.value) controller.enqueue(encoder.encode(first.value));
+          if (first.done) return controller.close();
+          try {
+            for (;;) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              if (value) controller.enqueue(encoder.encode(value));
+            }
+            controller.close();
+          } catch (err) {
+            controller.error(err);
+          }
+        },
+      });
+      return new Response(body, { headers });
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[orquestador] Gemini clave #${i + 1} (${maskApiKey(keys[i])}) falló:`, errorMessage(err, ''));
+    }
+  }
+  throw new FreeQuotaError(errorMessage(lastErr, 'sin respuesta'));
 }
 
 /** Respuesta HTTP estándar para errores del orquestador. */

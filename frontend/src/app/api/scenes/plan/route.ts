@@ -14,6 +14,8 @@ const Body = z.object({
   pdfName: z.string().max(200).optional(),
   targetSeconds: z.number().min(10).max(180).default(30),
   emotionTags: z.boolean().default(true),
+  /** Material confidencial: nunca el modo gratis. */
+  confidential: z.boolean().default(false),
   orchestrator: z.unknown().optional(),
 });
 
@@ -71,6 +73,7 @@ ${body.text.trim() ? `\nINDICACIONES / IDEA:\n${body.text.trim()}` : ''}`;
       schema: ScenePlanSchema,
       temperature: body.mode === 'keep' ? 0.2 : 0.7,
       mode: body.orchestrator,
+      confidential: body.confidential,
     });
 
     if (body.mode === 'keep') {

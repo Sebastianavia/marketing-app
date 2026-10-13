@@ -95,6 +95,10 @@ export function TextToVideoView() {
   const [targetSeconds, setTargetSeconds] = useState(30);
   const [aspect, setAspect] = useState<Aspect>('9:16');
   const [planning, setPlanning] = useState(false);
+  const [confidential, setConfidential] = useState(false);
+  const [pdfImages, setPdfImages] = useState<Array<{ name: string; dataUrl: string; width: number; height: number }>>([]);
+  const [pdfImagesLoading, setPdfImagesLoading] = useState(false);
+  const [missingModels, setMissingModels] = useState<string[]>([]);
 
   // Escenas y recursos
   const [title, setTitle] = useState('');
@@ -146,6 +150,7 @@ export function TextToVideoView() {
           if (d.aspect) setAspect(d.aspect);
           if (d.voiceModel) setVoiceModel(d.voiceModel);
           if (d.brollModel) setBrollModel(d.brollModel);
+          if (typeof d.confidential === 'boolean') setConfidential(d.confidential);
         }
         const active = localStorage.getItem(ACTIVE_KEY);
         if (active) setActiveId(active);
@@ -161,6 +166,10 @@ export function TextToVideoView() {
         if (list[0]) setVoiceId((cur) => cur || list[0].id);
       })
       .catch(() => {});
+    fetch('/api/system/video-models')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setMissingModels((d.missing ?? []).map((m: { id: string }) => m.id)))
+      .catch(() => {});
     fetch('/api/system/ffmpeg')
       .then((r) => r.json())
       .then(setFfmpeg)
@@ -172,11 +181,11 @@ export function TextToVideoView() {
   useEffect(() => {
     if (!restored.current) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, title, scenes, aspect, voiceModel, brollModel }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, title, scenes, aspect, voiceModel, brollModel, confidential }));
     } catch {
       // ignorar
     }
-  }, [text, title, scenes, aspect, voiceModel, brollModel]);
+  }, [text, title, scenes, aspect, voiceModel, brollModel, confidential]);
 
   // Seguimiento del proyecto en curso
   const poll = useCallback(async (id: string) => {
@@ -233,6 +242,7 @@ export function TextToVideoView() {
         pdfName: pdf?.name,
         targetSeconds,
         emotionTags: voiceSpec.audioTags,
+        confidential,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'No se pudieron armar las escenas.');
@@ -266,8 +276,29 @@ export function TextToVideoView() {
     if (!file) return;
     if (file.type !== 'application/pdf') return setError('El archivo debe ser un PDF.');
     if (file.size > 20 * 1024 * 1024) return setError('El PDF debe pesar menos de 20 MB.');
-    setPdf({ name: file.name, size: file.size, dataUrl: await readFileAsDataUrl(file) });
+    const dataUrl = await readFileAsDataUrl(file);
+    setPdf({ name: file.name, size: file.size, dataUrl });
     setError(null);
+    setPdfImages([]);
+    setPdfImagesLoading(true);
+    try {
+      const r = await fetch('/api/scenes/pdf-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pdfBase64: dataUrl }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) setPdfImages(d.images ?? []);
+    } finally {
+      setPdfImagesLoading(false);
+    }
+  };
+
+  const addPdfImage = (img: { name: string; dataUrl: string }) => {
+    if (images.length >= 8 || images.some((i) => i.dataUrl === img.dataUrl)) return;
+    const id = `img-${newKey()}`;
+    setImages((cur) => [...cur, { id, name: img.name, dataUrl: img.dataUrl }]);
+    if (!personaId) setPersonaId(id);
   };
 
   const patchScene = (key: string, patch: Partial<DraftScene>) =>
@@ -499,6 +530,40 @@ export function TextToVideoView() {
           </div>
         )}
 
+        {source === 'pdf' && (pdfImagesLoading || pdfImages.length > 0) && (
+          <div className="space-y-2 rounded-lg bg-surface-2/60 p-3">
+            <p className="text-[12px] text-fg-muted">
+              {pdfImagesLoading ? 'Buscando fotos dentro del PDF…' : `Fotos encontradas en el PDF (${pdfImages.length}). Pulsa una para usarla en el video.`}
+            </p>
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+              {pdfImages.map((img) => {
+                const added = images.some((i) => i.dataUrl === img.dataUrl);
+                return (
+                  <button
+                    key={img.name}
+                    type="button"
+                    onClick={() => addPdfImage(img)}
+                    disabled={added || images.length >= 8}
+                    className={`relative aspect-square overflow-hidden rounded-md border cursor-pointer ${added ? 'border-accent' : 'border-line hover:border-fg-subtle'}`}
+                    title={`${img.width}×${img.height}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img.dataUrl} alt={img.name} className="h-full w-full object-cover" />
+                    {added && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
+                        <Check className="h-4 w-4" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {source === 'pdf' && pdf && !pdfImagesLoading && pdfImages.length === 0 && (
+          <p className="text-[11px] text-fg-subtle">No se encontraron fotos dentro del PDF; puedes subirlas en el paso 3.</p>
+        )}
+
         <textarea
           rows={source === 'script' ? 7 : 3}
           value={text}
@@ -548,10 +613,13 @@ export function TextToVideoView() {
             {planning ? 'Armando escenas…' : scenes.length ? 'Volver a armar escenas' : 'Armar escenas'}
           </button>
         </div>
-        <p className="text-[11px] text-fg-subtle">
-          Las escenas las arma la IA elegida arriba (selector “IA”). En modo Gratis, Google puede usar el contenido para mejorar sus
-          productos: para material confidencial elige Claude.
-        </p>
+        <label className="flex cursor-pointer items-start gap-2 text-[12px] text-fg-muted">
+          <input type="checkbox" checked={confidential} onChange={(e) => setConfidential(e.target.checked)} className="mt-0.5" />
+          <span>
+            <span className="text-fg">Material confidencial</span> — no usar el modo Gratis. En Gratis, Google puede usar el contenido
+            para mejorar sus productos; con esta casilla las escenas las arma Claude Haiku (de pago, centavos).
+          </span>
+        </label>
       </section>
 
       {error && (
@@ -733,14 +801,21 @@ export function TextToVideoView() {
               {BROLL_MODELS.map((m) => (
                 <label
                   key={m.id}
-                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 ${
-                    brollModel === m.id ? 'border-accent bg-accent/5' : 'border-line hover:bg-surface-2'
-                  }`}
+                  className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${
+                    missingModels.includes(m.id) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                  } ${brollModel === m.id ? 'border-accent bg-accent/5' : 'border-line hover:bg-surface-2'}`}
                 >
-                  <input type="radio" checked={brollModel === m.id} onChange={() => setBrollModel(m.id)} />
+                  <input
+                    type="radio"
+                    checked={brollModel === m.id}
+                    disabled={missingModels.includes(m.id)}
+                    onChange={() => setBrollModel(m.id)}
+                  />
                   <span className="flex-1">
                     <span className="block text-[12.5px] font-medium text-fg">{m.name}</span>
-                    <span className="block text-[11px] text-fg-subtle">{m.note}</span>
+                    <span className="block text-[11px] text-fg-subtle">
+                      {missingModels.includes(m.id) ? 'Ya no está disponible en OpenRouter.' : m.note}
+                    </span>
                   </span>
                   <span className="text-[11px] tabular-nums text-fg-muted">${m.pricePerSecond.toFixed(3)}/s</span>
                 </label>

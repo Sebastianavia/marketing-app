@@ -7,6 +7,7 @@ import { assertWithinDailyLimit, DailyLimitError } from '@/lib/usage/usage-store
 import { videoRate } from '@/config/cost-rates';
 import { localMediaUrl } from '@/lib/storage/generated-library';
 import { errorMessage } from '@/lib/errors';
+import { assertVideoModelAvailable } from '@/lib/video/video-catalog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = CreateJob.parse(await req.json());
+    try {
+      await assertVideoModelAvailable(body.model);
+    } catch (e) {
+      return NextResponse.json({ error: errorMessage(e, 'Modelo no disponible.') }, { status: 400 });
+    }
     const estimatedCostUSD = (body.estimatedSeconds ?? 15) * videoRate(body.model);
 
     const settings = await getSettings();

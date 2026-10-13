@@ -13,6 +13,7 @@ import { getElevenModel } from '@/config/elevenlabs-models';
 import { BROLL_MODELS } from '@/config/broll-models';
 import { localMediaUrl } from '@/lib/storage/generated-library';
 import { errorMessage } from '@/lib/errors';
+import { assertVideoModelAvailable } from '@/lib/video/video-catalog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,12 @@ export async function POST(req: NextRequest) {
         { error: 'No se encontró FFmpeg, necesario para montar el video. En la carpeta frontend ejecuta: npm i ffmpeg-static, y reinicia la app.', code: 'no_ffmpeg' },
         { status: 400 }
       );
+    }
+    try {
+      if (body.scenes.some((s) => s.type === 'avatar')) await assertVideoModelAvailable('heygen/avatar-iv');
+      if (body.scenes.some((s) => s.type === 'broll')) await assertVideoModelAvailable(body.brollModel);
+    } catch (e) {
+      return NextResponse.json({ error: errorMessage(e, 'Modelo no disponible.') }, { status: 400 });
     }
     const fullText = body.scenes.map((s) => s.narration).join(' ');
     const spec = getElevenModel(body.voice.modelId);

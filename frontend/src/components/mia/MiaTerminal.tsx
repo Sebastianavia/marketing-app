@@ -21,6 +21,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { LLM_MODELS } from '@/config/llm-models';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 
 interface DroppedLocalFile {
   name: string;
@@ -30,7 +31,10 @@ interface DroppedLocalFile {
 }
 
 // Gemini usa tu pool gratis; el resto va por OpenRouter (de pago). Ver config/llm-models.ts
-const AVAILABLE_MODELS = LLM_MODELS.map((m) => ({ id: m.id, name: m.name, badge: m.badge }));
+const AVAILABLE_MODELS = [
+  { id: 'orchestrator', name: 'Según selector IA', badge: 'Auto' },
+  ...LLM_MODELS.map((m) => ({ id: m.id, name: m.name, badge: m.badge })),
+];
 
 const QUICK_PROMPTS_BY_TOOL: Record<string, string[]> = {
   'avatar-studio': [
@@ -213,20 +217,17 @@ export function MiaTerminal() {
     try {
       const history = [...messages, { role: 'user', content: enrichedQuery }];
 
-      const response = await fetch('/api/mia-assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: history.map((m) => ({ role: m.role, content: m.content })),
-          activeTool: activeTool || 'dashboard',
-          activeSkillId: 'auto',
-          selectedModel,
-          customApiKey,
-        }),
+      const response = await postOrchestrated('/api/mia-assistant', {
+        messages: history.map((m) => ({ role: m.role, content: m.content })),
+        activeTool: activeTool || 'dashboard',
+        activeSkillId: 'auto',
+        selectedModel,
+        customApiKey,
       });
 
       if (!response.ok) {
-        throw new Error('Error al conectar con el Asistente');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Error al conectar con el Asistente');
       }
 
       addMessage({ role: 'assistant', content: '' });
