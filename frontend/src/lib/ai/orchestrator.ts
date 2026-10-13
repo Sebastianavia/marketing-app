@@ -38,6 +38,29 @@ export interface OrchestratorCall {
   temperature?: number;
   /** Fuerza un modo solo para esta llamada (si no, el de Ajustes). */
   mode?: unknown;
+  /** Archivos adjuntos (p. ej. un PDF) que el modelo debe leer. */
+  files?: Array<{ data: Uint8Array; mediaType: string; filename?: string }>;
+}
+
+/** prompt simple, o mensaje con archivos adjuntos si los hay. */
+function promptOrMessages(call: OrchestratorCall) {
+  if (!call.files?.length) return { prompt: call.prompt };
+  return {
+    messages: [
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: call.prompt },
+          ...call.files.map((f) => ({
+            type: 'file' as const,
+            data: f.data,
+            mediaType: f.mediaType,
+            ...(f.filename ? { filename: f.filename } : {}),
+          })),
+        ],
+      },
+    ],
+  };
 }
 
 export interface OrchestratorMeta {
@@ -94,7 +117,8 @@ async function run<T>(call: OrchestratorCall, runner: Runner<T>): Promise<{ valu
   } else {
     provider = 'openrouter';
     if (!process.env.OPENROUTER_API_KEY) throw new Error('Falta OPENROUTER_API_KEY en .env.local para usar Claude.');
-    const result = await runner(openrouter(option.model));
+    // Chat Completions: la API principal de OpenRouter
+    const result = await runner(openrouter.chat(option.model));
     value = result.value;
     inputTokens = result.inputTokens ?? 0;
     outputTokens = result.outputTokens ?? 0;
@@ -119,7 +143,7 @@ async function run<T>(call: OrchestratorCall, runner: Runner<T>): Promise<{ valu
 
 export async function orchestrateText(call: OrchestratorCall) {
   const { value, meta } = await run<string>(call, async (model) => {
-    const r = await generateText({ model, system: call.system, prompt: call.prompt, temperature: call.temperature ?? 0.7 });
+    const r = await generateText({ model, system: call.system, ...promptOrMessages(call), temperature: call.temperature ?? 0.7 });
     return { value: r.text, inputTokens: r.usage?.inputTokens, outputTokens: r.usage?.outputTokens };
   });
   return { text: value, meta };
@@ -131,7 +155,7 @@ export async function orchestrateObject<S extends z.ZodType>(call: OrchestratorC
       model,
       schema: call.schema,
       system: call.system,
-      prompt: call.prompt,
+      ...promptOrMessages(call),
       temperature: call.temperature ?? 0.7,
     });
     return { value: r.object as z.infer<S>, inputTokens: r.usage?.inputTokens, outputTokens: r.usage?.outputTokens };

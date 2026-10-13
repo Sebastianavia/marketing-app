@@ -38,6 +38,69 @@ export class OpenRouterVideoService {
    * Despacha la orden de generación de video con Lip-Sync a OpenRouter
    * utilizando el modelo heygen/avatar-iv.
    */
+  /**
+   * Imagen→video (tomas de apoyo / B-roll). Formato de OpenRouter:
+   * frame_images = [{ type: 'image_url', image_url: { url }, frame_type: 'first_frame' }].
+   * Sin audio: la voz la pone ElevenLabs encima.
+   */
+  async createImageToVideoTask(params: {
+    model: string;
+    prompt: string;
+    frameImageUrl: string;
+    durationSec: number;
+    aspectRatio: string;
+    resolution?: string;
+  }): Promise<OpenRouterVideoTask> {
+    if (!this.isConfigured) {
+      throw new PipelineError('Falta OPENROUTER_API_KEY en .env.local: no se puede generar el video.', 'video_dispatch', false);
+    }
+    if (!/^https?:\/\//i.test(params.frameImageUrl || '')) {
+      throw new PipelineError('La imagen de la escena debe ser una URL pública (https).', 'video_dispatch', false);
+    }
+    const payload: Record<string, unknown> = {
+      model: params.model,
+      prompt: params.prompt,
+      frame_images: [
+        { type: 'image_url', image_url: { url: params.frameImageUrl.trim() }, frame_type: 'first_frame' },
+      ],
+      duration: params.durationSec,
+      aspect_ratio: params.aspectRatio,
+      generate_audio: false,
+    };
+    if (params.resolution) payload.resolution = params.resolution;
+
+    const response = await fetch(`${OPENROUTER_BASE_URL}/videos`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+        'X-Title': 'Lulo Studio Desktop - Render Engine',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      let message = errorText;
+      try {
+        const parsed = JSON.parse(errorText);
+        message = parsed.error?.message || parsed.message || errorText;
+      } catch {
+        // Mantener errorText
+      }
+      throw new PipelineError(
+        `OpenRouter rechazó el clip (${response.status}): ${message}`,
+        'video_dispatch',
+        response.status >= 500,
+        { status: response.status }
+      );
+    }
+    const data = await response.json();
+    const taskId = data.id || data.task_id || data.data?.id;
+    if (!taskId) throw new PipelineError('OpenRouter no devolvió el id del clip.', 'video_dispatch', false, data);
+    return { taskId, status: 'pending', progressPercent: 5, createdAt: Date.now(), updatedAt: Date.now() };
+  }
+
   async createVideoTask(params: OpenRouterVideoGenerationParams): Promise<OpenRouterVideoTask> {
     const { model = DEFAULT_MODEL, imageUrl, audioUrl, aspectRatio = '9:16' } = params;
 

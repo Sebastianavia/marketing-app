@@ -451,6 +451,84 @@ export class ElevenLabsService {
   }
 
   /**
+   * Voz completa con tiempos por carácter (POST /v1/text-to-speech/{voice_id}/with-timestamps).
+   * Se usa en el video por escenas: una sola voz continua y, con sus tiempos, dónde empieza cada escena.
+   */
+  async generateWithTimestamps(
+    text: string,
+    voiceId: string,
+    modelId: string,
+    voiceSettings: Partial<ElevenLabsVoiceSettings> = {}
+  ): Promise<{
+    buffer: Buffer;
+    modelId: string;
+    textSent: string;
+    charactersBilled: number;
+    alignment: { characters: string[]; starts: number[]; ends: number[] } | null;
+  }> {
+    if (!this.isConfigured) {
+      throw new ElevenLabsTTSError('ELEVENLABS_API_KEY no está configurada en frontend/.env.local.', 'not_configured', 500);
+    }
+    const effectiveModelId = resolveElevenModelId(modelId);
+    const spec = getElevenModel(effectiveModelId);
+    let textToSpeak = text.trim();
+    if (isKnownElevenModel(effectiveModelId) && !spec.audioTags && hasAudioTags(textToSpeak)) {
+      textToSpeak = stripAudioTags(textToSpeak);
+    }
+    const limit = isKnownElevenModel(effectiveModelId) ? spec.charLimit : ELEVENLABS_MAX_CHARS_PER_REQUEST;
+    if (textToSpeak.length > limit) {
+      throw new ElevenLabsTTSError(
+        `El guion completo supera el límite de ${limit.toLocaleString()} caracteres del modelo.`,
+        'text_too_long',
+        400
+      );
+    }
+    const s = buildApiVoiceSettings(effectiveModelId, voiceSettings);
+    // La API HTTP usa snake_case
+    const voice_settings: Record<string, unknown> = { stability: s.stability };
+    if (s.similarityBoost !== undefined) voice_settings.similarity_boost = s.similarityBoost;
+    if (s.style !== undefined) voice_settings.style = s.style;
+    if (s.speed !== undefined) voice_settings.speed = s.speed;
+    if (s.useSpeakerBoost !== undefined) voice_settings.use_speaker_boost = s.useSpeakerBoost;
+
+    const res = await fetch(
+      `${ELEVENLABS_BASE_URL}/text-to-speech/${encodeURIComponent(voiceId || getConfiguredVoiceId() || FALLBACK_PREMADE_VOICE_ID)}/with-timestamps?output_format=${OUTPUT_FORMAT}`,
+      {
+        method: 'POST',
+        headers: { 'xi-api-key': this.apiKey.trim(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: textToSpeak, model_id: effectiveModelId, voice_settings }),
+      }
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      let msg = body;
+      try {
+        const j = JSON.parse(body);
+        msg = j.detail?.message || j.detail || j.message || body;
+      } catch {
+        // texto plano
+      }
+      const code: ElevenLabsErrorCode =
+        res.status === 401 ? 'auth' : res.status === 404 ? 'voice_not_found' : res.status === 429 ? 'rate_limited' : 'unknown';
+      throw new ElevenLabsTTSError(`ElevenLabs (${res.status}): ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`, code, res.status);
+    }
+    const data = (await res.json()) as {
+      audio_base64: string;
+      alignment?: { characters: string[]; character_start_times_seconds: number[]; character_end_times_seconds: number[] } | null;
+    };
+    const a = data.alignment;
+    return {
+      buffer: Buffer.from(data.audio_base64, 'base64'),
+      modelId: effectiveModelId,
+      textSent: textToSpeak,
+      charactersBilled: textToSpeak.length,
+      alignment: a
+        ? { characters: a.characters, starts: a.character_start_times_seconds, ends: a.character_end_times_seconds }
+        : null,
+    };
+  }
+
+  /**
    * Obtiene la información de la voz clonada principal configurada en el entorno
    */
   async getConfiguredVoiceMetadata(): Promise<{

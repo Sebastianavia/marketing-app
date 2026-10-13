@@ -60,7 +60,7 @@ export class OpenRouterService {
     modelName: string = OPENROUTER_DEFAULT_TEXT_MODEL
   ): Promise<{ script: MarketingScriptOutput; model: string; inputTokens: number; outputTokens: number }> {
     const { object, usage } = await generateObject({
-      model: openrouter(modelName),
+      model: openrouter.chat(modelName),
       schema: marketingScriptSchema,
       prompt: buildMarketingScriptPrompt(payload),
     });

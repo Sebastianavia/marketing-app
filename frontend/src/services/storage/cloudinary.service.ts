@@ -99,6 +99,17 @@ export class CloudinaryStorageService {
   /**
    * Elimina un archivo de audio o video de Cloudinary para evitar acumulación de archivos huérfanos.
    */
+  /** Borra un archivo temporal (imagen o audio/video) por su public_id. */
+  async deleteAsset(publicId: string, resourceType: 'image' | 'video'): Promise<boolean> {
+    if (!this.isConfigured) return false;
+    try {
+      const res = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      return res?.result === 'ok' || res?.result === 'not found';
+    } catch {
+      return false;
+    }
+  }
+
   async deleteAudio(publicId: string): Promise<boolean> {
     if (!this.isConfigured || !publicId || publicId.startsWith('sample_')) return true;
     try {

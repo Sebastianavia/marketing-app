@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
 
     const result = streamText({
-      model: openrouter(OPENROUTER_DEFAULT_TEXT_MODEL),
+      model: openrouter.chat(OPENROUTER_DEFAULT_TEXT_MODEL),
       system: `Eres un Director Creativo y Copywriter de élite especializado en video marketing para TikTok, Reels y Shorts.
 Tu trabajo es generar guiones persuasivos y estructurados con:
 1. Gancho disruptivo (0-3s).

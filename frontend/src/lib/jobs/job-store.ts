@@ -17,11 +17,21 @@ export interface RenderJob {
   title: string;
   provider: 'openrouter';
   model: string;
+  /** 'avatar' = foto + audio con labios sincronizados; 'broll' = imagen→video con prompt. */
+  kind?: 'avatar' | 'broll';
   input: {
     imageUrl: string;
-    audioUrl: string;
-    aspectRatio: '9:16' | '16:9';
+    /** Solo avatar. */
+    audioUrl?: string;
+    aspectRatio: '9:16' | '16:9' | '1:1';
+    /** Solo B-roll. */
+    prompt?: string;
+    durationSec?: number;
+    resolution?: string;
   };
+  /** Si pertenece a un video por escenas. */
+  sceneProjectId?: string;
+  sceneId?: string;
   status: JobStatus;
   /** Texto para mostrar en pantalla mientras se procesa. */
   phase: string;

@@ -73,11 +73,11 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
   'text-to-video': {
     id: 'text-to-video',
     title: 'Guion a video',
-    formula: 'Guion → escenas renderizadas',
+    formula: 'Guion, idea o PDF → video por escenas',
     description:
-      'Transforma un guion de marketing en tomas con dirección visual, movimiento de cámara y gradación de color.',
+      'Arma escenas editables, genera la voz completa, un clip por escena (avatar o toma de apoyo) y el montaje final con fundidos.',
     icon: Clapperboard,
-    preview: true,
+    engines: 'ElevenLabs · HeyGen Avatar IV · Veo / Kling / Hailuo · FFmpeg',
     shortcut: '4',
   },
   'voice-studio': {

@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
         : `google/${selectedModel}`;
 
       const result = streamText({
-        model: client(modelId),
+        model: client.chat(modelId),
         system: systemPrompt,
         messages: messages.map((m: any) => ({
           role: m.role,

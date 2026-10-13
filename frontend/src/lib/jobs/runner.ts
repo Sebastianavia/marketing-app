@@ -65,12 +65,22 @@ async function tick() {
 async function submitJob(job: RenderJob) {
   try {
     const service = new OpenRouterVideoService();
-    const task = await service.createVideoTask({
-      model: job.model,
-      imageUrl: job.input.imageUrl,
-      audioUrl: job.input.audioUrl,
-      aspectRatio: job.input.aspectRatio,
-    });
+    const task =
+      job.kind === 'broll'
+        ? await service.createImageToVideoTask({
+            model: job.model,
+            prompt: job.input.prompt || '',
+            frameImageUrl: job.input.imageUrl,
+            durationSec: job.input.durationSec || 5,
+            aspectRatio: job.input.aspectRatio,
+            resolution: job.input.resolution,
+          })
+        : await service.createVideoTask({
+            model: job.model,
+            imageUrl: job.input.imageUrl,
+            audioUrl: job.input.audioUrl || '',
+            aspectRatio: job.input.aspectRatio === '1:1' ? '9:16' : job.input.aspectRatio,
+          });
     await updateJob(job.id, {
       status: 'processing',
       providerTaskId: task.taskId,
@@ -122,8 +132,12 @@ async function checkJob(job: RenderJob) {
 async function finishJob(job: RenderJob, videoUrl: string) {
   await updateJob(job.id, { phase: 'Guardando el video en tu biblioteca…' });
   try {
-    const { path: outputPath, bytes } = await downloadToLibrary(videoUrl, 'video', 'mp4', job.id);
-    const durationSec = mp4DurationSeconds(bytes) || 0;
+    // Las URLs de contenido de OpenRouter exigen la clave (docs de Video generation)
+    const auth = /openrouter\.ai/i.test(videoUrl) && process.env.OPENROUTER_API_KEY
+      ? { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` }
+      : undefined;
+    const { path: outputPath, bytes } = await downloadToLibrary(videoUrl, 'video', 'mp4', job.id, auth);
+    const durationSec = mp4DurationSeconds(bytes) || job.input.durationSec || 0;
     const costUSD = Math.round(durationSec * videoRate(job.model) * 10000) / 10000;
 
     await updateJob(job.id, {
@@ -140,7 +154,7 @@ async function finishJob(job: RenderJob, videoUrl: string) {
       kind: 'video',
       provider: job.provider,
       model: job.model,
-      description: `${job.title} · ${durationSec}s · ${job.input.aspectRatio}`,
+      description: `${job.title} · ${Math.round(durationSec * 10) / 10}s · ${job.input.aspectRatio}`,
       units: durationSec,
       unit: 'segundos',
       costUSD,

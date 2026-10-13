@@ -7,7 +7,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     const { ensureDataDir } = await import('@/lib/data/data-dir');
     const { startRunner } = await import('@/lib/jobs/runner');
+    const { startSceneRunner } = await import('@/lib/scenes/scene-runner');
     await ensureDataDir();
     startRunner();
+    startSceneRunner();
   }
 }

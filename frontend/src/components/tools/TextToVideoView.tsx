@@ -1,174 +1,777 @@
 'use client';
 
-import React, { useState } from 'react';
-import { StepIndicator } from '../ui/StepIndicator';
-import { ShimmerLoader } from '../ui/ShimmerLoader';
-import { VideoPlayer } from '../ui/VideoPlayer';
-import { Sparkles, Sliders, Film, Terminal } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  FileText,
+  FileUp,
+  FolderOpen,
+  ImagePlus,
+  Lightbulb,
+  Loader2,
+  Plus,
+  RotateCcw,
+  Trash2,
+  User,
+  X,
+} from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
+import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
+import {
+  DEFAULT_ELEVEN_MODEL,
+  DEFAULT_VOICE_SETTINGS,
+  getElevenModel,
+  type VoiceSettingsState,
+} from '@/config/elevenlabs-models';
+import { BROLL_MODELS, DEFAULT_BROLL_MODEL } from '@/config/broll-models';
+import { estimateSceneProject } from '@/lib/scenes/scene-estimate';
+import { estimateSeconds } from '@/lib/scenes/scene-plan';
+
+/**
+ * Guion a video (por escenas): guion, idea o PDF → escenas editables →
+ * voz continua con tiempos → un clip por escena (avatar o toma de apoyo) → montaje con FFmpeg.
+ */
+
+type Source = 'script' | 'idea' | 'pdf';
+type Aspect = '9:16' | '16:9' | '1:1';
+
+interface DraftScene {
+  key: string;
+  type: 'avatar' | 'broll';
+  narration: string;
+  visualPrompt: string;
+  imageId?: string;
+}
+
+interface DraftImage {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
+
+interface VoiceOption {
+  id: string;
+  name: string;
+}
+
+interface ProjectStatus {
+  id: string;
+  title: string;
+  status: 'queued' | 'voice' | 'clips' | 'stitching' | 'completed' | 'failed';
+  phase: string;
+  error?: string;
+  totalSeconds?: number;
+  estimatedCostUSD?: number;
+  costUSD?: number;
+  outputPath?: string;
+  outputUrl?: string | null;
+  scenes: Array<{ number: number; type: string; narration: string; status: string; phase?: string; error?: string }>;
+}
+
+const DRAFT_KEY = 'lulo_scenes_draft';
+const ACTIVE_KEY = 'lulo_scenes_active';
+const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
+const newKey = () => Math.random().toString(36).slice(2, 10);
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    r.readAsDataURL(file);
+  });
+}
 
 export function TextToVideoView() {
-  const [step, setStep] = useState(1);
-  const [prompt, setPrompt] = useState(
-    'Toma cinematográfica en cámara lenta de una lata de bebida energética refrescante emergiendo entre cubos de hielo con gotas de condensación e iluminación de neón púrpura y azul.'
-  );
-  const [stylePreset, setStylePreset] = useState('commercial_cinematic');
-  const [durationSec, setDurationSec] = useState(10);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [injectedNotice, setInjectedNotice] = useState(false);
+  // Material de entrada
+  const [source, setSource] = useState<Source>('script');
+  const [keepScript, setKeepScript] = useState(true);
+  const [text, setText] = useState('');
+  const [pdf, setPdf] = useState<{ name: string; dataUrl: string; size: number } | null>(null);
+  const [targetSeconds, setTargetSeconds] = useState(30);
+  const [aspect, setAspect] = useState<Aspect>('9:16');
+  const [planning, setPlanning] = useState(false);
 
-  // Escucha activa de inyección desde Mia
+  // Escenas y recursos
+  const [title, setTitle] = useState('');
+  const [scenes, setScenes] = useState<DraftScene[]>([]);
+  const [images, setImages] = useState<DraftImage[]>([]);
+  const [personaId, setPersonaId] = useState<string | null>(null);
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [voiceId, setVoiceId] = useState('');
+  const [voiceModel, setVoiceModel] = useState<string>(DEFAULT_ELEVEN_MODEL);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
+  const [brollModel, setBrollModel] = useState(DEFAULT_BROLL_MODEL);
+  const [ffmpeg, setFfmpeg] = useState<{ available: boolean } | null>(null);
+
+  // Render
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [project, setProject] = useState<ProjectStatus | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pdfInput = useRef<HTMLInputElement>(null);
+  const imgInput = useRef<HTMLInputElement>(null);
+  const restored = useRef(false);
+
+  // Mia puede inyectar un guion
   const injectedData = useMiaStore((s) => s.injectedData);
   const clearInjectedData = useMiaStore((s) => s.clearInjectedData);
-
-  React.useEffect(() => {
+  useEffect(() => {
     if (injectedData && injectedData.targetTool === 'text-to-video') {
-      setPrompt(injectedData.content);
-      setStep(1);
-      setInjectedNotice(true);
-      clearInjectedData();
-      const timer = setTimeout(() => setInjectedNotice(false), 4500);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => {
+        setSource('script');
+        setText(injectedData.content);
+        clearInjectedData();
+      }, 0);
+      return () => clearTimeout(t);
     }
   }, [injectedData, clearInjectedData]);
 
-  const steps = [
-    { id: 1, label: 'Prompt & Estilo', description: 'Dirección visual' },
-    { id: 2, label: 'Motor de Video', description: 'Sora / VEO3 / HeyGen' },
-    { id: 3, label: 'Exportación', description: 'Render final HD' },
-  ];
+  // Carga inicial: borrador, proyecto activo, voces y FFmpeg
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (restored.current) return;
+      restored.current = true;
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) {
+          const d = JSON.parse(raw);
+          if (typeof d.text === 'string') setText(d.text);
+          if (typeof d.title === 'string') setTitle(d.title);
+          if (Array.isArray(d.scenes)) setScenes(d.scenes);
+          if (d.aspect) setAspect(d.aspect);
+          if (d.voiceModel) setVoiceModel(d.voiceModel);
+          if (d.brollModel) setBrollModel(d.brollModel);
+        }
+        const active = localStorage.getItem(ACTIVE_KEY);
+        if (active) setActiveId(active);
+      } catch {
+        // sin almacenamiento local
+      }
+    }, 0);
+    fetch('/api/elevenlabs/voices')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list: VoiceOption[] = (d?.voices ?? []).map((v: { id: string; name: string }) => ({ id: v.id, name: v.name }));
+        setVoices(list);
+        if (list[0]) setVoiceId((cur) => cur || list[0].id);
+      })
+      .catch(() => {});
+    fetch('/api/system/ffmpeg')
+      .then((r) => r.json())
+      .then(setFfmpeg)
+      .catch(() => setFfmpeg({ available: false }));
+    return () => clearTimeout(t);
+  }, []);
 
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    setProgress(10);
-
-    const phases = [
-      { p: 35, text: 'Optimizando prompt y storyboard con LLM...' },
-      { p: 65, text: 'Generando coherencia espacial y física de movimiento...' },
-      { p: 88, text: 'Escalando resolución a 4K y aplicando gradación de color...' },
-      { p: 100, text: 'Video renderizado con éxito.' },
-    ];
-
-    for (const phase of phases) {
-      await new Promise((r) => setTimeout(r, 2000));
-      setProgress(phase.p);
+  // Guarda el borrador (sin imágenes ni PDF, que pesan demasiado)
+  useEffect(() => {
+    if (!restored.current) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ text, title, scenes, aspect, voiceModel, brollModel }));
+    } catch {
+      // ignorar
     }
+  }, [text, title, scenes, aspect, voiceModel, brollModel]);
 
-    setIsGenerating(false);
-    setVideoUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
-    setStep(3);
+  // Seguimiento del proyecto en curso
+  const poll = useCallback(async (id: string) => {
+    const r = await fetch(`/api/scenes/${id}`, { cache: 'no-store' });
+    if (r.status === 404) {
+      setActiveId(null);
+      setProject(null);
+      try {
+        localStorage.removeItem(ACTIVE_KEY);
+      } catch {
+        // ignorar
+      }
+      return;
+    }
+    if (r.ok) setProject(await r.json());
+  }, []);
+
+  useEffect(() => {
+    if (!activeId) return;
+    let alive = true;
+    const run = () => alive && void poll(activeId);
+    const first = setTimeout(run, 0);
+    const timer = setInterval(run, 4000);
+    return () => {
+      alive = false;
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [activeId, poll]);
+
+  const persona = images.find((i) => i.id === personaId) ?? images[0];
+  const fullText = scenes.map((s) => s.narration.trim()).join(' ');
+  const voiceSpec = getElevenModel(voiceModel);
+  const estimate = useMemo(
+    () =>
+      scenes.length
+        ? estimateSceneProject({ voiceModelId: voiceModel, brollModel, scenes: scenes.filter((s) => s.narration.trim()) })
+        : null,
+    [scenes, voiceModel, brollModel]
+  );
+
+  // ----- Acciones -----
+
+  const planScenes = async () => {
+    setError(null);
+    if (source === 'pdf' && !pdf) return setError('Sube primero el PDF.');
+    if (source !== 'pdf' && !text.trim()) return setError(source === 'script' ? 'Pega tu guion.' : 'Escribe la idea del video.');
+    setPlanning(true);
+    try {
+      const res = await postOrchestrated('/api/scenes/plan', {
+        mode: source === 'script' && keepScript ? 'keep' : 'write',
+        text,
+        pdfBase64: source === 'pdf' && pdf ? pdf.dataUrl.replace(/^data:[^;]+;base64,/, '') : undefined,
+        pdfName: pdf?.name,
+        targetSeconds,
+        emotionTags: voiceSpec.audioTags,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudieron armar las escenas.');
+      setTitle(data.title || 'Video');
+      setScenes(
+        (data.scenes as Array<Omit<DraftScene, 'key'>>).map((s) => ({ ...s, key: newKey(), imageId: undefined }))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudieron armar las escenas.');
+    } finally {
+      setPlanning(false);
+    }
   };
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      {/* Left Panel */}
-      <div className="lg:col-span-5 space-y-4">
-        {/* Injected Notification from Mia */}
-        {injectedNotice && (
-          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2 text-xs text-emerald-300 tabular-nums animate-in fade-in">
-            <Terminal className="h-3.5 w-3.5 shrink-0" />
-            <span>✓ Prompt inyectado automáticamente desde el Asistente.</span>
+  const addImages = async (files: FileList | null) => {
+    if (!files) return;
+    const next: DraftImage[] = [];
+    for (const f of Array.from(files).slice(0, 8 - images.length)) {
+      if (!f.type.startsWith('image/')) continue;
+      if (f.size > 10 * 1024 * 1024) {
+        setError(`${f.name} pesa más de 10 MB.`);
+        continue;
+      }
+      next.push({ id: `img-${newKey()}`, name: f.name, dataUrl: await readFileAsDataUrl(f) });
+    }
+    setImages((cur) => [...cur, ...next]);
+    if (!personaId && next[0]) setPersonaId(next[0].id);
+  };
+
+  const loadPdf = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') return setError('El archivo debe ser un PDF.');
+    if (file.size > 20 * 1024 * 1024) return setError('El PDF debe pesar menos de 20 MB.');
+    setPdf({ name: file.name, size: file.size, dataUrl: await readFileAsDataUrl(file) });
+    setError(null);
+  };
+
+  const patchScene = (key: string, patch: Partial<DraftScene>) =>
+    setScenes((cur) => cur.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+  const moveScene = (i: number, dir: -1 | 1) =>
+    setScenes((cur) => {
+      const j = i + dir;
+      if (j < 0 || j >= cur.length) return cur;
+      const copy = [...cur];
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+      return copy;
+    });
+
+  const submit = async () => {
+    setError(null);
+    const valid = scenes.filter((s) => s.narration.trim());
+    if (!valid.length) return setError('Añade al menos una escena con texto.');
+    if (!persona) return setError('Sube al menos la foto de la persona.');
+    if (!voiceId) return setError('Elige una voz.');
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim() || 'Video',
+          aspectRatio: aspect,
+          brollModel,
+          voice: {
+            voiceId,
+            voiceName: voices.find((v) => v.id === voiceId)?.name,
+            modelId: voiceModel,
+            settings: voiceSettings,
+          },
+          images: images.map((img) => ({ id: img.id, name: img.name, dataBase64: img.dataUrl })),
+          scenes: valid.map((s) => ({
+            type: s.type,
+            narration: s.narration.trim(),
+            visualPrompt: s.visualPrompt.trim(),
+            imageId: s.type === 'avatar' ? persona.id : s.imageId || persona.id,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'No se pudo iniciar el video.');
+      setActiveId(data.id);
+      setProject(null);
+      try {
+        localStorage.setItem(ACTIVE_KEY, data.id);
+      } catch {
+        // ignorar
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo iniciar el video.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const retry = async () => {
+    if (!activeId) return;
+    await fetch(`/api/scenes/${activeId}/retry`, { method: 'POST' });
+    void poll(activeId);
+  };
+
+  const closeProject = () => {
+    setActiveId(null);
+    setProject(null);
+    try {
+      localStorage.removeItem(ACTIVE_KEY);
+    } catch {
+      // ignorar
+    }
+  };
+
+  const openFolder = (filePath: string) => {
+    fetch('/api/projects/open-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath.replace(/[\\/][^\\/]*$/, '') }),
+    }).catch(() => {});
+  };
+
+  // ----- Vista: proyecto en marcha -----
+  if (activeId) {
+    const running = !project || ['queued', 'voice', 'clips', 'stitching'].includes(project.status);
+    return (
+      <div className="w-full max-w-3xl space-y-5">
+        <header className="flex items-center justify-between gap-4">
+          <h2 className="text-[15px] font-semibold text-fg">{project?.title ?? 'Preparando…'}</h2>
+          {!running && (
+            <button type="button" onClick={closeProject} className="btn-secondary h-9 px-3 text-[13px]">
+              Nuevo video
+            </button>
+          )}
+        </header>
+
+        <div className="rounded-xl border border-line bg-surface p-5">
+          <div className="flex items-center gap-2 text-[14px] text-fg">
+            {running ? (
+              <Loader2 className="h-4 w-4 animate-spin text-accent" />
+            ) : project?.status === 'completed' ? (
+              <Check className="h-4 w-4 text-emerald-500" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-rose-500" />
+            )}
+            <span className="font-medium">{project?.phase ?? 'En cola'}</span>
           </div>
-        )}
+          {running && (
+            <p className="mt-1 text-[12px] text-fg-subtle">
+              Puedes cerrar esta pestaña o cambiar de herramienta: el video sigue generándose y aparecerá aquí al volver.
+            </p>
+          )}
+          {project?.error && <p className="mt-2 text-[13px] text-rose-600 dark:text-rose-400">{project.error}</p>}
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-fg-muted tabular-nums">
+            {project?.totalSeconds ? <span>Duración {project.totalSeconds.toFixed(1)} s</span> : null}
+            {project?.estimatedCostUSD !== undefined && <span>Estimado {usd(project.estimatedCostUSD)}</span>}
+            {project?.costUSD ? <span>Gastado {usd(project.costUSD)}</span> : null}
+          </div>
+          {project?.status === 'failed' && (
+            <button type="button" onClick={retry} className="btn-primary mt-4 h-9 px-4 text-[13px]">
+              <RotateCcw className="h-3.5 w-3.5" /> Reintentar lo que falló
+            </button>
+          )}
+        </div>
 
-        <div className="surface-card p-5 sm:p-6 space-y-5">
-          <StepIndicator steps={steps} currentStep={step} onStepClick={setStep} />
-
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="field-label">
-                  Prompt / Guion Visual de Marketing
-                </label>
-                <span className="tabular-nums text-[10px] text-fg-subtle">{prompt.length} chars</span>
-              </div>
-              <textarea
-                rows={4}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe la escena, iluminación, producto y movimientos de cámara..."
-                className="w-full rounded-lg input-clean p-3 text-xs leading-relaxed resize-none"
-              />
-            </div>
-
-            <div>
-              <label className="field-label mb-1.5">
-                Estilo Audiovisual
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'commercial_cinematic', label: 'Comercial Cine' },
-                  { id: 'tiktok_viral', label: 'Dinámico TikTok' },
-                  { id: 'minimal_product', label: 'Producto Minimal' },
-                ].map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setStylePreset(s.id)}
-                    className={`py-2 rounded-lg border text-xs tabular-nums transition-colors ${
-                      stylePreset === s.id
-                        ? 'border-fg bg-fg text-bg shadow-xs'
-                        : 'border-line bg-surface-2 text-fg-muted hover:text-fg hover:bg-surface-2 dark:bg-transparent'
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs text-fg-muted flex items-center gap-1.5 font-medium">
-                  <Sliders className="h-3 w-3 text-fg-subtle" />
-                  Duración de la Toma
-                </span>
-                <span className="tabular-nums text-fg text-xs">{durationSec}s</span>
-              </div>
-              <input
-                type="range"
-                min="5"
-                max="30"
-                step="5"
-                value={durationSec}
-                onChange={(e) => setDurationSec(Number(e.target.value))}
-                className="w-full accent-slate-900 dark:accent-white bg-surface-2 rounded-lg cursor-pointer h-1.5"
-              />
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="button"
-                disabled={isGenerating || !prompt.trim()}
-                onClick={handleGenerate}
-                className="btn-primary w-full h-11 text-sm"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>{isGenerating ? 'Sintetizando Video...' : 'Transformar Guion a Video HD'}</span>
+        {project?.outputUrl && (
+          <div className="space-y-3 rounded-xl border border-line bg-surface p-5">
+            <video
+              src={project.outputUrl}
+              controls
+              className={`mx-auto max-h-[70vh] rounded-lg bg-black ${aspect === '16:9' ? 'w-full' : 'w-auto'}`}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-fg-muted">
+              <span className="truncate">{project.outputPath}</span>
+              <button type="button" onClick={() => openFolder(project.outputPath!)} className="btn-secondary h-8 px-3 text-[12px]">
+                <FolderOpen className="h-3.5 w-3.5" /> Abrir carpeta
               </button>
             </div>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Right Canvas */}
-      <div className="lg:col-span-7 lg:sticky lg:top-6 h-[min(720px,calc(100dvh-7rem))] min-h-[480px]">
-        {isGenerating ? (
-          <ShimmerLoader
-            progress={progress}
-            currentPhase="Modelando física lumínica y movimiento continuo..."
-            subtext="Generación Text-to-Video de alta fidelidad vía Google VEO / Sora."
-          />
-        ) : (
-          <VideoPlayer
-            videoUrl={videoUrl || undefined}
-            aspectRatio="16:9"
-            title="Previsualización Text-to-Video"
-          />
+        {project && (
+          <ol className="divide-y divide-line rounded-xl border border-line bg-surface">
+            {project.scenes.map((s) => (
+              <li key={s.number} className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 w-5 shrink-0 text-[12px] tabular-nums text-fg-subtle">{s.number}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] text-fg line-clamp-2">{s.narration}</p>
+                  <p className="mt-0.5 text-[11px] text-fg-subtle">
+                    {s.type === 'avatar' ? 'Habla la persona' : 'Toma de apoyo'}
+                    {s.phase && s.status === 'rendering' ? ` · ${s.phase}` : ''}
+                    {s.error ? ` · ${s.error}` : ''}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] ${
+                    s.status === 'done'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : s.status === 'failed'
+                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                      : 'bg-surface-2 text-fg-muted'
+                  }`}
+                >
+                  {s.status === 'done' ? 'Listo' : s.status === 'failed' ? 'Falló' : s.status === 'rendering' ? 'Generando' : 'En espera'}
+                </span>
+              </li>
+            ))}
+          </ol>
         )}
       </div>
+    );
+  }
+
+  // ----- Vista: preparar el video -----
+  const sourceTabs: Array<{ id: Source; label: string; icon: React.ReactNode }> = [
+    { id: 'script', label: 'Mi guion', icon: <FileText className="h-3.5 w-3.5" /> },
+    { id: 'idea', label: 'Una idea', icon: <Lightbulb className="h-3.5 w-3.5" /> },
+    { id: 'pdf', label: 'Un PDF', icon: <FileUp className="h-3.5 w-3.5" /> },
+  ];
+
+  return (
+    <div className="w-full max-w-3xl space-y-6">
+
+      {ffmpeg && !ffmpeg.available && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] text-amber-800 dark:text-amber-200">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            Falta FFmpeg para montar el video. En la carpeta <code>frontend</code> ejecuta <code>npm i ffmpeg-static</code> y reinicia la app,
+            o define <code>FFMPEG_PATH</code> en <code>.env.local</code>.
+          </p>
+        </div>
+      )}
+
+      {/* 1. Material */}
+      <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
+        <h2 className="text-[13px] font-semibold text-fg">1. ¿De dónde sale el video?</h2>
+        <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1">
+          {sourceTabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSource(t.id)}
+              className={`flex items-center justify-center gap-1.5 rounded-md py-1.5 text-[12px] transition-colors cursor-pointer ${
+                source === t.id ? 'bg-surface text-fg shadow-xs' : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {source === 'pdf' && (
+          <div className="flex items-center gap-3">
+            <input ref={pdfInput} type="file" accept="application/pdf" className="hidden" onChange={(e) => loadPdf(e.target.files?.[0])} />
+            <button type="button" onClick={() => pdfInput.current?.click()} className="btn-secondary h-9 px-3 text-[13px]">
+              <FileUp className="h-3.5 w-3.5" /> {pdf ? 'Cambiar PDF' : 'Subir PDF'}
+            </button>
+            {pdf && (
+              <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-fg-muted">
+                <span className="truncate">{pdf.name}</span>
+                <span className="tabular-nums text-fg-subtle">{(pdf.size / 1024 / 1024).toFixed(1)} MB</span>
+                <button type="button" onClick={() => setPdf(null)} className="text-fg-subtle hover:text-fg" aria-label="Quitar PDF">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        <textarea
+          rows={source === 'script' ? 7 : 3}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={
+            source === 'script'
+              ? 'Pega aquí tu guion completo…'
+              : source === 'idea'
+              ? 'Producto, público y lo que quieres destacar. Ej.: crema hidratante para piel seca, mujeres 25–40, envío gratis.'
+              : 'Indicaciones opcionales para la IA (tono, qué destacar, a quién va dirigido…)'
+          }
+          className="input-clean w-full resize-y p-3 text-[13px] leading-relaxed"
+        />
+
+        {source === 'script' && (
+          <div className="flex flex-wrap gap-4 text-[12px] text-fg-muted">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input type="radio" checked={keepScript} onChange={() => setKeepScript(true)} /> Usar mi guion tal cual (solo lo divide en escenas)
+            </label>
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input type="radio" checked={!keepScript} onChange={() => setKeepScript(false)} /> Que la IA lo reescriba
+            </label>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-end gap-4">
+          {!(source === 'script' && keepScript) && (
+            <label className="space-y-1 text-[12px] text-fg-muted">
+              <span className="block">Duración aproximada</span>
+              <select value={targetSeconds} onChange={(e) => setTargetSeconds(Number(e.target.value))} className="input-clean h-9 px-2 text-[13px]">
+                {[15, 30, 45, 60, 90].map((s) => (
+                  <option key={s} value={s}>{s} segundos</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="space-y-1 text-[12px] text-fg-muted">
+            <span className="block">Formato</span>
+            <select value={aspect} onChange={(e) => setAspect(e.target.value as Aspect)} className="input-clean h-9 px-2 text-[13px]">
+              <option value="9:16">Vertical 9:16</option>
+              <option value="16:9">Horizontal 16:9</option>
+              <option value="1:1">Cuadrado 1:1</option>
+            </select>
+          </label>
+          <button type="button" onClick={planScenes} disabled={planning} className="btn-primary ml-auto h-9 px-4 text-[13px]">
+            {planning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {planning ? 'Armando escenas…' : scenes.length ? 'Volver a armar escenas' : 'Armar escenas'}
+          </button>
+        </div>
+        <p className="text-[11px] text-fg-subtle">
+          Las escenas las arma la IA elegida arriba (selector “IA”). En modo Gratis, Google puede usar el contenido para mejorar sus
+          productos: para material confidencial elige Claude.
+        </p>
+      </section>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-[13px] text-rose-700 dark:text-rose-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+
+      {/* 2. Escenas */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[13px] font-semibold text-fg">2. Escenas {scenes.length ? `(${scenes.length})` : ''}</h2>
+          <button
+            type="button"
+            onClick={() => setScenes((cur) => [...cur, { key: newKey(), type: 'broll', narration: '', visualPrompt: '' }])}
+            className="flex items-center gap-1 text-[12px] text-fg-muted hover:text-fg cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" /> Añadir escena
+          </button>
+        </div>
+
+        {scenes.length > 0 && (
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Título del video"
+            className="input-clean h-9 w-full px-3 text-[13px]"
+          />
+        )}
+
+        {scenes.length === 0 && (
+          <p className="rounded-xl border border-dashed border-line p-6 text-center text-[12px] text-fg-subtle">
+            Aquí aparecerán las escenas para que las revises y edites antes de generar.
+          </p>
+        )}
+
+        {scenes.map((s, i) => (
+          <div key={s.key} className="space-y-2 rounded-xl border border-line bg-surface p-4">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-medium tabular-nums text-fg">Escena {i + 1}</span>
+              <span className="text-[11px] tabular-nums text-fg-subtle">~{estimateSeconds(s.narration).toFixed(0)} s</span>
+              <div className="ml-2 flex rounded-md bg-surface-2 p-0.5 text-[11px]">
+                {(['avatar', 'broll'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => patchScene(s.key, { type: t })}
+                    className={`rounded px-2 py-0.5 cursor-pointer ${s.type === t ? 'bg-surface text-fg shadow-xs' : 'text-fg-muted'}`}
+                  >
+                    {t === 'avatar' ? 'Habla la persona' : 'Toma de apoyo'}
+                  </button>
+                ))}
+              </div>
+              <div className="ml-auto flex items-center gap-1 text-fg-subtle">
+                <button type="button" onClick={() => moveScene(i, -1)} className="p-1 hover:text-fg" aria-label="Subir escena">
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={() => moveScene(i, 1)} className="p-1 hover:text-fg" aria-label="Bajar escena">
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScenes((cur) => cur.filter((x) => x.key !== s.key))}
+                  className="p-1 hover:text-rose-500"
+                  aria-label="Quitar escena"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            <textarea
+              rows={2}
+              value={s.narration}
+              onChange={(e) => patchScene(s.key, { narration: e.target.value })}
+              placeholder="Lo que dice la voz en esta escena"
+              className="input-clean w-full resize-y p-2.5 text-[13px] leading-relaxed"
+            />
+            {s.type === 'broll' && (
+              <div className="grid gap-2 sm:grid-cols-[1fr_180px]">
+                <textarea
+                  rows={2}
+                  value={s.visualPrompt}
+                  onChange={(e) => patchScene(s.key, { visualPrompt: e.target.value })}
+                  placeholder="Qué se ve en la toma (sujeto, acción, plano, luz, movimiento de cámara)"
+                  className="input-clean w-full resize-y p-2.5 text-[12px] leading-relaxed"
+                />
+                <select
+                  value={s.imageId ?? persona?.id ?? ''}
+                  onChange={(e) => patchScene(s.key, { imageId: e.target.value })}
+                  className="input-clean h-9 px-2 text-[12px]"
+                  title="Imagen de la que parte la toma"
+                >
+                  {images.length === 0 && <option value="">Sube una imagen abajo</option>}
+                  {images.map((img) => (
+                    <option key={img.id} value={img.id}>
+                      Parte de: {img.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        ))}
+      </section>
+
+      {scenes.length > 0 && (
+        <>
+          {/* 3. Imágenes */}
+          <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[13px] font-semibold text-fg">3. Imágenes</h2>
+              <input ref={imgInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addImages(e.target.files)} />
+              <button type="button" onClick={() => imgInput.current?.click()} className="btn-secondary h-8 px-3 text-[12px]" disabled={images.length >= 8}>
+                <ImagePlus className="h-3.5 w-3.5" /> Añadir
+              </button>
+            </div>
+            <p className="text-[11px] text-fg-subtle">
+              La foto marcada como persona se usa en las escenas donde habla. Cada toma de apoyo parte de la imagen que elijas en su
+              escena (por ejemplo, una foto del producto).
+            </p>
+            {images.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                {images.map((img) => (
+                  <div key={img.id} className="space-y-1">
+                    <div className="relative aspect-square overflow-hidden rounded-lg border border-line bg-surface-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.dataUrl} alt={img.name} className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImages((cur) => cur.filter((x) => x.id !== img.id));
+                          if (personaId === img.id) setPersonaId(null);
+                        }}
+                        className="absolute right-1 top-1 rounded bg-black/50 p-0.5 text-white"
+                        aria-label="Quitar imagen"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPersonaId(img.id)}
+                      className={`flex w-full items-center justify-center gap-1 rounded-md py-0.5 text-[11px] cursor-pointer ${
+                        persona?.id === img.id ? 'bg-accent/10 text-accent' : 'text-fg-subtle hover:text-fg'
+                      }`}
+                    >
+                      <User className="h-3 w-3" /> {persona?.id === img.id ? 'Persona' : 'Usar como persona'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* 4. Voz */}
+          <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
+            <h2 className="text-[13px] font-semibold text-fg">4. Voz</h2>
+            <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
+              {voices.length === 0 && <option value="">Cargando voces…</option>}
+              {voices.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+            <VoiceModelPanel
+              modelId={voiceModel}
+              onModelChange={setVoiceModel}
+              settings={voiceSettings}
+              onSettingsChange={setVoiceSettings}
+              text={fullText}
+              tool="text-to-video"
+            />
+          </section>
+
+          {/* 5. Tomas de apoyo */}
+          <section className="space-y-2 rounded-xl border border-line bg-surface p-5">
+            <h2 className="text-[13px] font-semibold text-fg">5. Modelo para las tomas de apoyo</h2>
+            <div className="grid gap-1.5">
+              {BROLL_MODELS.map((m) => (
+                <label
+                  key={m.id}
+                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 ${
+                    brollModel === m.id ? 'border-accent bg-accent/5' : 'border-line hover:bg-surface-2'
+                  }`}
+                >
+                  <input type="radio" checked={brollModel === m.id} onChange={() => setBrollModel(m.id)} />
+                  <span className="flex-1">
+                    <span className="block text-[12.5px] font-medium text-fg">{m.name}</span>
+                    <span className="block text-[11px] text-fg-subtle">{m.note}</span>
+                  </span>
+                  <span className="text-[11px] tabular-nums text-fg-muted">${m.pricePerSecond.toFixed(3)}/s</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-[11px] text-fg-subtle">Las escenas donde habla la persona usan HeyGen Avatar IV ($0.05/s).</p>
+          </section>
+
+          {/* Resumen y generar */}
+          <section className="sticky bottom-4 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-surface/95 p-4 shadow-lg backdrop-blur">
+            <div className="text-[12px] tabular-nums text-fg-muted">
+              <span className="block text-fg">
+                ~{estimate ? estimate.totalSeconds.toFixed(0) : 0} s · {scenes.length} escenas
+              </span>
+              <span>
+                Costo estimado {estimate ? usd(estimate.totalUSD) : '$0'} (voz {estimate ? usd(estimate.voiceUSD) : '$0'} + clips{' '}
+                {estimate ? usd(estimate.clipsUSD) : '$0'})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={submitting || !ffmpeg?.available}
+              className="btn-primary ml-auto h-10 px-5 text-[13px]"
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {submitting ? 'Iniciando…' : 'Generar video'}
+            </button>
+          </section>
+        </>
+      )}
     </div>
   );
 }

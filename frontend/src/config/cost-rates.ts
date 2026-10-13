@@ -1,5 +1,6 @@
 import { UGC_MODELS_CATALOG } from './ugc-models.config';
 import { ELEVEN_MODELS } from './elevenlabs-models';
+import { BROLL_MODELS } from './broll-models';
 
 /**
  * Tarifas para calcular el costo de cada generación (USD).
@@ -12,6 +13,7 @@ import { ELEVEN_MODELS } from './elevenlabs-models';
 export const VIDEO_RATES_PER_SECOND: Record<string, number> = {
   'heygen/avatar-iv': 0.05, // OpenRouter
   ...Object.fromEntries(UGC_MODELS_CATALOG.map((m) => [m.id, m.costPerSecondUSD])),
+  ...Object.fromEntries(BROLL_MODELS.map((m) => [m.id, m.pricePerSecond])),
 };
 
 /**

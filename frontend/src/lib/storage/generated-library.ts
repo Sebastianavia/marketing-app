@@ -45,8 +45,9 @@ export async function downloadToLibrary(
   kind: 'audio' | 'video' | 'image',
   ext: string,
   id: string,
+  headers?: Record<string, string>,
 ): Promise<{ path: string; bytes: Buffer }> {
-  const res = await fetch(url);
+  const res = await fetch(url, headers ? { headers } : undefined);
   if (!res.ok) {
     throw new Error(`No se pudo descargar el archivo generado (${res.status}).`);
   }
