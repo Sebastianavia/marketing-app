@@ -10,6 +10,9 @@ import { UgcGeneratorView } from '@/components/tools/UgcGeneratorView';
 import { DeepSwapView } from '@/components/tools/DeepSwapView';
 import { TextToVideoView } from '@/components/tools/TextToVideoView';
 import { VoiceStudioView } from '@/components/tools/VoiceStudioView';
+import { ImageStudioView } from '@/components/tools/ImageStudioView';
+import { AvatarsView } from '@/components/tools/AvatarsView';
+import { useNavStore } from '@/store/useNavStore';
 import { BuzzyView } from '@/components/tools/BuzzyView';
 import { CostsView } from '@/components/costs/CostsView';
 import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
@@ -26,7 +29,18 @@ export default function Home() {
     setMiaActiveTool(activeTool);
   }, [activeTool, setMiaActiveTool]);
 
-  // Atajos: ⌘/Ctrl + 0..7
+  // Una vista puede pedir abrir otra (p. ej. Avatar → Creación de imágenes).
+  useEffect(
+    () =>
+      useNavStore.subscribe((s) => {
+        if (!s.requestedTool) return;
+        setActiveTool(s.requestedTool);
+        useNavStore.getState().clearRequest();
+      }),
+    []
+  );
+
+  // Atajos: ⌘/Ctrl + 0..9
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -85,6 +99,8 @@ export default function Home() {
               {activeTool === 'deep-swap' && <DeepSwapView />}
               {activeTool === 'text-to-video' && <TextToVideoView />}
               {activeTool === 'voice-studio' && <VoiceStudioView />}
+              {activeTool === 'image-studio' && <ImageStudioView />}
+              {activeTool === 'avatars' && <AvatarsView />}
               {activeTool === 'buzzy' && <BuzzyView />}
               {activeTool === 'costs' && <CostsView />}
               {activeTool === 'projects' && (
@@ -134,7 +150,7 @@ function Dashboard({ onOpen }: { onOpen: (id: ToolId) => void }) {
       </section>
 
       <p className="mt-10 text-[12px] text-fg-subtle">
-        Atajos: <kbd className="rounded border border-line px-1">⌘1</kbd>–<kbd className="rounded border border-line px-1">⌘8</kbd>{' '}
+        Atajos: <kbd className="rounded border border-line px-1">⌘1</kbd>–<kbd className="rounded border border-line px-1">⌘9</kbd>{' '}
         para cambiar de herramienta, <kbd className="rounded border border-line px-1">⌘0</kbd> para volver aquí.
       </p>
     </div>

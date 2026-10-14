@@ -177,10 +177,13 @@ export function StorageConfigModal({
             </div>
             <div className="pl-5 text-[10px] text-fg-subtle leading-relaxed">
               <div>📁 {basePath || 'D:\\LuloStudio_Projects'}</div>
-              <div className="pl-4">├── 📁 HeyGen/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ Proyectos de Avatar Studio</div>
-              <div className="pl-4">├── 📁 UGC/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ Anuncios y guiones virales</div>
-              <div className="pl-4">├── 📁 TextToVideo/ &nbsp;&nbsp;&nbsp;→ Prompts cinemáticos Sora/VEO</div>
-              <div className="pl-4">└── 📁 Genjutsu/ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;→ Reemplazos y clonaciones faciales</div>
+              <div className="pl-4">├── 📁 HeyGen/ → Avatar Studio</div>
+              <div className="pl-4">├── 📁 Genjutsu/ → Clonación y reemplazo</div>
+              <div className="pl-4">├── 📁 UGC/ → Generador UGC</div>
+              <div className="pl-4">├── 📁 TextToVideo/ → Guion a video</div>
+              <div className="pl-4">├── 📁 Imagenes/ → Creación de imágenes</div>
+              <div className="pl-4">├── 📁 Avatares/ → Creación de avatar (fotos de cada persona)</div>
+              <div className="pl-4">└── 📁 Generados/ → Copia de todo lo generado, por mes</div>
             </div>
           </div>
 

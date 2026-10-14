@@ -54,6 +54,10 @@ export interface OpenRouterVideoGenerationParams {
   audioUrl: string;
   aspectRatio?: '9:16' | '16:9';
   prompt?: string;
+  /** HeyGen: movimiento del cuerpo y gestos, en lenguaje natural. */
+  motionPrompt?: string;
+  /** HeyGen Avatar IV: energía de los gestos. Por defecto 'low'. */
+  expressiveness?: 'low' | 'medium' | 'high';
 }
 
 export interface OpenRouterVideoTask {

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import { MotionControls, type Expressiveness } from '@/components/voice/MotionControls';
 import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 import {
   DEFAULT_ELEVEN_MODEL,
@@ -111,6 +112,8 @@ export function TextToVideoView() {
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
   const [brollModel, setBrollModel] = useState(DEFAULT_BROLL_MODEL);
   const [voiceMode, setVoiceMode] = useState<VoiceMode>('voiceover');
+  const [motionPrompt, setMotionPrompt] = useState('');
+  const [expressiveness, setExpressiveness] = useState<Expressiveness>('low');
   const [ffmpeg, setFfmpeg] = useState<{ available: boolean } | null>(null);
 
   // Render
@@ -340,6 +343,7 @@ export function TextToVideoView() {
           aspectRatio: aspect,
           brollModel,
           voiceMode,
+          avatarMotion: voiceMode === 'avatar' ? { motionPrompt: motionPrompt.trim() || undefined, expressiveness } : undefined,
           voice:
             voiceMode === 'native'
               ? undefined
@@ -822,6 +826,18 @@ export function TextToVideoView() {
               </div>
             )}
           </section>
+
+          {voiceMode === 'avatar' && scenes.some((s) => s.type === 'avatar') && (
+            <section className="space-y-2 rounded-xl border border-line bg-surface p-5">
+              <h2 className="text-[13px] font-semibold text-fg">Movimiento de la persona (HeyGen)</h2>
+              <MotionControls
+                motionPrompt={motionPrompt}
+                onMotionPromptChange={setMotionPrompt}
+                expressiveness={expressiveness}
+                onExpressivenessChange={setExpressiveness}
+              />
+            </section>
+          )}
 
           {/* 4. Voz */}
           {voiceMode !== 'native' && (

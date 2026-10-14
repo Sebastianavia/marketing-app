@@ -50,18 +50,24 @@ OPENROUTER_API_KEY, APIMART_API_KEY, NEXT_PUBLIC_APP_URL). **Nunca leer ni impri
 
 ## Herramientas (vistas) y su estado real
 
-Navegación en `src/app/page.tsx`: estado `activeTool` (no hay rutas por herramienta). Atajos ⌘0–⌘7.
+Navegación en `src/app/page.tsx`: estado `activeTool` (no hay rutas por herramienta). Atajos ⌘0–⌘9.
 
 | id | Vista | Estado |
 |---|---|---|
 | `avatar-studio` | `AvatarWorkspace.tsx` (1650 líneas) | **Real.** Foto → Cloudinary; audio por ElevenLabs TTS o MP3 local → Cloudinary; render OpenRouter `heygen/avatar-iv`; polling hasta 10 min; costo final; guardar proyecto. |
 | `voice-studio` | `VoiceStudioView.tsx` | **Real.** Clonación IVC + TTS multilingüe (es/en/pt). |
 | `ugc-generator` | `UgcGeneratorView.tsx` + `UgcModelSelector.tsx` | **Parcial.** El selector de modelo/costo (APIMart/OpenRouter) es solo visual: `useUgcPipeline` llama a `/api/openrouter/script` y luego a **HeyGen directo** (`/api/heygen/generate`). `ugc-dispatcher` y `/api/ugc/dispatch` existen pero la UI no los usa. |
-| `text-to-video` | `TextToVideoView.tsx` | **Simulado** (setTimeout + video de muestra BigBuckBunny). |
+| `text-to-video` | `TextToVideoView.tsx` | **Real** (escenas: voz → clips → unión FFmpeg; ver `lib/scenes/`). |
+| `image-studio` | `ImageStudioView.tsx` ("Creación de imágenes") | **Real (2026-10-13).** Avatar guardado (opcional) + hasta 14 referencias en total + prompt → `POST /api/images/generate` → OpenRouter `/api/v1/images` con `input_references`. Con `avatarId` el servidor pone primero las fotos del avatar (portada primero, reducidas a 1536 px con sharp si está) y antepone una instrucción de identidad al prompt. Modelos en `config/image-models.ts` (por defecto Seedream 5.0 Flash, $0.018/img). Guarda en `Generados/` y registra costo. Sin probar aún con dinero real. |
+| `avatars` | `AvatarsView.tsx` ("Creación de avatar") | **Real (2026-10-13).** Galería de avatares + detalle (nombre, descripción, hasta 14 fotos, portada). Disco: `<carpeta de proyectos>\Avatares\<Nombre-xxxxxx>\avatar.json` + fotos; lo eliminado va a `Avatares\_papelera`. API `/api/avatars`, `/api/avatars/[id]`, `/api/avatars/[id]/photos`. Lógica en `lib/avatars/`. "Crear imágenes con este avatar" usa `store/useNavStore.ts`. Pendiente decidir sincronización (Drive/Cloudinary/otro). Sin atajo de teclado. |
 | `deep-swap` | `DeepSwapView.tsx` ("Genjutsu") | **Simulado/demo.** `faceswap.service.ts` preparado para Replicate/fal. |
 | `busi` | `BusiDemoView.tsx` | Demo estática (auditor de campañas). |
 | `projects` | `ProjectsLibraryView.tsx` | **Real.** Biblioteca en disco, hidratación de proyectos (`useProjectHydrationStore`). |
 | — | `MiaTerminal.tsx` | Copiloto "Mia" (chat Gemini/OpenRouter) + "CLI" simulada; inyecta guiones/prompts en la herramienta activa (`useMiaStore.injectedData`). |
+
+### Guardado automático en Proyectos (2026-10-13)
+
+`lib/storage/auto-project.ts` → `autoSaveProject(category, title, data, media)`: crea `<carpeta de proyectos>\<Categoría>\<Título AAAA-MM-DD HHhMM>\` y pone dentro `video.mp4`, `voz.mp3`, `foto.*`, `imagen_N.*` (enlace duro si se puede, si no copia; el original sigue en `Generados`). Nunca lanza. Lo llaman: `lib/jobs/runner.ts` (videos sueltos de Avatar Studio/UGC; no los clips de escenas; guarda `job.projectPath`), `lib/scenes/scene-runner.ts` (video final de Guion a video), `app/api/images/generate` (una carpeta por tanda) y `hooks/useUgcPipeline.ts` vía `POST /api/projects/auto` (descarga la URL de HeyGen). Categorías y nombres visibles en `config/project-categories.ts` (carpetas: HeyGen, Genjutsu, UGC, TextToVideo, Imagenes; Avatares no es categoría). Las tarjetas de Proyectos reproducen `videoPath` local y muestran `imagePaths`.
 
 ## Sistema de diseño actual
 
@@ -136,6 +142,7 @@ Plan completo: https://claude.ai/code/artifact/5321e959-43c0-467d-8114-330e35a19
 - **Catálogo de video y PDF (2026-10-13):** `lib/video/video-catalog.ts` compara los modelos configurados (avatar, B-roll, UGC) con `GET openrouter.ai/api/v1/videos/models` (caché 1 h); `GET /api/system/video-models`; aviso `VideoCatalogAlert` en la barra; `assertVideoModelAvailable` bloquea `POST /api/render-jobs` y `POST /api/scenes` si el modelo ya no existe. `lib/pdf/pdf-images.ts` extrae fotos de PDFs sin librerías (DCT/JPEG, Flate 8 bits RGB/gris → PNG, filtros ASCII85/ASCIIHex; ignora < 200 px, máscaras y duplicados) → `POST /api/scenes/pdf-images`. Cloudinary Free: 25 créditos/mes, máx. 10 MB imagen / 100 MB video.
 - **Arreglos tras la primera prueba real (2026-10-13):** `writeJsonAtomic` reintenta el rename en Windows (EPERM/EBUSY/EACCES) y `isTransientFsError` evita dar por fallido un proyecto por un bloqueo pasajero. El scene-runner reutiliza trabajos ya lanzados (`sceneProjectId`+`sceneId`) para no pagar dos veces un clip. B-roll: imagen opcional (`imageId: 'none'` = texto→video); por defecto parte de una foto de producto o de nada (Veo rechazó la foto de la persona por "usage guidelines"); si el proveedor rechaza la imagen, el runner reintenta sin ella. 404 de OpenRouter en los primeros 3 min no cuenta como fallo. El estado de cada escena en `GET /api/scenes/[id]` sale del trabajo. Al terminar, el video se añade a Proyectos → TextToVideo. Solo HeyGen Avatar IV hace lip-sync con la voz de ElevenLabs; las tomas de apoyo no muestran a nadie hablando.
 - **Modos de voz en Guion a video (2026-10-13):** `voiceMode` del proyecto (`config/broll-models.ts` → `VOICE_MODES`): `voiceover` = todas las escenas B-roll + voz ElevenLabs continua encima (predeterminado, el más barato); `native` = sin ElevenLabs, cada clip con `generate_audio: true` y prompt "The person speaks in Spanish… and says: \"…\"" (formato de diálogo de la guía de Veo), solo modelos con `audio: true` (Veo 3.1 Lite $0.05/s, Kling 3.0 Std $0.126/s, Wan 3.0 $0.10/s), montaje con el audio de cada clip (`clipHasAudio`, `acrossfade`, `probeMedia`); `avatar` = HeyGen + ElevenLabs (lo anterior). La voz nativa puede cambiar entre clips (OpenRouter no permite fijar voz).
+- **Movimiento HeyGen y personas en Veo (2026-10-13):** parámetros propios del proveedor van en `provider.options.<tag>.parameters` (docs OpenRouter; tags del endpoint: `heygen`, `google-vertex`). Avatar IV: `motion_prompt` (cuerpo y gestos) y `expressiveness` low|medium|high (default low, docs HeyGen) — UI `components/voice/MotionControls.tsx` en Avatar Studio y en escenas de persona (`avatarMotion` del proyecto). Veo: `personGeneration: 'allow_adult'`. `OpenRouterVideoService.postVideo` reintenta sin `provider` si OpenRouter responde 400. Se quitó el `parameters: {motion_model, sync_mode}` que no estaba documentado.
 
 ## Pendiente del plan (al 2026-10-12)
 

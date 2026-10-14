@@ -46,6 +46,8 @@ export interface SceneProject {
   brollModel: string;
   /** voiceover = ElevenLabs de fondo · native = voz del modelo · avatar = HeyGen + ElevenLabs. */
   voiceMode?: 'voiceover' | 'native' | 'avatar';
+  /** HeyGen (escenas de la persona): movimiento y expresividad. */
+  avatarMotion?: { motionPrompt?: string; expressiveness?: 'low' | 'medium' | 'high' };
   voice: {
     voiceId: string;
     voiceName?: string;

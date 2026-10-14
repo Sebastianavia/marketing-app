@@ -30,6 +30,9 @@ export interface RenderJob {
     resolution?: string;
     /** El modelo genera su propio audio (voz). */
     generateAudio?: boolean;
+    /** Solo avatar (HeyGen): movimiento y expresividad. */
+    motionPrompt?: string;
+    expressiveness?: 'low' | 'medium' | 'high';
   };
   /** Si pertenece a un video por escenas. */
   sceneProjectId?: string;
@@ -42,6 +45,8 @@ export interface RenderJob {
   person?: string;
   estimatedCostUSD?: number;
   outputPath?: string;
+  /** Carpeta del proyecto creado automáticamente al terminar (Proyectos). */
+  projectPath?: string;
   durationSec?: number;
   costUSD?: number;
   error?: string;

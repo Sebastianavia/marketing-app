@@ -8,6 +8,8 @@ import {
   Megaphone,
   Sparkles,
   Receipt,
+  ImagePlus,
+  Contact,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -21,6 +23,8 @@ export type ToolId =
   | 'ugc-generator'
   | 'text-to-video'
   | 'voice-studio'
+  | 'image-studio'
+  | 'avatars'
   | 'buzzy'
   | 'projects'
   | 'costs';
@@ -36,7 +40,8 @@ export interface ToolDefinition {
   engines?: string;
   /** Herramientas cuyo flujo todavía es una simulación. */
   preview?: boolean;
-  shortcut: string;
+  /** Tecla del atajo ⌘N; algunas herramientas no tienen. */
+  shortcut?: string;
 }
 
 export const TOOLS: Record<ToolId, ToolDefinition> = {
@@ -89,6 +94,23 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     engines: 'ElevenLabs',
     shortcut: '5',
   },
+  'image-studio': {
+    id: 'image-studio',
+    title: 'Creación de imágenes',
+    formula: 'Avatar o fotos + texto → imagen ultrarrealista',
+    description: 'Elige un avatar guardado o sube referencias, describe la escena y genera fotos muy realistas.',
+    icon: ImagePlus,
+    engines: 'Seedream · Nano Banana',
+    shortcut: '9',
+  },
+  avatars: {
+    id: 'avatars',
+    title: 'Creación de avatar',
+    formula: 'Nombre + 8–14 fotos → avatar reutilizable',
+    description: 'Guarda personas (reales o creadas) con varias fotos para generarlas idénticas en cualquier escena.',
+    icon: Contact,
+    engines: 'Guardado local · carpeta Avatares',
+  },
   buzzy: {
     id: 'buzzy',
     title: 'Buzzy',
@@ -125,8 +147,8 @@ export function normalizeToolId(id: string): ToolId | null {
   return LEGACY_TOOL_IDS[id] ?? null;
 }
 
-/** Las cuatro herramientas principales del dashboard. */
-export const PRIMARY_TOOLS: ToolId[] = ['avatar-studio', 'deep-swap', 'ugc-generator', 'text-to-video'];
+/** Herramientas principales del dashboard (tarjetas grandes). */
+export const PRIMARY_TOOLS: ToolId[] = ['avatar-studio', 'deep-swap', 'ugc-generator', 'text-to-video', 'image-studio', 'avatars'];
 
 /** Orden de la barra lateral. */
 export const NAV_ORDER: ToolId[] = [
@@ -134,6 +156,8 @@ export const NAV_ORDER: ToolId[] = [
   'deep-swap',
   'ugc-generator',
   'text-to-video',
+  'image-studio',
+  'avatars',
   'voice-studio',
   'buzzy',
 ];

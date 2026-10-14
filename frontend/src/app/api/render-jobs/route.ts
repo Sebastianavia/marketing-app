@@ -23,6 +23,8 @@ const CreateJob = z.object({
   audioUrl: httpsUrl,
   aspectRatio: z.enum(['9:16', '16:9']).default('9:16'),
   estimatedSeconds: z.number().positive().max(600).optional(),
+  motionPrompt: z.string().max(500).optional(),
+  expressiveness: z.enum(['low', 'medium', 'high']).optional(),
 });
 
 /** Crea un trabajo de render y responde al instante; el runner lo procesa en segundo plano. */
@@ -53,7 +55,13 @@ export async function POST(req: NextRequest) {
       title: body.title,
       provider: body.provider,
       model: body.model,
-      input: { imageUrl: body.imageUrl, audioUrl: body.audioUrl, aspectRatio: body.aspectRatio },
+      input: {
+        imageUrl: body.imageUrl,
+        audioUrl: body.audioUrl,
+        aspectRatio: body.aspectRatio,
+        motionPrompt: body.motionPrompt?.trim() || undefined,
+        expressiveness: body.expressiveness,
+      },
       status: 'queued',
       phase: 'En cola',
       attempts: 0,

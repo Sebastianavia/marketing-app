@@ -5,10 +5,13 @@ import { exec } from 'child_process';
 
 import { getSettings, updateSettings } from '@/lib/data/settings';
 
+import type { ProjectCategory } from '@/config/project-categories';
+export type { ProjectCategory };
+
 export interface ProjectMetadata {
   id: string;
   name: string;
-  category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu';
+  category: ProjectCategory;
   createdAt: string;
   updatedAt: string;
   path: string;
@@ -19,6 +22,8 @@ export interface ProjectMetadata {
   // Imagen / Retrato
   imageUrl?: string;
   imagePath?: string;
+  /** Varias imágenes (Creación de imágenes). */
+  imagePaths?: string[];
   avatarId?: string;
   avatarName?: string;
   // Configuración de Audio
@@ -59,7 +64,7 @@ export interface SaveProjectPayload extends Partial<ProjectMetadata> {
   audioFileName?: string;
 }
 
-const DEFAULT_CATEGORIES = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu'] as const;
+const DEFAULT_CATEGORIES: readonly ProjectCategory[] = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu', 'Imagenes'];
 
 /**
  * Obtiene el directorio base configurado por el usuario.
@@ -154,7 +159,7 @@ export async function checkProjectExists(category: string, projectName: string):
  * [Directorio Base] / [Categoría] / [Nombre_Proyecto] / project-metadata.json, metadata.json, script.txt, etc.
  */
 export async function saveProject(
-  category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu',
+  category: ProjectCategory,
   projectName: string,
   data: SaveProjectPayload
 ): Promise<{ success: boolean; project: ProjectMetadata }> {
@@ -224,6 +229,7 @@ export async function saveProject(
     prompt: data.prompt,
     imageUrl: data.imageUrl,
     imagePath: resolvedImagePath,
+    imagePaths: data.imagePaths,
     avatarId: data.avatarId,
     avatarName: data.avatarName,
     audioMode: data.audioMode || 'generar',
@@ -242,7 +248,7 @@ export async function saveProject(
     modelUsed: data.modelUsed,
     costPerSecondVerified: data.costPerSecondVerified,
     mediaAvailable: {
-      image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath))),
+      image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath)) || data.imagePaths?.length),
       audio: !!(data.audioMode === 'generar' || data.audioUrl || (resolvedAudioPath && fsSync.existsSync(resolvedAudioPath))),
       video: !!(data.videoUrl || (data.videoPath && fsSync.existsSync(data.videoPath))),
     },
@@ -402,6 +408,7 @@ export async function getProjectByPath(projectDir: string): Promise<ProjectMetad
     prompt: metadata.prompt,
     imageUrl: metadata.imageUrl,
     imagePath: metadata.imagePath,
+    imagePaths: metadata.imagePaths?.filter((f) => fsSync.existsSync(/*turbopackIgnore: true*/ f)),
     avatarId: metadata.avatarId,
     avatarName: metadata.avatarName,
     audioMode: metadata.audioMode || 'generar',

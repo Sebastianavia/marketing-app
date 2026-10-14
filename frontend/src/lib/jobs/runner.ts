@@ -1,5 +1,7 @@
 import { OpenRouterVideoService } from '@/services/openrouter/openrouter-video.service';
 import { downloadToLibrary } from '@/lib/storage/generated-library';
+import { autoSaveProject } from '@/lib/storage/auto-project';
+import type { ProjectCategory } from '@/config/project-categories';
 import { mp4DurationSeconds } from '@/lib/video/mp4-duration';
 import { recordUsage } from '@/lib/usage/usage-store';
 import { videoRate } from '@/config/cost-rates';
@@ -81,6 +83,8 @@ async function submitJob(job: RenderJob) {
             model: job.model,
             imageUrl: job.input.imageUrl,
             audioUrl: job.input.audioUrl || '',
+            motionPrompt: job.input.motionPrompt,
+            expressiveness: job.input.expressiveness,
             aspectRatio: job.input.aspectRatio === '1:1' ? '9:16' : job.input.aspectRatio,
           });
     await updateJob(job.id, {
@@ -168,6 +172,32 @@ async function finishJob(job: RenderJob, videoUrl: string) {
       filePath: outputPath,
       jobId: job.id,
     });
+
+    // Proyectos: los videos sueltos (Avatar Studio, UGC…) se guardan solos en su carpeta.
+    // Los clips de Guion a video no: allí se guarda el video final montado.
+    if (!job.sceneProjectId && !job.projectPath) {
+      const category: ProjectCategory =
+        job.tool === 'ugc-generator' ? 'UGC' : job.tool === 'deep-swap' ? 'Genjutsu' : 'HeyGen';
+      const project = await autoSaveProject(
+        category,
+        job.title || 'Video',
+        {
+          title: job.title,
+          imageUrl: job.input.imageUrl || undefined,
+          audioUrl: job.input.audioUrl,
+          audioMode: job.input.audioUrl ? 'local' : 'generar',
+          prompt: job.input.prompt || job.input.motionPrompt,
+          ratio: job.input.aspectRatio,
+          avatarName: job.person,
+          finalCostUSD: costUSD,
+          videoDurationReal: durationSec,
+          modelUsed: job.model,
+          status: 'rendered',
+        },
+        { videoPath: outputPath }
+      );
+      if (project) await updateJob(job.id, { projectPath: project.path });
+    }
   } catch (err: unknown) {
     // El render ya se pagó: se reintenta solo la descarga en la siguiente vuelta
     console.error('[runner] No se pudo guardar el MP4:', err);
@@ -179,6 +209,11 @@ async function finishJob(job: RenderJob, videoUrl: string) {
 const IMAGE_POLICY_RE = /usage guidelines|violates|policy|safety|prohibited|not allowed/i;
 
 async function failOrRetry(job: RenderJob, message: string) {
+  // Clave inválida/expirada o sin saldo: reintentar no sirve hasta que la persona lo arregle
+  if (/OPENROUTER_API_KEY|no tiene saldo/.test(message)) {
+    await markFailed(job, message);
+    return;
+  }
   // B-roll con imagen rechazada: se reintenta sin imagen, solo con la descripción de la toma
   if (job.kind === 'broll' && job.input.imageUrl && IMAGE_POLICY_RE.test(message) && job.attempts < MAX_ATTEMPTS) {
     await updateJob(job.id, {

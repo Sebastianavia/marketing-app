@@ -140,6 +140,21 @@ export function useUgcPipeline() {
             videoStatus: 'completed',
             finalVideoUrl: statusData.video_url,
           }));
+          // Proyectos → Generador UGC: se descarga y se guarda solo en su carpeta
+          if (statusData.video_url) {
+            void fetch('/api/projects/auto', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                category: 'UGC',
+                title: script.campaignTitle || input.productName || 'Anuncio UGC',
+                videoUrl: statusData.video_url,
+                script: script.fullSpokenText,
+                ratio: '9:16',
+                modelUsed: 'heygen',
+              }),
+            }).catch(() => {});
+          }
         } else if (statusData.status === 'failed') {
           throw new Error(statusData.error?.message || 'El renderizado del video falló en HeyGen.');
         } else {

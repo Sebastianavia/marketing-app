@@ -10,7 +10,7 @@ interface DesktopSidebarProps {
 
 interface NavButtonProps {
   label: string;
-  shortcut: string;
+  shortcut?: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
   preview?: boolean;
@@ -41,7 +41,7 @@ function NavButton({ label, shortcut, icon: Icon, active, preview, onClick }: Na
       <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] text-fg shadow-[var(--shadow-lift)] group-hover:flex">
         <span>{label}</span>
         {preview && <span className="text-fg-subtle">· vista previa</span>}
-        <kbd className="rounded border border-line px-1 text-[10px] text-fg-subtle">⌘{shortcut}</kbd>
+        {shortcut && <kbd className="rounded border border-line px-1 text-[10px] text-fg-subtle">⌘{shortcut}</kbd>}
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import { estimateSeconds } from './scene-plan';
 import { getElevenModel, hasAudioTags, stripAudioTags, isKnownElevenModel } from '@/config/elevenlabs-models';
 import { getJob, saveJob, listJobs, type RenderJob } from '@/lib/jobs/job-store';
 import { isTransientFsError } from '@/lib/data/data-dir';
-import { saveProject as saveLibraryProject } from '@/lib/storage/project-storage';
+import { autoSaveProject } from '@/lib/storage/auto-project';
 import { wakeRunner } from '@/lib/jobs/runner';
 import { sliceAudio, stitchScenes, frameSize, probeMedia } from '@/lib/video/ffmpeg';
 import { errorMessage } from '@/lib/errors';
@@ -222,7 +222,13 @@ async function doClips(p: SceneProject) {
         kind: 'avatar',
         title: `${p.title} · escena ${i + 1} (avatar)`,
         model: AVATAR_MODEL,
-        input: { imageUrl, audioUrl: up.publicUrl, aspectRatio: p.aspectRatio },
+        input: {
+          imageUrl,
+          audioUrl: up.publicUrl,
+          aspectRatio: p.aspectRatio,
+          motionPrompt: p.avatarMotion?.motionPrompt?.trim() || undefined,
+          expressiveness: p.avatarMotion?.expressiveness,
+        },
         estimatedCostUSD: (end - start) * 0.05,
       };
     } else {
@@ -335,30 +341,27 @@ async function doStitch(p: SceneProject) {
   await fs.copyFile(tmp, outputPath);
   await fs.rm(tmp, { force: true });
 
-  // También en Proyectos → Text-to-Video, como los demás videos
-  try {
-    const persona = p.images[0];
-    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', 'h');
-    await saveLibraryProject('TextToVideo', `${p.title} ${stamp}`, {
+  // También en Proyectos → Guion a video, con el video, la voz y la foto dentro de su carpeta
+  const persona = p.images[0];
+  await autoSaveProject(
+    'TextToVideo',
+    p.title,
+    {
       title: p.title,
       script: p.scenes.map((s) => s.narration).join('\n\n'),
       prompt: p.scenes.filter((s) => s.type === 'broll').map((s) => s.visualPrompt).join('\n'),
-      imagePath: persona?.path,
       audioMode: 'generar',
-      voiceId: p.voice.voiceId,
-      audioPath: p.voicePath,
-      audioName: p.voice.voiceName,
+      voiceId: p.voice?.voiceId,
+      audioName: p.voice?.voiceName,
       ratio: p.aspectRatio,
-      videoPath: outputPath,
       status: 'rendered',
       finalCostUSD: p.costUSD,
       videoDurationReal: p.totalSeconds,
       modelUsed: `heygen/avatar-iv + ${p.brollModel}`,
       tags: ['escenas'],
-    });
-  } catch (err) {
-    console.warn('[escenas] No se pudo añadir a Proyectos:', errorMessage(err, ''));
-  }
+    },
+    { videoPath: outputPath, audioPath: p.voicePath, imagePath: persona?.path }
+  );
 
   // Limpieza de los archivos temporales en Cloudinary
   for (const t of p.tempUploads ?? []) {

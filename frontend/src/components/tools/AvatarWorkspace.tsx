@@ -28,6 +28,7 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import { MotionControls, type Expressiveness } from '@/components/voice/MotionControls';
 import { postOrchestrated } from '@/lib/ai/orchestrator-client';
 import {
   DEFAULT_ELEVEN_MODEL,
@@ -95,6 +96,8 @@ export function AvatarWorkspace() {
   const [selectedVoiceId, setSelectedVoiceId] = useState(DEFAULT_ELEVENLABS_VOICES[0].id);
   const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_ELEVEN_MODEL);
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
+  const [motionPrompt, setMotionPrompt] = useState('');
+  const [expressiveness, setExpressiveness] = useState<Expressiveness>('low');
   const [isElevenLabsConfigured, setIsElevenLabsConfigured] = useState<boolean>(true);
   const [localAudioFile, setLocalAudioFile] = useState<File | null>(null);
   const [loadedAudioName, setLoadedAudioName] = useState<string | null>(null);
@@ -642,6 +645,8 @@ export function AvatarWorkspace() {
           audioUrl: publicAudioUrl,
           aspectRatio,
           estimatedSeconds,
+          motionPrompt: motionPrompt.trim() || undefined,
+          expressiveness,
         }),
       });
 
@@ -1303,6 +1308,16 @@ export function AvatarWorkspace() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* Movimiento y expresividad de HeyGen Avatar IV */}
+          <div className="pt-3 border-t border-line">
+            <MotionControls
+              motionPrompt={motionPrompt}
+              onMotionPromptChange={setMotionPrompt}
+              expressiveness={expressiveness}
+              onExpressivenessChange={setExpressiveness}
+            />
           </div>
 
           {/* =================================================================

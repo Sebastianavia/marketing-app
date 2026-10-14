@@ -21,18 +21,16 @@ import {
 import { StorageConfigModal } from './StorageConfigModal';
 import { ProjectMetadata } from '@/lib/storage/project-storage';
 import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
+import { PROJECT_CATEGORIES, projectCategoryLabel } from '@/config/project-categories';
+
+/** Archivos locales del proyecto se muestran con la ruta de medios de la app. */
+const media = (p?: string) => (p ? `/api/projects/media?path=${encodeURIComponent(p)}` : undefined);
 
 interface ProjectsLibraryViewProps {
   onOpenTool?: (toolId: string, initialData?: any) => void;
 }
 
-const CATEGORIES = [
-  { id: 'ALL', label: 'Todos' },
-  { id: 'HeyGen', label: 'HeyGen (Avatar)' },
-  { id: 'UGC', label: 'UGC Generator' },
-  { id: 'TextToVideo', label: 'Text-to-Video' },
-  { id: 'Genjutsu', label: 'Genjutsu' },
-];
+const CATEGORIES = [{ id: 'ALL', label: 'Todos' }, ...PROJECT_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))];
 
 export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
   const [projects, setProjects] = useState<ProjectMetadata[]>([]);
@@ -104,15 +102,16 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
   };
 
   const handleLoadInTool = async (project: ProjectMetadata) => {
+    // Las imágenes no se "cargan" en una herramienta: se abren en su carpeta
+    if (project.category === 'Imagenes') {
+      handleOpenFolder(project.path);
+      return;
+    }
     // 1. Hidratar el estado del proyecto en el almacén de sesión de React
     await useProjectHydrationStore.getState().loadProject(project);
 
     // 2. Navegar a la herramienta correspondiente con los datos
-    let toolId = 'avatar-studio';
-    if (project.category === 'HeyGen') toolId = 'avatar-studio';
-    else if (project.category === 'UGC') toolId = 'ugc-generator';
-    else if (project.category === 'TextToVideo') toolId = 'text-to-video';
-    else if (project.category === 'Genjutsu') toolId = 'deep-swap';
+    const toolId = PROJECT_CATEGORIES.find((c) => c.id === project.category)?.tool ?? 'avatar-studio';
 
     onOpenTool?.(toolId, project);
   };
@@ -138,6 +137,8 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
         return 'border-accent/30 text-accent bg-accent/10';
       case 'Genjutsu':
         return 'border-amber-500/30 text-amber-400 bg-amber-500/10';
+      case 'Imagenes':
+        return 'border-sky-500/30 text-sky-500 bg-sky-500/10';
       default:
         return 'border-line-strong text-fg-muted bg-surface-2';
     }
@@ -256,7 +257,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                       p.category
                     )}`}
                   >
-                    {p.category}
+                    {projectCategoryLabel(p.category)}
                   </span>
 
                   <div className="flex items-center gap-1 text-[10px] tabular-nums text-fg-subtle">
@@ -276,13 +277,21 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
               </div>
 
               {/* Video Player or Content Preview */}
-              {p.videoUrl ? (
+              {p.videoUrl || (p.videoPath && p.mediaAvailable?.video) ? (
                 <div className="relative aspect-video w-full rounded-lg bg-bg overflow-hidden border border-line">
                   <video
-                    src={p.videoUrl}
+                    src={p.videoUrl || media(p.videoPath)}
                     controls
-                    className="h-full w-full object-cover"
+                    preload="metadata"
+                    className="h-full w-full object-contain"
                   />
+                </div>
+              ) : p.imagePaths?.length ? (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {p.imagePaths.slice(0, 4).map((img) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={img} src={media(img)} alt="" loading="lazy" className="aspect-square w-full rounded-md border border-line object-cover" />
+                  ))}
                 </div>
               ) : p.script ? (
                 <div className="rounded-lg border border-line bg-surface-2 p-2.5">
@@ -352,7 +361,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                     onClick={() => handleLoadInTool(p)}
                     className="flex items-center gap-1 rounded bg-fg text-bg px-2.5 py-1 font-semibold text-[11px] hover:bg-fg/85 transition-colors shadow-2xs cursor-pointer"
                   >
-                    <span>Cargar</span>
+                    <span>{p.category === 'Imagenes' ? 'Abrir' : 'Cargar'}</span>
                     <ArrowRight className="h-3 w-3" />
                   </button>
                 </div>
@@ -368,11 +377,11 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
           </div>
           <div className="max-w-md mx-auto space-y-1.5">
             <h3 className="text-sm font-semibold text-fg">
-              No hay proyectos en {selectedCategory === 'ALL' ? 'este disco' : selectedCategory}
+              No hay proyectos en {selectedCategory === 'ALL' ? 'este disco' : projectCategoryLabel(selectedCategory)}
             </h3>
             <p className="text-xs text-fg-muted leading-relaxed font-sans">
-              Cuando creas un video en Avatar Studio o Generador UGC, asígnale un nombre y presiona
-              &ldquo;Guardar Proyecto en Disco&rdquo;. Se creará automáticamente su carpeta y configuración en tu disco duro.
+              Cada video o imagen que termines se guarda solo aquí, en su propia carpeta con el archivo dentro.
+              También puedes guardar un borrador con &ldquo;Guardar proyecto&rdquo; en Avatar Studio.
             </p>
           </div>
 

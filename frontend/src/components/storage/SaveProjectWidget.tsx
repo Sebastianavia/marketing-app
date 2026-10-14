@@ -1,5 +1,7 @@
 'use client';
 
+import type { ProjectCategory } from '@/config/project-categories';
+
 import React, { useState, useEffect } from 'react';
 import {
   FolderPlus,
@@ -48,7 +50,7 @@ export interface SaveProjectData {
 }
 
 interface SaveProjectWidgetProps {
-  category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu';
+  category: ProjectCategory;
   projectData: SaveProjectData;
   onSaved?: (project: any) => void;
 }

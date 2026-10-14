@@ -24,6 +24,9 @@ const Create = z.object({
   aspectRatio: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
   brollModel: z.string().refine((m) => BROLL_MODELS.some((b) => b.id === m), 'Modelo de tomas de apoyo no válido.'),
   voiceMode: z.enum(['voiceover', 'native', 'avatar']).default('avatar'),
+  avatarMotion: z
+    .object({ motionPrompt: z.string().max(500).optional(), expressiveness: z.enum(['low', 'medium', 'high']).optional() })
+    .optional(),
   voice: z
     .object({
       voiceId: z.string().min(1, 'Elige una voz.'),
@@ -133,6 +136,7 @@ export async function POST(req: NextRequest) {
       aspectRatio: body.aspectRatio,
       brollModel: body.brollModel,
       voiceMode: body.voiceMode,
+      avatarMotion: body.avatarMotion,
       voice: body.voice ?? { voiceId: '', modelId: '', settings: {} },
       images,
       scenes: body.scenes.map((s) => ({
