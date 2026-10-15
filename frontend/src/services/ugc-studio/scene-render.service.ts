@@ -175,7 +175,7 @@ export async function dispatchSceneRender(
     durationSeconds: scene.durationSeconds,
     resolution: settings.resolution,
     aspectRatio: settings.aspectRatio,
-    seed: storyboard.seed,
+    seed: scene.seed ?? storyboard.seed,
     firstFrameUrl: plan.firstFrameUrl,
     referenceUrls: plan.referenceUrls,
   });

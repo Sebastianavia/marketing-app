@@ -69,7 +69,14 @@ export default function Home() {
         <main className="min-w-0 flex-1 overflow-y-auto">
           {!tool && <Dashboard onOpen={setActiveTool} />}
 
-          {tool && (
+          {/* UGC Studio es un lienzo a pantalla completa: sin encabezado ni márgenes */}
+          {tool?.id === 'ugc-generator' && (
+            <div key={tool.id} className="animate-view-enter h-full">
+              <UgcGeneratorView onExit={() => setActiveTool(null)} />
+            </div>
+          )}
+
+          {tool && tool.id !== 'ugc-generator' && (
             <div key={tool.id} className="animate-view-enter mx-auto w-full max-w-[1440px] px-4 pb-16 pt-5 sm:px-8">
               {/* Encabezado del modo enfoque */}
               <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -95,7 +102,6 @@ export default function Home() {
               </div>
 
               {activeTool === 'avatar-studio' && <AvatarStudioView />}
-              {activeTool === 'ugc-generator' && <UgcGeneratorView />}
               {activeTool === 'deep-swap' && <DeepSwapView />}
               {activeTool === 'text-to-video' && <TextToVideoView />}
               {activeTool === 'voice-studio' && <VoiceStudioView />}

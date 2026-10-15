@@ -130,6 +130,7 @@ export interface StoryboardScene {
   videoPrompt: string;
   status: SceneStatus;
   render?: SceneRender;
+  seed?: number; // semilla propia tras "repetir toma"; si no, la del storyboard
 }
 
 /**
@@ -209,6 +210,7 @@ export type StudioEvent =
   | { type: 'agent_error'; agentId: string; detail: string }
   | { type: 'references'; references: UgcReference[] }
   | { type: 'storyboard'; storyboard: Storyboard }
+  | { type: 'agent_reply'; reply: string; actions: AgentAction[] }
   | { type: 'error'; message: string };
 
 export interface StoryboardRequest {
@@ -217,10 +219,97 @@ export interface StoryboardRequest {
   settings: StudioSettings;
 }
 
+export interface SceneInsertRequest {
+  storyboard: Storyboard;
+  references: UgcReference[];
+  settings: StudioSettings;
+  afterIndex: number; // 0 = al inicio
+  instructions: string;
+}
+
+// -----------------------------------------------------------------------------
+// Agente creativo (chat): decide acciones sobre el storyboard
+// -----------------------------------------------------------------------------
+export const AGENT_ACTION_TYPES = [
+  'generate_storyboard',
+  'revise_scene',
+  'insert_scene',
+  'delete_scene',
+  'relight_scene',
+  'change_angle',
+  'retake_scene',
+  'approve_scenes',
+  'render_scenes',
+  'assemble_video',
+  'update_settings',
+  'move_scene',
+  'duplicate_scene',
+  'set_transition',
+  'rename_project',
+  'open_project',
+  'stop_render',
+] as const;
+export type AgentActionType = (typeof AGENT_ACTION_TYPES)[number];
+
+export interface AgentAction {
+  type: AgentActionType;
+  scenes: number[]; // índices afectados (insert_scene: [escena tras la que se inserta]); vacío = todas
+  instructions: string; // brief, cambio pedido, iluminación, ángulo o nombre del proyecto
+  settings?: Partial<StudioSettings>;
+}
+
+export interface AgentRequest {
+  message: string;
+  history: { role: 'user' | 'agent'; content: string }[];
+  storyboard: Storyboard | null;
+  references: UgcReference[];
+  settings: StudioSettings;
+}
+
+export interface AgentResponse {
+  reply: string;
+  actions: AgentAction[];
+}
+
 export interface SceneRevisionRequest {
   storyboard: Storyboard;
   references: UgcReference[];
   settings: StudioSettings;
   sceneId: string;
   feedback: string;
+}
+
+// -----------------------------------------------------------------------------
+// Estimación de costo en el cliente (misma lógica que planSceneRender en el servidor)
+// -----------------------------------------------------------------------------
+export interface LivePricingInfo {
+  discount: number;
+  live: boolean;
+  extraImageUSD: number;
+  freeReferenceImages: number;
+  rates: Record<VideoResolution, { base: number; references: number }>;
+}
+
+/** Costo aproximado de renderizar una escena con las tarifas actuales. */
+export function estimateSceneRenderUSD(
+  scenes: StoryboardScene[],
+  scene: StoryboardScene,
+  references: UgcReference[],
+  pricing: LivePricingInfo,
+  resolution: VideoResolution
+): number {
+  let images = 0;
+  if (scene.transition.type === 'continua') {
+    // Con producto: último fotograma + referencias asignadas; sin producto: solo primer fotograma (tarifa base)
+    if (continuesWithReferences(scene, references)) {
+      images = 1 + references.filter((r) => scene.referenceIds.includes(r.id)).length;
+    }
+  } else {
+    const ids = sentReferenceIds(scenes, scene, references);
+    const assigned = references.filter((r) => ids.includes(r.id)).length;
+    images = assigned > 0 ? assigned : references.filter((r) => r.role === 'personaje').length;
+  }
+  const rate = images > 0 ? pricing.rates[resolution].references : pricing.rates[resolution].base;
+  const extra = Math.max(0, images - pricing.freeReferenceImages) * pricing.extraImageUSD;
+  return Number((rate * scene.durationSeconds + extra).toFixed(4));
 }

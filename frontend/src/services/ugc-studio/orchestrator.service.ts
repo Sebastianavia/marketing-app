@@ -1,15 +1,19 @@
 import type { ModelMessage, UserContent } from 'ai';
 import { geminiRouter } from '@/lib/ai/gemini/gemini-router';
+import { getAllProjects } from '@/lib/storage/project-storage';
+import { getLivePricing, ratePerSecond } from './scene-render.service';
 import {
   AgentDefinition,
   audioDesignerAgent,
   cinematographerAgent,
   continuitySupervisorAgent,
+  creativeAgent,
   makeSupervisorAgent,
   orchestratorAgent,
   productStrategistAgent,
   promptEngineerAgent,
   referenceAnalystAgent,
+  sceneCreatorAgent,
   sceneReviserAgent,
   screenwriterAgent,
   sfxAgent,
@@ -18,10 +22,16 @@ import {
   vfxTransitionsAgent,
 } from './agents';
 import {
+  AgentAction,
+  AgentRequest,
+  AgentResponse,
   chainReferenceIds,
+  estimateSceneRenderUSD,
+  LivePricingInfo,
   ProductStrategy,
   SCENE_MAX_SECONDS,
   SCENE_MIN_SECONDS,
+  SceneInsertRequest,
   SceneRevisionRequest,
   Storyboard,
   StoryboardRequest,
@@ -464,4 +474,192 @@ export async function reviseScene(req: SceneRevisionRequest, emit: Emit, signal?
   const scenes = withChainReferences(storyboard.scenes.map((s) => (s.id === sceneId ? updated : s)));
   const finalized = await finalizeScenes(scenes, references, storyboard.bible, storyboard.strategy, storyboard.brief ?? storyboard.concept, emit, signal, [scene.index]);
   return { ...storyboard, scenes: finalized };
+}
+
+/** Inserta una escena nueva después de `afterIndex` (0 = al inicio), encadenada con sus vecinas. */
+export async function insertScene(req: SceneInsertRequest, emit: Emit, signal?: AbortSignal): Promise<Storyboard> {
+  const { storyboard, references, settings, instructions } = req;
+  const ordered = [...storyboard.scenes].sort((a, b) => a.index - b.index);
+  const afterIndex = Math.max(0, Math.min(ordered.length, Math.round(req.afterIndex)));
+  if (ordered.length >= settings.maxScenes) {
+    throw new Error(`Ya hay ${ordered.length} escenas y el máximo es ${settings.maxScenes}: sube "Máx. escenas" para insertar otra.`);
+  }
+  const usedSeconds = ordered.reduce((sum, s) => sum + s.durationSeconds, 0);
+  const available = Math.min(SCENE_MAX_SECONDS, settings.maxTotalSeconds - usedSeconds);
+  if (available < SCENE_MIN_SECONDS) {
+    throw new Error(
+      `No quedan segundos: el video ya dura ${usedSeconds} s de ${settings.maxTotalSeconds}. Sube "Máx. segundos" para insertar una escena.`
+    );
+  }
+  const fitSeconds = (v: number) => Math.min(available, Math.max(SCENE_MIN_SECONDS, Math.round(v)));
+  const before = ordered.find((s) => s.index === afterIndex);
+  const after = ordered.find((s) => s.index === afterIndex + 1);
+  const neighbor = (s?: StoryboardScene) =>
+    s ? { index: s.index, title: s.title, dialogue: s.dialogue, visual: s.visual, transition: s.transition } : null;
+
+  emit({ type: 'phase', label: afterIndex === 0 ? 'Creando escena nueva al inicio' : `Creando escena nueva tras la escena ${afterIndex}` });
+  const context = `CONCEPTO: ${storyboard.concept}\nTONO: ${storyboard.tone}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(
+    storyboard.bible
+  )}${strategyBlock(storyboard.strategy)}\n\nESCENA ANTERIOR:\n${json(neighbor(before))}\n\nESCENA SIGUIENTE:\n${json(
+    neighbor(after)
+  )}\n\nLO QUE PIDE EL USUARIO PARA LA ESCENA NUEVA:\n${instructions}\n\nLÍMITE: la escena puede durar como máximo ${available} s.`;
+  let created = await runAgent(sceneCreatorAgent, context, emit, signal);
+  const createdSeconds = fitSeconds(created.durationSeconds);
+  const fix = lengthFix(countWords(created.dialogue), createdSeconds);
+  if (fix) {
+    created = await runAgent(
+      sceneCreatorAgent,
+      `${context}\n\nTU PROPUESTA ANTERIOR:\n${json(created)}\n\nEl diálogo no encaja en ${createdSeconds} s: ${fix}. Entrega la escena completa.`,
+      emit,
+      signal,
+      'ajuste de longitud'
+    );
+  }
+
+  const newIndex = afterIndex + 1;
+  const scene: StoryboardScene = {
+    id: `scene_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    index: newIndex,
+    title: created.title,
+    objective: created.objective,
+    durationSeconds: fitSeconds(created.durationSeconds),
+    referenceIds: created.referenceIds.filter((id) => references.some((r) => r.id === id)),
+    dialogue: created.dialogue,
+    visual: { shot: created.shot, camera: created.camera, action: created.action, setting: created.setting },
+    referenceUsage: created.referenceUsage,
+    audio: { voiceTone: created.voiceTone, ambience: created.ambience, music: created.music },
+    sfx: created.sfx,
+    // Tras otra escena continúa desde su último fotograma; al inicio abre desde las referencias
+    transition: {
+      type: newIndex === 1 ? 'apertura' : 'continua',
+      rationale: 'Escena insertada por el usuario',
+      startState: created.startState,
+      endState: created.endState,
+      visualEffects: created.visualEffects,
+    },
+    continuityNotes: '',
+    videoPrompt: '',
+    status: 'draft',
+  };
+
+  const shifted = ordered.map((s) => {
+    if (s.index <= afterIndex) return s;
+    const index = s.index + 1;
+    // La antigua escena 1 ya no abre el video: ahora continúa desde la insertada
+    return s.transition.type === 'apertura' ? { ...s, index, transition: { ...s.transition, type: 'continua' as const } } : { ...s, index };
+  });
+  const scenes = withChainReferences([...shifted, scene].sort((a, b) => a.index - b.index));
+  const finalized = await finalizeScenes(
+    scenes,
+    references,
+    storyboard.bible,
+    storyboard.strategy,
+    storyboard.brief ?? storyboard.concept,
+    emit,
+    signal,
+    [newIndex]
+  );
+  return { ...storyboard, scenes: finalized };
+}
+
+/** Resumen compacto del storyboard para el agente creativo del chat. */
+function storyboardSummary(
+  storyboard: Storyboard | null,
+  settings: StudioSettings,
+  references: UgcReference[],
+  pricing: LivePricingInfo | null
+): string {
+  const limits = `AJUSTES: ${settings.resolution}, ${settings.aspectRatio}, máximo ${settings.maxScenes} escenas y ${settings.maxTotalSeconds} s.`;
+  if (!storyboard) return `${limits}\nTodavía no hay storyboard.`;
+  const scenes = [...storyboard.scenes]
+    .sort((a, b) => a.index - b.index)
+    .map((s) => ({
+      escena: s.index,
+      titulo: s.title,
+      estado: s.status,
+      renderizada: Boolean(s.render?.videoUrl),
+      desactualizada: Boolean(s.render?.stale),
+      segundos: s.durationSeconds,
+      transicion: s.transition.type,
+      dialogo: s.dialogue.map((d) => d.line).join(' '),
+      plano: s.visual.shot,
+      accion: s.visual.action,
+      locacion: s.visual.setting,
+      costo_render_usd: pricing ? estimateSceneRenderUSD(storyboard.scenes, s, references, pricing, settings.resolution) : undefined,
+    }));
+  const total = storyboard.scenes.reduce((sum, s) => sum + s.durationSeconds, 0);
+  const pending = scenes.filter((s) => !s.renderizada || s.desactualizada);
+  const costs = pricing
+    ? `\nCOSTOS ESTIMADOS (tarifas actuales de OpenRouter${pricing.discount > 0 ? `, ${Math.round(pricing.discount * 100)}% de descuento vigente` : ''}): ${settings.resolution} a $${
+        pricing.rates[settings.resolution].base
+      }/s sin referencias y $${pricing.rates[settings.resolution].references}/s con referencias. Renderizar lo pendiente (${pending.length} escena(s)) costaría unos $${pending
+        .reduce((sum, s) => sum + (s.costo_render_usd ?? 0), 0)
+        .toFixed(2)}; todo el video, unos $${scenes.reduce((sum, s) => sum + (s.costo_render_usd ?? 0), 0).toFixed(2)}.`
+    : '';
+  return `${limits} El storyboard actual dura ${total} s.${costs}\nSTORYBOARD "${storyboard.title}": ${storyboard.concept}\nESCENAS:\n${json(scenes)}`;
+}
+
+/** Tarifas en el formato que usa la estimación compartida con el cliente. */
+async function pricingInfo(): Promise<LivePricingInfo | null> {
+  try {
+    const p = await getLivePricing();
+    return {
+      discount: p.discount,
+      live: p.live,
+      extraImageUSD: Number(((p.skus.reference_input_images ?? 0.04) * (1 - p.discount)).toFixed(4)),
+      freeReferenceImages: 2,
+      rates: {
+        '480p': { base: ratePerSecond(p, '480p', false), references: ratePerSecond(p, '480p', true) },
+        '768p': { base: ratePerSecond(p, '768p', false), references: ratePerSecond(p, '768p', true) },
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Proyectos UGC guardados, para que el agente pueda abrir uno por su nombre. */
+async function savedProjectsBlock(): Promise<string> {
+  try {
+    const projects = (await getAllProjects()).filter((p) => p.category === 'UGC' && p.ugcStudio?.storyboard);
+    if (projects.length === 0) return '(ninguno)';
+    return projects
+      .slice(0, 30)
+      .map((p) => {
+        const sb = p.ugcStudio!.storyboard as Storyboard;
+        return `- carpeta "${p.name}": "${sb.title}", ${sb.scenes.length} escena(s), guardado ${p.updatedAt.slice(0, 16).replace('T', ' ')}`;
+      })
+      .join('\n');
+  } catch {
+    return '(no se pudo leer la lista)';
+  }
+}
+
+/** El agente creativo lee la conversación y el estado y decide la respuesta y las acciones. */
+export async function planAgentActions(req: AgentRequest, emit: Emit, signal?: AbortSignal): Promise<AgentResponse> {
+  const history = req.history
+    .slice(-12)
+    .map((m) => `${m.role === 'user' ? 'USUARIO' : 'AGENTE'}: ${m.content}`)
+    .join('\n');
+  const [pricing, projects] = await Promise.all([pricingInfo(), savedProjectsBlock()]);
+  const plan = await runAgent(
+    creativeAgent,
+    `${storyboardSummary(req.storyboard, req.settings, req.references, pricing)}\n\nPROYECTOS GUARDADOS:\n${projects}\n\nREFERENCIAS ADJUNTAS:\n${referencesBlock(req.references)}\n\nCONVERSACIÓN PREVIA:\n${
+      history || '(ninguna)'
+    }\n\nMENSAJE NUEVO DEL USUARIO:\n${req.message}`,
+    emit,
+    signal
+  );
+  const sceneCount = req.storyboard?.scenes.length ?? 0;
+  const actions: AgentAction[] = plan.actions.map((a) => {
+    const settings: AgentAction['settings'] = {};
+    if (a.resolution !== 'sin_cambio') settings.resolution = a.resolution;
+    if (a.aspectRatio !== 'sin_cambio') settings.aspectRatio = a.aspectRatio;
+    if (a.maxScenes > 0) settings.maxScenes = a.maxScenes;
+    if (a.maxTotalSeconds > 0) settings.maxTotalSeconds = a.maxTotalSeconds;
+    // insert_scene admite 0 (al inicio); el resto solo escenas que existen
+    const scenes = a.scenes.filter((n) => Number.isInteger(n) && n >= (a.type === 'insert_scene' ? 0 : 1) && n <= sceneCount);
+    return { type: a.type, scenes, instructions: a.instructions.trim(), settings };
+  });
+  return { reply: plan.reply.trim(), actions };
 }

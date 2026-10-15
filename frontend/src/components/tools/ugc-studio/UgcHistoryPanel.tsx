@@ -16,7 +16,7 @@ const dateFormat = new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeS
  */
 export function UgcHistoryPanel({ refreshKey, onOpen }: { refreshKey: unknown; onOpen: (project: UgcProject) => void }) {
   const currentId = useUgcStudioStore((s) => s.storyboard?.id);
-  const busy = useUgcStudioStore((s) => s.busy);
+  const busy = useUgcStudioStore((s) => Boolean(s.busy) || s.actionsRunning);
   const [projects, setProjects] = useState<UgcProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export function UgcHistoryPanel({ refreshKey, onOpen }: { refreshKey: unknown; o
       )}
       {loading && projects.length === 0 && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         {projects.map((p) => {
           const sb = p.ugcStudio.storyboard as Storyboard;
           const isCurrent = sb.id === currentId;
