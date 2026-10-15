@@ -50,8 +50,10 @@ export function BriefChat({ initialText }: { initialText?: string }) {
   };
 
   const confirmPending = async () => {
-    if (!pending || !pending.label.trim()) return;
-    await addReference(pending.file, pending.role, pending.label);
+    // Enter también llama aquí: sin este freno se podía subir la misma imagen dos veces
+    if (!pending || !pending.label.trim() || uploading) return;
+    // Si la subida falla se conserva la imagen para reintentar sin volver a elegirla
+    if (!(await addReference(pending.file, pending.role, pending.label))) return;
     URL.revokeObjectURL(pending.preview);
     setPending(null);
   };

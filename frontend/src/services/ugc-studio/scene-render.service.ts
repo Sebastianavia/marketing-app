@@ -3,6 +3,7 @@ import path from 'path';
 import { OpenRouterVideoService } from '@/services/openrouter/openrouter-video.service';
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
 import { extractLastFrame, makeTempDir } from '@/lib/video/ffmpeg';
+import { PipelineError } from '@/types/pipeline.types';
 import {
   continuesWithReferences,
   sentReferenceIds,
@@ -200,12 +201,25 @@ export async function getSceneRenderStatus(taskId: string): Promise<SceneRenderS
   if (pending) return pending;
 
   const service = new OpenRouterVideoService();
-  const status = await service.getGenerativeVideoStatus(taskId);
+  let status: Awaited<ReturnType<OpenRouterVideoService['getGenerativeVideoStatus']>>;
+  try {
+    status = await service.getGenerativeVideoStatus(taskId);
+  } catch (err) {
+    // Un error definitivo de OpenRouter cierra el render; uno pasajero se propaga para reintentar
+    if (err instanceof PipelineError && !err.isRecoverable) {
+      releaseRender(taskId);
+      return { status: 'failed', error: err.message };
+    }
+    throw err;
+  }
   if (status.status === 'failed') releaseRender(taskId);
   if (status.status !== 'completed') {
     return { status: status.status, error: status.error };
   }
-  if (!status.contentUrl) return { status: 'failed', error: 'OpenRouter completó la tarea pero no entregó el video.' };
+  if (!status.contentUrl) {
+    releaseRender(taskId);
+    return { status: 'failed', error: 'OpenRouter completó la tarea pero no entregó el video.' };
+  }
 
   const job = (async (): Promise<SceneRenderStatus> => {
     const dir = await makeTempDir();

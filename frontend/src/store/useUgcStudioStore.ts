@@ -48,7 +48,7 @@ interface UgcStudioState {
 
   sendBrief: (text: string) => Promise<void>;
   cancel: () => void;
-  addReference: (file: File, role: ReferenceRole, label: string) => Promise<void>;
+  addReference: (file: File, role: ReferenceRole, label: string) => Promise<boolean>;
   updateReference: (id: string, patch: Partial<Pick<UgcReference, 'role' | 'label'>>) => void;
   removeReference: (id: string) => void;
   setSettings: (patch: Partial<StudioSettings>) => void;
@@ -286,11 +286,19 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             set((st) => {
-              const next = Math.max(0, ...st.references.map((r) => Number(r.id.replace('ref', '')) || 0)) + 1;
+              // Nunca reutilizar un ID que el storyboard todavía cite: si se borró ref2 y se sube otra
+              // imagen, llamarla ref2 haría que las escenas apunten a la imagen equivocada
+              const used = [
+                ...st.references.map((r) => r.id),
+                ...(st.storyboard?.scenes.flatMap((sc) => sc.referenceIds) ?? []),
+              ];
+              const next = Math.max(0, ...used.map((id) => Number(id.replace('ref', '')) || 0)) + 1;
               return { references: [...st.references, { id: `ref${next}`, url: data.url, role, label: label.trim() }] };
             });
+            return true;
           } catch (err: any) {
             set({ error: err.message || 'No se pudo subir la referencia.' });
+            return false;
           } finally {
             set({ uploading: false });
           }
@@ -318,7 +326,25 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               body: JSON.stringify({ storyboard, references, settings, sceneId, feedback }),
               signal: abortController.signal,
             });
-            await readEventStream(res, handleEvent);
+            await readEventStream(res, (event) => {
+              if (event.type !== 'storyboard') return handleEvent(event);
+              // La revisión tarda: mientras tanto otras escenas pudieron terminar de renderizar. De la
+              // respuesta solo se toma la escena revisada (y las referencias de cadena recalculadas);
+              // el resto conserva su estado actual para no perder clips ya pagados.
+              set((st) => {
+                if (!st.storyboard || st.storyboard.id !== event.storyboard.id) return {};
+                const current = st.storyboard.scenes;
+                return {
+                  storyboard: {
+                    ...event.storyboard,
+                    scenes: event.storyboard.scenes.map((s) => {
+                      const local = current.find((l) => l.id === s.id);
+                      return s.id === sceneId || !local ? s : { ...local, referenceIds: s.referenceIds };
+                    }),
+                  },
+                };
+              });
+            });
             set((st) => ({
               storyboard: st.storyboard ? { ...st.storyboard, scenes: markDownstreamStale(st.storyboard.scenes, changedIndex) } : null,
             }));
@@ -333,17 +359,18 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         requestRenderEstimate: async (sceneId) => {
           const { storyboard, references, settings } = get();
           set({ error: null });
-          const res = await fetch('/api/ugc-studio/scene/render', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ storyboard, references, settings, sceneId, confirm: false }),
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            set({ error: data.error });
-            return;
+          try {
+            const res = await fetch('/api/ugc-studio/scene/render', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ storyboard, references, settings, sceneId, confirm: false }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `Error HTTP ${res.status}`);
+            set({ estimate: { sceneId, ...data } });
+          } catch (err: any) {
+            set({ error: err.message || 'No se pudo calcular el costo de la escena.' });
           }
-          set({ estimate: { sceneId, ...data } });
         },
 
         dismissEstimate: () => set({ estimate: null }),
@@ -352,6 +379,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           const { estimate, storyboard, references, settings } = get();
           if (!estimate || !storyboard) return;
           set({ estimate: null });
+          // Si el envío falla, el clip anterior (ya pagado) no debe perderse
+          const previous = storyboard.scenes.find((s) => s.id === estimate.sceneId);
           patchScene(estimate.sceneId, { status: 'rendering', render: undefined });
           try {
             const res = await fetch('/api/ugc-studio/scene/render', {
@@ -376,7 +405,12 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             patchScene(estimate.sceneId, { render });
             void pollRender(estimate.sceneId, data.taskId);
           } catch (err: any) {
-            patchScene(estimate.sceneId, { status: 'failed', render: { error: err.message } });
+            if (previous?.render?.videoUrl) {
+              patchScene(estimate.sceneId, { status: previous.status, render: previous.render });
+              set({ error: `No se pudo renderizar la escena ${previous.index}: ${err.message}` });
+            } else {
+              patchScene(estimate.sceneId, { status: 'failed', render: { error: err.message } });
+            }
           }
         },
 

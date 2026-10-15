@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
+import { applyNodeChanges, Background, Controls, MarkerType, ReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { LayoutTemplate } from 'lucide-react';
 import { useUgcStudioStore } from '@/store/useUgcStudioStore';
@@ -70,22 +70,23 @@ export function StoryboardCanvas() {
     return { nodes: [overview, ...sceneNodes] as Node[], edges: sceneEdges };
   }, [storyboard, references, busy]);
 
-  // Posiciones movidas por el usuario; los nodos se derivan siempre de los datos actuales
-  // (así el lienzo monta ya con las escenas y fitView las encuadra)
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
-  const flowNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, position: positions[n.id] ?? n.position })),
-    [nodes, positions]
+  // Los nodos se derivan siempre de los datos actuales (así el lienzo monta ya con las escenas y
+  // fitView las encuadra); aparte se guarda lo que cambian el usuario y React Flow. Las medidas
+  // ("dimensions") son obligatorias: sin ellas React Flow no da los nodos por inicializados y no se
+  // pueden arrastrar ("trying to drag a node that is not initialized").
+  const [overrides, setOverrides] = useState<Record<string, Pick<Node, 'position' | 'measured' | 'dragging' | 'selected'>>>({});
+  const flowNodes = useMemo(() => nodes.map((n) => ({ ...n, ...overrides[n.id] })), [nodes, overrides]);
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) =>
+      setOverrides((prev) => {
+        const next = { ...prev };
+        for (const n of applyNodeChanges(changes, nodes.map((node) => ({ ...node, ...prev[node.id] })))) {
+          next[n.id] = { position: n.position, measured: n.measured, dragging: n.dragging, selected: n.selected };
+        }
+        return next;
+      }),
+    [nodes]
   );
-  const onNodesChange = useCallback((changes: NodeChange[]) => {
-    const moved = changes.filter((c) => c.type === 'position' && c.position);
-    if (moved.length === 0) return;
-    setPositions((prev) => {
-      const next = { ...prev };
-      for (const c of moved) if (c.type === 'position' && c.position) next[c.id] = c.position;
-      return next;
-    });
-  }, []);
 
   if (!storyboard) {
     return (

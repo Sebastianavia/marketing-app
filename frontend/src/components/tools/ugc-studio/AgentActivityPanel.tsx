@@ -44,6 +44,8 @@ function QuotaMeters({ refreshKey }: { refreshKey: number }) {
       const res = await fetch(`/api/ugc-studio/quota${rediscover ? '?rediscover=1' : ''}`);
       const data = await res.json();
       if (res.ok) setSlots(data.slots);
+    } catch {
+      // red caída o servidor reiniciándose: se reintenta en la siguiente consulta periódica
     } finally {
       setLoading(false);
     }

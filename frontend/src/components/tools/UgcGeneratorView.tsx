@@ -39,6 +39,7 @@ export function UgcGeneratorView() {
   const [injectedBrief, setInjectedBrief] = useState<string>();
   const [injectedNotice, setInjectedNotice] = useState(false);
   const [projectName, setProjectName] = useState('');
+  const [confirmReset, setConfirmReset] = useState(false);
   // Nombre de la carpeta del proyecto abierto: volver a unir debe sobrescribirla, no crear otra
   const savedName = savedProjectPath?.split(/[\\/]/).filter(Boolean).pop() ?? '';
 
@@ -93,8 +94,9 @@ export function UgcGeneratorView() {
       totalSeconds: scenes.reduce((sum, s) => sum + s.durationSeconds, 0),
       allRendered: scenes.length > 0 && scenes.every((s) => s.status === 'rendered' && s.render?.videoUrl),
       anyStale: scenes.some((s) => s.render?.stale),
+      atRisk: scenes.some((s) => s.status === 'rendering') || (!savedProjectPath && scenes.some((s) => s.render?.videoUrl)),
     };
-  }, [storyboard]);
+  }, [storyboard, savedProjectPath]);
 
   const estimateScene = storyboard?.scenes.find((s) => s.id === estimate?.sceneId);
 
@@ -154,12 +156,22 @@ export function UgcGeneratorView() {
               type="button"
               disabled={!!busy}
               onClick={() => {
+                // Escenas renderizándose o clips pagados sin guardar se perderían: pedir un segundo clic
+                if (costs.atRisk && !confirmReset) {
+                  setConfirmReset(true);
+                  return;
+                }
+                setConfirmReset(false);
                 reset();
                 setProjectName('');
               }}
-              className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-rose-500 disabled:opacity-40"
+              onBlur={() => setConfirmReset(false)}
+              className={`flex items-center gap-1 text-[11px] disabled:opacity-40 ${
+                confirmReset ? 'text-rose-500 font-medium' : 'text-slate-500 hover:text-rose-500'
+              }`}
             >
-              <RotateCcw className="h-3.5 w-3.5" /> Nuevo
+              <RotateCcw className="h-3.5 w-3.5" />{' '}
+              {confirmReset ? '¿Descartar? Hay escenas renderizándose o sin guardar' : 'Nuevo'}
             </button>
           )}
         </div>

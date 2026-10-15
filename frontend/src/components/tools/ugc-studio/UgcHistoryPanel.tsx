@@ -43,9 +43,11 @@ export function UgcHistoryPanel({ refreshKey, onOpen }: { refreshKey: unknown; o
 
   const open = (project: UgcProject) => {
     const { storyboard, savedProjectPath } = useUgcStudioStore.getState();
-    // Avisar antes de reemplazar un trabajo con clips pagados que no se ha guardado
-    const unsavedRenders = !savedProjectPath && storyboard?.scenes.some((s) => s.render?.videoUrl);
-    if (unsavedRenders && pendingOpen?.id !== project.id) {
+    // Avisar antes de reemplazar un trabajo con clips pagados sin guardar o renders en curso
+    // (al cambiar de proyecto se deja de seguir el render: se cobra igual y el clip se pierde)
+    const scenes = storyboard?.scenes ?? [];
+    const atRisk = scenes.some((s) => s.status === 'rendering') || (!savedProjectPath && scenes.some((s) => s.render?.videoUrl));
+    if (atRisk && pendingOpen?.id !== project.id) {
       setPendingOpen(project);
       return;
     }
@@ -108,7 +110,7 @@ export function UgcHistoryPanel({ refreshKey, onOpen }: { refreshKey: unknown; o
               {pendingOpen?.id === p.id ? (
                 <div className="space-y-1.5">
                   <p className="text-[10px] text-amber-700 dark:text-amber-300">
-                    El proyecto actual tiene escenas renderizadas sin guardar. ¿Abrir este de todas formas?
+                    El proyecto actual tiene escenas renderizándose o renderizadas sin guardar. ¿Abrir este de todas formas?
                   </p>
                   <div className="flex gap-1.5">
                     <button type="button" onClick={() => open(p)} className="flex-1 rounded-md bg-amber-500 text-white text-[11px] py-1">

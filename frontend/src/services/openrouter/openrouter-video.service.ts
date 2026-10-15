@@ -281,7 +281,9 @@ export class OpenRouterVideoService {
       headers: { Authorization: `Bearer ${this.apiKey}` },
     });
     if (!response.ok) {
-      throw new PipelineError(`Error consultando el video (${response.status})`, 'video_polling', true, await response.text());
+      // 5xx y 429 son pasajeros; un 4xx (tarea inexistente, llave inválida) no se arregla reintentando
+      const recoverable = response.status >= 500 || response.status === 429;
+      throw new PipelineError(`Error consultando el video (${response.status})`, 'video_polling', recoverable, await response.text());
     }
     const data = await response.json();
     const task = data.data || data;

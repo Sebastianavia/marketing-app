@@ -371,7 +371,8 @@ function withSpokenName(videoPrompt: string, strategy: ProductStrategy | undefin
   const { productName, spokenName } = strategy ?? {};
   if (!productName || !spokenName || productName.trim().toLowerCase() === spokenName.trim().toLowerCase()) return videoPrompt;
   const name = new RegExp(productName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  return videoPrompt.replace(/(says in Spanish[^"]*")([^"]*)(")/gi, (_, open, line, close) => open + line.replace(name, spokenName.trim()) + close);
+  // Comillas rectas o tipográficas: el ingeniero de prompts no siempre usa las mismas
+  return videoPrompt.replace(/(says in Spanish[^"“]*["“])([^"”]*)(["”])/gi, (_, open, line, close) => open + line.replace(name, spokenName.trim()) + close);
 }
 
 /** Supervisor de continuidad + ingeniero de prompts sobre las escenas indicadas (todas por defecto). */
