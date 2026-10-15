@@ -58,7 +58,17 @@ export async function POST(req: NextRequest) {
     const trims = scenes.map((s) => (s.transition.type === 'continua' ? CONTINUOUS_LEAD_TRIM_SECONDS : 0));
     // Degradado de color en cada corte hacia una escena "continua": la anterior migra hacia un punto
     // intermedio en sus últimos segundos y la nueva arranca ahí y vuelve a su color natural
-    const size = FRAME_SIZES[settings.resolution]?.[settings.aspectRatio] ?? FRAME_SIZES['480p']['9:16'];
+    // El cuadro final sale de cómo se renderizaron los clips, no de los ajustes actuales (pueden haber cambiado)
+    const aspects = scenes.map((s) => s.render?.aspectRatio ?? settings.aspectRatio);
+    const mixed = scenes.filter((_, i) => aspects[i] !== aspects[0]).map((s) => s.index);
+    if (mixed.length > 0) {
+      return NextResponse.json(
+        { error: `La escena ${mixed.join(', ')} se renderizó en otro formato de pantalla que la escena 1: vuelve a renderizarla en ${aspects[0]}.` },
+        { status: 409 }
+      );
+    }
+    const resolution = scenes[0].render?.resolution ?? settings.resolution;
+    const size = FRAME_SIZES[resolution]?.[aspects[0]] ?? FRAME_SIZES['480p']['9:16'];
     const colorRamps: ColorRamp[] = scenes.map(() => ({}));
     for (let i = 1; i < scenes.length; i++) {
       if (scenes[i].transition.type !== 'continua') continue;
@@ -84,7 +94,7 @@ export async function POST(req: NextRequest) {
       script: scenes.map((s) => `[Escena ${s.index}] ${s.dialogue.map((d) => `${d.speaker}: ${d.line}`).join(' ')}`).join('\n'),
       prompt: scenes.map((s) => `[Escena ${s.index}] ${s.videoPrompt}`).join('\n\n'),
       imageUrl: body.references.find((r) => r.role === 'personaje')?.url ?? body.references[0]?.url,
-      ratio: settings.aspectRatio,
+      ratio: aspects[0],
       videoUrl: uploaded.publicUrl,
       status: 'rendered' as const,
       tags: ['ugc-studio', 'multi-agente'],

@@ -23,10 +23,12 @@ import {
 } from 'lucide-react';
 import { useUgcStudioStore } from '@/store/useUgcStudioStore';
 import { EdgeMenuPanel } from './InsertEdge';
+import { formatById, LANGUAGE_INFO, VISUAL_STYLE_INFO } from '@/config/ugc-formats';
 import {
   CharacterBible,
   ProductStrategy,
   REFERENCE_ROLE_LABELS,
+  Storyboard,
   StoryboardScene,
   StudioAspectRatio,
   SupervisorReview,
@@ -213,7 +215,7 @@ export type SceneNodeData = {
   aspectRatio: StudioAspectRatio;
   queued: boolean; // en la cola de "renderizar todo"
   sceneCount: number;
-  queueActive: boolean; // con una cola de render en marcha no se reordena (cada escena parte de la anterior)
+  queueActive: boolean; // hay renders en marcha: no se reordena (cada escena parte de la anterior)
 };
 export type SceneFlowNode = Node<SceneNodeData, 'scene'>;
 
@@ -473,7 +475,7 @@ export function SceneNode({ data }: NodeProps<SceneFlowNode>) {
       </NodeToolbar>
 
       <NodeToolbar isVisible={Boolean(edgeMenuHere)} position={Position.Left} offset={16}>
-        {edgeMenuHere && <EdgeMenuPanel scene={scene} kind={edgeMenuHere} disabled={locked || isRendering} />}
+        {edgeMenuHere && <EdgeMenuPanel scene={scene} kind={edgeMenuHere} disabled={structureLocked} />}
       </NodeToolbar>
 
       {/* Tarjeta: solo el video (o un marcador mientras no hay clip) */}
@@ -538,6 +540,8 @@ export type OverviewNodeData = {
   bible: CharacterBible;
   strategy?: ProductStrategy;
   supervision: SupervisorReview[];
+  format?: string;
+  production?: Storyboard['production'];
 };
 export type OverviewFlowNode = Node<OverviewNodeData, 'overview'>;
 
@@ -577,6 +581,10 @@ export function OverviewNode({ data }: NodeProps<OverviewFlowNode>) {
                 <Field label="Gancho">{data.hook}</Field>
                 <Field label="CTA">{data.cta}</Field>
                 <Field label="Tono">{data.tone}</Field>
+                <Field label="Producción">
+                  {formatById(data.format)?.label ?? 'Formato libre'} · {VISUAL_STYLE_INFO[data.production?.visualStyle ?? 'celular'].label} ·{' '}
+                  {LANGUAGE_INFO[data.production?.language ?? 'es'].label}
+                </Field>
               </>
             )}
             {tab === 'Producto' &&
@@ -628,7 +636,9 @@ export function OverviewNode({ data }: NodeProps<OverviewFlowNode>) {
       <div className={`rounded-2xl border bg-surface p-3.5 shadow-sm transition-shadow ${hover ? 'border-line-strong shadow-lg' : 'border-line'}`}>
         <div className="flex items-center gap-1.5">
           <Clapperboard className="h-4 w-4 text-accent" />
-          <p className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">Concepto</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+            Concepto{formatById(data.format) ? ` · ${formatById(data.format)!.label}` : ''}
+          </p>
         </div>
         <p className="mt-1.5 text-[14px] font-semibold leading-snug text-fg">{data.title}</p>
         <p className="mt-1 line-clamp-3 text-[12px] leading-relaxed text-fg-muted">{data.hook}</p>

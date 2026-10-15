@@ -1,3 +1,13 @@
+import {
+  UGC_FORMAT_IDS,
+  UGC_LANGUAGES,
+  UGC_VISUAL_STYLES,
+  type UgcFormatId,
+  type UgcFormatSetting,
+  type UgcLanguage,
+  type UgcVisualStyle,
+} from '@/config/ugc-formats';
+
 /**
  * Tipos del UGC Studio multi-agente: referencias etiquetadas, storyboard por escenas,
  * eventos de los agentes y estado de render por escena.
@@ -29,6 +39,9 @@ export interface StudioSettings {
   aspectRatio: StudioAspectRatio;
   maxScenes: number;
   maxTotalSeconds: number;
+  language: UgcLanguage; // idioma del diálogo hablado
+  visualStyle: UgcVisualStyle;
+  format: UgcFormatSetting; // 'auto' = el director elige el formato según el brief
 }
 
 export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
@@ -36,6 +49,9 @@ export const DEFAULT_STUDIO_SETTINGS: StudioSettings = {
   aspectRatio: '9:16',
   maxScenes: 2,
   maxTotalSeconds: 20,
+  language: 'es',
+  visualStyle: 'celular',
+  format: 'auto',
 };
 
 /** Normaliza ajustes que llegan del cliente a rangos válidos. */
@@ -50,6 +66,9 @@ export function sanitizeSettings(input: Partial<StudioSettings> | undefined): St
     aspectRatio: (['9:16', '16:9', '1:1'] as const).includes(s.aspectRatio) ? s.aspectRatio : '9:16',
     maxScenes: clamp(s.maxScenes, 1, 8, DEFAULT_STUDIO_SETTINGS.maxScenes),
     maxTotalSeconds: clamp(s.maxTotalSeconds, 5, 120, DEFAULT_STUDIO_SETTINGS.maxTotalSeconds),
+    language: (UGC_LANGUAGES as readonly string[]).includes(s.language) ? s.language : 'es',
+    visualStyle: (UGC_VISUAL_STYLES as readonly string[]).includes(s.visualStyle) ? s.visualStyle : 'celular',
+    format: s.format === 'auto' || (UGC_FORMAT_IDS as readonly string[]).includes(s.format) ? s.format : 'auto',
   };
 }
 
@@ -65,11 +84,14 @@ export interface CharacterBible {
     appearance: string;
     wardrobe: string;
     voice: string;
+    gender?: CharacterGender; // define los pronombres del prompt (she/he/they); opcional en storyboards antiguos
   }[];
   product: { name: string; referenceIds: string[]; description: string } | null;
   locations: { name: string; referenceIds: string[]; description: string }[];
   style: string;
 }
+
+export type CharacterGender = 'mujer' | 'hombre' | 'no_definido';
 
 /** Lo que el Estratega de producto entiende del producto y del objetivo del video (contexto para todo el equipo). */
 export interface ProductStrategy {
@@ -111,6 +133,8 @@ export interface SceneRender {
   usedReferences?: boolean;
   error?: string;
   stale?: boolean; // la escena anterior cambió después de renderizar esta: conviene re-renderizar
+  resolution?: VideoResolution; // con qué se renderizó (los ajustes pueden cambiar después)
+  aspectRatio?: StudioAspectRatio;
 }
 
 export interface StoryboardScene {
@@ -209,6 +233,9 @@ export interface Storyboard {
   bible: CharacterBible;
   brief?: string; // brief completo del usuario (opcional: storyboards guardados antes de guardarlo)
   strategy?: ProductStrategy; // opcional: storyboards guardados antes de existir el estratega
+  format?: UgcFormatId; // formato elegido (por el usuario o por el director)
+  // Idioma y estilo con que se creó: las revisiones e inserciones los mantienen aunque cambien los ajustes
+  production?: { language: UgcLanguage; visualStyle: UgcVisualStyle };
   scenes: StoryboardScene[];
   supervision: SupervisorReview[];
   seed: number;

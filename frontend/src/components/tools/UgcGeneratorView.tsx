@@ -9,6 +9,17 @@ import { AgentChat } from './ugc-studio/AgentChat';
 import { StoryboardCanvas } from './ugc-studio/StoryboardCanvas';
 import { AgentActivityPanel } from './ugc-studio/AgentActivityPanel';
 import { UgcHistoryPanel } from './ugc-studio/UgcHistoryPanel';
+import {
+  formatById,
+  LANGUAGE_INFO,
+  UGC_FORMATS,
+  UGC_LANGUAGES,
+  UGC_VISUAL_STYLES,
+  VISUAL_STYLE_INFO,
+  type UgcFormatSetting,
+  type UgcLanguage,
+  type UgcVisualStyle,
+} from '@/config/ugc-formats';
 import { LivePricingInfo, Storyboard, StudioAspectRatio, StudioSettings, UgcReference, VideoResolution } from '@/types/ugc-studio.types';
 
 type Popover = 'settings' | 'agents' | 'history' | null;
@@ -139,6 +150,7 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
     };
   }, [storyboard, savedProjectPath]);
 
+  const renderedAspect = storyboard?.scenes.find((s) => s.render?.videoUrl && s.render.aspectRatio)?.render?.aspectRatio;
   const pendingCards = messages.some((m) => m.card?.status === 'pending');
   const pendingCount = messages.filter((m) => m.card?.status === 'pending').length;
   const error = useUgcStudioStore((s) => s.error);
@@ -229,13 +241,13 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
       {/* Popovers de la barra */}
       {popover && <div className="absolute inset-0 z-10" onClick={() => setPopover(null)} />}
       {popover === 'settings' && (
-        <div className="glass-panel absolute left-3 top-16 z-20 w-[300px] space-y-3 rounded-2xl p-4">
+        <div className="absolute left-3 top-16 z-20 max-h-[calc(100%-6rem)] w-[320px] space-y-3 overflow-y-auto rounded-2xl border border-line bg-surface p-4 shadow-xl">
           <p className="text-[13px] font-semibold text-fg">Ajustes del video</p>
           <label className="block text-[12px] text-fg-muted">
             Resolución
             <select
               value={settings.resolution}
-              disabled={!!busy}
+              disabled={!!busy || actionsRunning}
               onChange={(e) => setSettings({ resolution: e.target.value as VideoResolution })}
               className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
             >
@@ -250,7 +262,7 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
             Formato
             <select
               value={settings.aspectRatio}
-              disabled={!!busy}
+              disabled={!!busy || actionsRunning}
               onChange={(e) => setSettings({ aspectRatio: e.target.value as StudioAspectRatio })}
               className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
             >
@@ -258,6 +270,12 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
               <option value="1:1">1:1 cuadrado</option>
               <option value="16:9">16:9 horizontal</option>
             </select>
+            {renderedAspect && renderedAspect !== settings.aspectRatio && (
+              <span className="mt-1 block text-[11px] leading-snug text-amber-600 dark:text-amber-400">
+                Las escenas ya renderizadas están en {renderedAspect}. Para unir el video todas deben tener el mismo formato: vuelve a
+                renderizarlas o regresa a {renderedAspect}.
+              </span>
+            )}
           </label>
           <div className="grid grid-cols-2 gap-2">
             <label className="block text-[12px] text-fg-muted">
@@ -267,7 +285,7 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
                 min={1}
                 max={8}
                 value={settings.maxScenes}
-                disabled={!!busy}
+                disabled={!!busy || actionsRunning}
                 onChange={(e) => setSettings({ maxScenes: Math.max(1, Math.min(8, Number(e.target.value) || 1)) })}
                 className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
               />
@@ -279,11 +297,73 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
                 min={5}
                 max={120}
                 value={settings.maxTotalSeconds}
-                disabled={!!busy}
+                disabled={!!busy || actionsRunning}
                 onChange={(e) => setSettings({ maxTotalSeconds: Math.max(5, Math.min(120, Number(e.target.value) || 5)) })}
                 className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
               />
             </label>
+          </div>
+          <div className="space-y-2 border-t border-line pt-3">
+            <label className="block text-[12px] text-fg-muted">
+              Formato UGC
+              <select
+                value={settings.format}
+                disabled={!!busy || actionsRunning}
+                onChange={(e) => setSettings({ format: e.target.value as UgcFormatSetting })}
+                className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
+              >
+                <option value="auto">Automático (el director elige)</option>
+                {UGC_FORMATS.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-[11px] leading-snug text-fg-subtle">
+                {settings.format === 'auto'
+                  ? 'El director elige el formato que mejor sirva al brief.'
+                  : formatById(settings.format)?.description}
+              </span>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-[12px] text-fg-muted">
+                Estilo visual
+                <select
+                  value={settings.visualStyle}
+                  disabled={!!busy || actionsRunning}
+                  onChange={(e) => setSettings({ visualStyle: e.target.value as UgcVisualStyle })}
+                  className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
+                >
+                  {UGC_VISUAL_STYLES.map((v) => (
+                    <option key={v} value={v}>
+                      {VISUAL_STYLE_INFO[v].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-[12px] text-fg-muted">
+                Idioma del diálogo
+                <select
+                  value={settings.language}
+                  disabled={!!busy || actionsRunning}
+                  onChange={(e) => setSettings({ language: e.target.value as UgcLanguage })}
+                  className="input-clean mt-1 w-full px-2 py-1.5 text-[12px]"
+                >
+                  {UGC_LANGUAGES.map((l) => (
+                    <option key={l} value={l}>
+                      {LANGUAGE_INFO[l].label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {storyboard && (
+              <p className="text-[11px] leading-snug text-fg-subtle">
+                Formato, estilo e idioma se aplican al crear un storyboard. El actual es{' '}
+                {formatById(storyboard.format)?.label ?? 'libre'}, {VISUAL_STYLE_INFO[storyboard.production?.visualStyle ?? 'celular'].label.toLowerCase()}, en{' '}
+                {LANGUAGE_INFO[storyboard.production?.language ?? 'es'].label.toLowerCase()}.
+              </p>
+            )}
           </div>
           {pricing && pricing.discount > 0 && (
             <p className="rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">

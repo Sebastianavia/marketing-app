@@ -46,6 +46,8 @@ export function StoryboardCanvas({ rightInset = 0 }: { rightInset?: number }) {
     // Bloqueado mientras trabajan los agentes o el agente creativo ejecuta sus pasos
     const locked = Boolean(busy) || actionsRunning;
     const cardWidth = CARD_WIDTH[aspectRatio];
+    // Con cualquier render en marcha no se reordena ni se cambian empalmes (ver blockedByRendering)
+    const renderingAny = renderQueue.length > 0 || scenes.some((s) => s.status === 'rendering');
 
     const overview: OverviewFlowNode = {
       id: 'overview',
@@ -60,6 +62,8 @@ export function StoryboardCanvas({ rightInset = 0 }: { rightInset?: number }) {
         bible: storyboard.bible,
         strategy: storyboard.strategy,
         supervision: storyboard.supervision,
+        format: storyboard.format,
+        production: storyboard.production,
       },
     };
 
@@ -76,7 +80,7 @@ export function StoryboardCanvas({ rightInset = 0 }: { rightInset?: number }) {
         aspectRatio,
         queued: renderQueue.includes(scene.id) && scene.status !== 'rendering',
         sceneCount: scenes.length,
-        queueActive: renderQueue.length > 0,
+        queueActive: renderingAny,
       },
     }));
 
@@ -99,7 +103,8 @@ export function StoryboardCanvas({ rightInset = 0 }: { rightInset?: number }) {
         transition: scene.transition.type,
         jointIssue: scene.jointIssue,
         rendered: Boolean(scene.render?.videoUrl),
-        sceneBusy: scene.status === 'rendering' || renderQueue.includes(scene.id),
+        // Con una cola en marcha no se cambia ningún empalme: cada escena parte de la anterior
+        sceneBusy: renderingAny,
         locked,
       },
     }));

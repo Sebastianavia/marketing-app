@@ -94,7 +94,14 @@ export function UgcHistoryPanel({ refreshKey, onOpen }: { refreshKey: unknown; o
               }`}
             >
               {p.videoUrl ? (
-                <video src={p.videoUrl} preload="metadata" muted playsInline controls className="w-full aspect-[9/16] max-h-56 object-contain rounded-md bg-black" />
+                <video
+                  src={p.videoUrl}
+                  preload="metadata"
+                  muted
+                  playsInline
+                  controls
+                  className={`w-full max-h-56 object-contain rounded-md bg-black ${p.ratio === '16:9' ? 'aspect-video' : p.ratio === '1:1' ? 'aspect-square' : 'aspect-[9/16]'}`}
+                />
               ) : (
                 <div className="w-full h-24 rounded-md bg-slate-100 dark:bg-white/[0.03]" />
               )}

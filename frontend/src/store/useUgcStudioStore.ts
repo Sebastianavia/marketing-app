@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { formatById, LANGUAGE_INFO, VISUAL_STYLE_INFO } from '@/config/ugc-formats';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
   AgentAction,
@@ -34,6 +35,9 @@ export interface ChatCard {
   settings?: Partial<StudioSettings>; // regenerate: ajustes que solo se aplican si se confirma
   sceneIds?: string[]; // render / delete / joint (una escena)
   costUSD?: number; // render
+  // render: el render que tenía cada escena al crear la tarjeta. Si cambió al confirmar, esa escena ya se
+  // renderizó por otro camino y no se vuelve a pagar
+  sceneTasks?: Record<string, string | null>;
   projectName?: string; // open: carpeta del proyecto a abrir
   jointFix?: JointFix; // joint: lo que sugiere el revisor de empalmes
 }
@@ -135,6 +139,9 @@ const describeSettings = (st: Partial<StudioSettings>) => {
     st.aspectRatio && st.aspectRatio,
     st.maxScenes && `máx. ${st.maxScenes} escenas`,
     st.maxTotalSeconds && `máx. ${st.maxTotalSeconds} s`,
+    st.language && `diálogo en ${LANGUAGE_INFO[st.language].label.toLowerCase()}`,
+    st.visualStyle && `estilo ${VISUAL_STYLE_INFO[st.visualStyle].label.toLowerCase()}`,
+    st.format && `formato ${st.format === 'auto' ? 'automático' : (formatById(st.format)?.label ?? st.format)}`,
   ].filter(Boolean);
   return parts.length > 0 ? ` Ajustes: ${parts.join(', ')}.` : '';
 };
@@ -412,9 +419,11 @@ export const useUgcStudioStore = create<UgcStudioState>()(
                   error: undefined,
                 },
               }));
-              set((st) => ({
-                storyboard: st.storyboard ? { ...st.storyboard, scenes: markDownstreamStale(st.storyboard.scenes, scene.index) } : null,
-              }));
+              // Posición actual de la escena (la de cuando empezó el render pudo cambiar)
+              set((st) => {
+                const index = st.storyboard?.scenes.find((s) => s.id === sceneId)?.index;
+                return st.storyboard && index ? { storyboard: { ...st.storyboard, scenes: markDownstreamStale(st.storyboard.scenes, index) } } : {};
+              });
               return true;
             }
             if (data.status === 'failed') {
@@ -453,7 +462,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           if (res.status === 409 && data.taskId) {
             // Ya había un render en curso para esta escena: retomar su seguimiento en vez de pagar otro
             taskId = data.taskId;
-            patchScene(sceneId, { render: { taskId } });
+            patchScene(sceneId, { render: { taskId, resolution: settings.resolution, aspectRatio: settings.aspectRatio } });
           } else {
             if (!res.ok) throw new Error(data.error);
             taskId = data.taskId;
@@ -462,6 +471,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               costUSD: data.estimatedCostUSD,
               usedFirstFrame: data.usedFirstFrame,
               usedReferences: data.usedReferences,
+              resolution: settings.resolution,
+              aspectRatio: settings.aspectRatio,
             };
             patchScene(sceneId, { render });
           }
@@ -525,6 +536,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             status: 'pending',
             sceneIds: scenes.map((s) => s.id),
             costUSD: cost,
+            sceneTasks: Object.fromEntries(scenes.map((s) => [s.id, s.render?.taskId ?? null])),
           },
         });
       };
@@ -794,6 +806,18 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         return true;
       };
 
+      /**
+       * Mover, duplicar, insertar, borrar o cambiar un empalme cambia de qué fotograma parte cada escena:
+       * no se hace mientras haya cualquier escena renderizándose (su clip partiría del orden anterior).
+       */
+      const blockedByRendering = (): boolean => {
+        if (blockedByQueue()) return true;
+        const rendering = (get().storyboard?.scenes ?? []).filter((s) => s.status === 'rendering');
+        if (rendering.length === 0) return false;
+        set({ error: `La escena ${rendering.map((s) => s.index).join(', ')} se está renderizando: espera a que termine antes de reordenar, insertar o cambiar empalmes.` });
+        return true;
+      };
+
       /** Convierte los números de escena del agente en IDs con el storyboard del momento del plan. */
       const resolveIds = (numbers: number[], fallback: 'all' | 'pending' | 'none'): string[] => {
         const scenes = byIndex(get().storyboard?.scenes ?? []);
@@ -843,7 +867,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             say('No supe a qué escena te refieres. Dime su número (aparece en la esquina de cada tarjeta).');
             continue;
           }
-          if (STRUCTURAL.includes(action.type) && blockedByQueue()) return;
+          if (STRUCTURAL.includes(action.type) && blockedByRendering()) return;
           switch (action.type) {
             case 'move_scene': {
               const [from, to] = action.scenes;
@@ -1045,11 +1069,27 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           set((st) => ({
             messages: st.messages.map((m) => (m.id === messageId && m.card ? { ...m, card: { ...m.card, status: 'confirmed' } } : m)),
           }));
+          const markCard = (status: ChatCard['status']) =>
+            set((st) => ({ messages: st.messages.map((m) => (m.id === messageId && m.card ? { ...m, card: { ...m.card, status } } : m)) }));
+          const rendering = (ids?: string[]) =>
+            (get().storyboard?.scenes ?? []).filter((s) => s.status === 'rendering' && (!ids || ids.includes(s.id)));
           if (card.kind === 'regenerate' && card.brief) {
+            // Un storyboard nuevo deja de seguir los renders en curso: se perderían clips ya pagados
+            if (rendering().length > 0) {
+              markCard('pending');
+              set({ error: 'Hay escenas renderizándose: espera a que terminen antes de crear un storyboard nuevo.' });
+              return;
+            }
             if (card.settings) get().setSettings(card.settings);
             await runStoryboard(card.brief);
           }
           if (card.kind === 'delete' && card.sceneIds) {
+            const busyScenes = rendering(card.sceneIds);
+            if (busyScenes.length > 0 || blockedByRendering()) {
+              markCard('pending');
+              if (busyScenes.length > 0) set({ error: `La escena ${busyScenes.map((s) => s.index).join(', ')} se está renderizando: espera a que termine para eliminarla.` });
+              return;
+            }
             const sceneIds = card.sceneIds;
             await withLock(async () => {
               const before = get().storyboard?.scenes ?? [];
@@ -1058,7 +1098,22 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             });
           }
           if (card.kind === 'joint' && card.sceneIds?.[0]) await get().resolveJoint(card.sceneIds[0], choice ?? 'reescribir');
-          if (card.kind === 'render' && card.sceneIds) await runRenderQueue(card.sceneIds);
+          if (card.kind === 'render' && card.sceneIds) {
+            const scenes = get().storyboard?.scenes ?? [];
+            const skipped: number[] = [];
+            const ids = card.sceneIds.filter((id) => {
+              const scene = scenes.find((s) => s.id === id);
+              if (!scene) return false;
+              const changed = card.sceneTasks && (scene.render?.taskId ?? null) !== (card.sceneTasks[id] ?? null);
+              if (scene.status === 'rendering' || changed) {
+                skipped.push(scene.index);
+                return false;
+              }
+              return true;
+            });
+            if (skipped.length > 0) say(`Omití la escena ${skipped.join(', ')}: ya se renderizó o se está renderizando desde que te propuse esto.`);
+            if (ids.length > 0) await runRenderQueue(ids);
+          }
           if (card.kind === 'open' && card.projectName) await openProjectByName(card.projectName);
         },
 
@@ -1142,7 +1197,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
 
         insertScene: async (afterIndex, instructions) => {
           const { storyboard, references, settings } = get();
-          if (!storyboard || get().busy || !instructions.trim() || blockedByQueue()) return;
+          if (!storyboard || get().busy || !instructions.trim() || blockedByRendering()) return;
           await withLock(async () => {
             const before = new Set(storyboard.scenes.map((s) => s.id));
             let insertedIndex = afterIndex + 1;
@@ -1188,17 +1243,17 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         },
 
         moveScene: async (sceneId, to) => {
-          if (get().busy || blockedByQueue()) return;
+          if (get().busy || blockedByRendering()) return;
           await withLock(() => moveAndCheck(sceneId, to));
         },
 
         duplicateScene: async (sceneId) => {
-          if (get().busy || blockedByQueue()) return;
+          if (get().busy || blockedByRendering()) return;
           await withLock(() => duplicateAndCheck(sceneId));
         },
 
         setTransition: async (sceneId, type) => {
-          if (get().busy || blockedByQueue()) return;
+          if (get().busy || blockedByRendering()) return;
           await withLock(() => applyTransition(sceneId, type));
         },
 
@@ -1217,7 +1272,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             patchScene(sceneId, { jointIssue: undefined });
             return;
           }
-          if (get().busy || blockedByQueue()) return;
+          if (get().busy || blockedByRendering()) return;
           const problem = scene.jointIssue?.problem ?? 'Su inicio no coincide con el final de la escena anterior.';
           await withLock(() => fixJoint(sceneId, choice, problem));
         },
@@ -1313,7 +1368,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           set({
             storyboard,
             references,
-            settings: { ...DEFAULT_STUDIO_SETTINGS, ...settings },
+            settings: sanitizeSettings(settings),
             messages: [{ id: uid(), role: 'studio', content: `Proyecto cargado: "${storyboard.title}". ¿Qué quieres cambiar?` }],
             activities: [],
             estimate: null,
@@ -1381,6 +1436,11 @@ export const useUgcStudioStore = create<UgcStudioState>()(
       }),
       // v1 → v2: los mensajes del chat ganaron el rol "agent" y tarjetas; el resto es compatible
       migrate: (persisted) => persisted as UgcStudioState,
+      // Ajustes guardados antes de existir idioma, estilo y formato: se completan con los valores por defecto
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<UgcStudioState>;
+        return { ...current, ...saved, settings: sanitizeSettings(saved.settings) };
+      },
       onRehydrateStorage: () => (state) => state?.resumeRenders(),
     }
   )

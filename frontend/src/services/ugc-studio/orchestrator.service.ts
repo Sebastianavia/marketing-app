@@ -1,5 +1,6 @@
 import type { ModelMessage, UserContent } from 'ai';
 import { geminiRouter } from '@/lib/ai/gemini/gemini-router';
+import { formatById, LANGUAGE_INFO, productionBlock, VISUAL_STYLE_INFO } from '@/config/ugc-formats';
 import { getAllProjects } from '@/lib/storage/project-storage';
 import { getLivePricing, ratePerSecond } from './scene-render.service';
 import {
@@ -101,6 +102,19 @@ function strategyBlock(strategy: ProductStrategy | undefined): string {
   return strategy ? `\n\nESTRATEGIA DE PRODUCTO (qué es, para qué sirve y cómo se usa en cámara):\n${json(strategy)}` : '';
 }
 
+/** Bloque PRODUCCIÓN de un storyboard ya creado: su idioma, estilo y formato (no los ajustes actuales). */
+function storyboardProduction(storyboard: Storyboard, aspectRatio: StudioSettings['aspectRatio']): string {
+  return productionBlock(
+    {
+      language: storyboard.production?.language ?? 'es',
+      visualStyle: storyboard.production?.visualStyle ?? 'celular',
+      format: 'auto',
+      aspectRatio,
+    },
+    storyboard.format
+  );
+}
+
 function referencesBlock(references: UgcReference[]): string {
   if (references.length === 0) return '(ninguna: no hay imágenes de referencia, así que no cites IDs como "ref1" ni pidas parecerse a una referencia)';
   return references
@@ -172,7 +186,7 @@ export async function generateStoryboard(
     runAgent(
       referenceAnalystAgent,
       [
-        { type: 'text', text: `Brief del usuario:\n${brief}\n\nReferencias adjuntas:\n${referencesBlock(references)}` },
+        { type: 'text', text: `${productionBlock(settings)}\n\nBrief del usuario:\n${brief}\n\nReferencias adjuntas:\n${referencesBlock(references)}` },
         ...references.flatMap((r, i) => [
           { type: 'text' as const, text: `Imagen ${r.id}:` },
           { type: 'file' as const, data: images[i].data, mediaType: images[i].mediaType },
@@ -184,7 +198,7 @@ export async function generateStoryboard(
     runAgent(
       productStrategistAgent,
       [
-        { type: 'text', text: `Brief del usuario:\n${brief}\n\nReferencias adjuntas (según el usuario):\n${referencesBlock(references)}` },
+        { type: 'text', text: `${productionBlock(settings)}\n\nBrief del usuario:\n${brief}\n\nReferencias adjuntas (según el usuario):\n${referencesBlock(references)}` },
         // Ve las fotos para saber el formato físico real (caja, frasco, sachet) y que el gesto sea posible
         ...references.flatMap((r, i) => [
           { type: 'text' as const, text: `Imagen ${r.id}:` },
@@ -202,7 +216,9 @@ export async function generateStoryboard(
   emit({ type: 'references', references });
   const bible = analysis.bible;
 
-  const baseContext = `BRIEF DEL USUARIO:\n${brief}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA DE CONTINUIDAD:\n${json(bible)}${strategyBlock(strategy)}`;
+  // El formato puede quedar definido por el director: el contexto se arma con el bloque de cada momento
+  const contextWith = (production: string) => `${production}\n\nBRIEF DEL USUARIO:\n${brief}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA DE CONTINUIDAD:\n${json(bible)}${strategyBlock(strategy)}`;
+  const baseContext = contextWith(productionBlock(settings));
 
   // ---------------------------------------------------------------------------
   // 2. Director creativo: concepto + escenas + directivas
@@ -216,7 +232,10 @@ export async function generateStoryboard(
   );
   const planScenes = fitDurations(plan.scenes, settings).map((s, i) => ({ ...s, index: i + 1 }));
   if (planScenes.length === 0) throw new Error('El director creativo no propuso ninguna escena. Intenta con un brief más detallado.');
-  const planContext = `${baseContext}\n\nPLAN DEL DIRECTOR:\n${json({ ...plan, scenes: planScenes })}`;
+  // Formato fijado por el usuario, o el que eligió el director en modo automático
+  const format = settings.format !== 'auto' ? settings.format : formatById(plan.formatId)?.id;
+  const production = productionBlock(settings, format);
+  const planContext = `${contextWith(production)}\n\nPLAN DEL DIRECTOR:\n${json({ ...plan, scenes: planScenes })}`;
 
   // ---------------------------------------------------------------------------
   // 3. Guion primero (los demás departamentos dependen del diálogo)
@@ -351,7 +370,7 @@ export async function generateStoryboard(
   // ---------------------------------------------------------------------------
   // 8. Continuidad + prompts finales
   // ---------------------------------------------------------------------------
-  scenes = await finalizeScenes(scenes, references, bible, strategy, brief, emit, signal);
+  scenes = await finalizeScenes(scenes, references, bible, strategy, brief, production, emit, signal);
 
   return {
     id: `sb_${Date.now().toString(36)}`,
@@ -363,6 +382,8 @@ export async function generateStoryboard(
     bible,
     brief,
     strategy,
+    format,
+    production: { language: settings.language, visualStyle: settings.visualStyle },
     scenes,
     supervision,
     seed: Math.floor(Math.random() * 2_000_000_000),
@@ -385,7 +406,7 @@ function withSpokenName(videoPrompt: string, strategy: ProductStrategy | undefin
   if (!productName || !spokenName || productName.trim().toLowerCase() === spokenName.trim().toLowerCase()) return videoPrompt;
   const name = new RegExp(productName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
   // Comillas rectas o tipográficas: el ingeniero de prompts no siempre usa las mismas
-  return videoPrompt.replace(/(says in Spanish[^"“]*["“])([^"”]*)(["”])/gi, (_, open, line, close) => open + line.replace(name, spokenName.trim()) + close);
+  return videoPrompt.replace(/(says in [^"“]*["“])([^"”]*)(["”])/gi, (_, open, line, close) => open + line.replace(name, spokenName.trim()) + close);
 }
 
 /** Supervisor de continuidad + ingeniero de prompts sobre las escenas indicadas (todas por defecto). */
@@ -395,12 +416,13 @@ async function finalizeScenes(
   bible: Storyboard['bible'],
   strategy: ProductStrategy | undefined,
   brief: string,
+  production: string,
   emit: Emit,
   signal?: AbortSignal,
   onlyIndexes?: number[]
 ): Promise<StoryboardScene[]> {
   const target = onlyIndexes ? ` Trabaja SOLO sobre las escenas ${onlyIndexes.join(', ')}; las demás son contexto.` : '';
-  const ctx = `BRIEF:\n${brief}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(bible)}${strategyBlock(strategy)}\n\nESCENAS:\n${json(
+  const ctx = `${production}\n\nBRIEF:\n${brief}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(bible)}${strategyBlock(strategy)}\n\nESCENAS:\n${json(
     scenes.map(({ id, status, render, videoPrompt, ...rest }) => rest)
   )}`;
 
@@ -441,7 +463,7 @@ export async function reviseScene(req: SceneRevisionRequest, emit: Emit, signal?
     .map(({ index, transition, dialogue }) => ({ index, transition, dialogue }));
 
   emit({ type: 'phase', label: `Revisando escena ${scene.index}` });
-  const revisionContext = `CONCEPTO: ${storyboard.concept}\nTONO: ${storyboard.tone}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(
+  const revisionContext = `${storyboardProduction(storyboard, settings.aspectRatio)}\n\nCONCEPTO: ${storyboard.concept}\nTONO: ${storyboard.tone}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(
     storyboard.bible
   )}${strategyBlock(storyboard.strategy)}\n\nESCENA ACTUAL (${scene.index}):\n${json(scene)}\n\nESCENAS VECINAS:\n${json(neighbors)}\n\nFEEDBACK DEL USUARIO:\n${feedback}\n\nLÍMITE: la escena puede durar como máximo ${maxSeconds} s.`;
   let revised = await runAgent(sceneReviserAgent, revisionContext, emit, signal);
@@ -476,7 +498,17 @@ export async function reviseScene(req: SceneRevisionRequest, emit: Emit, signal?
   };
 
   const scenes = withChainReferences(storyboard.scenes.map((s) => (s.id === sceneId ? updated : s)));
-  const finalized = await finalizeScenes(scenes, references, storyboard.bible, storyboard.strategy, storyboard.brief ?? storyboard.concept, emit, signal, [scene.index]);
+  const finalized = await finalizeScenes(
+    scenes,
+    references,
+    storyboard.bible,
+    storyboard.strategy,
+    storyboard.brief ?? storyboard.concept,
+    storyboardProduction(storyboard, settings.aspectRatio),
+    emit,
+    signal,
+    [scene.index]
+  );
   return { ...storyboard, scenes: finalized };
 }
 
@@ -502,7 +534,7 @@ export async function insertScene(req: SceneInsertRequest, emit: Emit, signal?: 
     s ? { index: s.index, title: s.title, dialogue: s.dialogue, visual: s.visual, transition: s.transition } : null;
 
   emit({ type: 'phase', label: afterIndex === 0 ? 'Creando escena nueva al inicio' : `Creando escena nueva tras la escena ${afterIndex}` });
-  const context = `CONCEPTO: ${storyboard.concept}\nTONO: ${storyboard.tone}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(
+  const context = `${storyboardProduction(storyboard, settings.aspectRatio)}\n\nCONCEPTO: ${storyboard.concept}\nTONO: ${storyboard.tone}\n\nREFERENCIAS:\n${referencesBlock(references)}\n\nBIBLIA:\n${json(
     storyboard.bible
   )}${strategyBlock(storyboard.strategy)}\n\nESCENA ANTERIOR:\n${json(neighbor(before))}\n\nESCENA SIGUIENTE:\n${json(
     neighbor(after)
@@ -559,6 +591,7 @@ export async function insertScene(req: SceneInsertRequest, emit: Emit, signal?: 
     storyboard.bible,
     storyboard.strategy,
     storyboard.brief ?? storyboard.concept,
+    storyboardProduction(storyboard, settings.aspectRatio),
     emit,
     signal,
     [newIndex]
@@ -617,8 +650,13 @@ function storyboardSummary(
   references: UgcReference[],
   pricing: LivePricingInfo | null
 ): string {
-  const limits = `AJUSTES: ${settings.resolution}, ${settings.aspectRatio}, máximo ${settings.maxScenes} escenas y ${settings.maxTotalSeconds} s.`;
+  const limits = `AJUSTES: ${settings.resolution}, ${settings.aspectRatio}, máximo ${settings.maxScenes} escenas y ${settings.maxTotalSeconds} s. Para el próximo storyboard: diálogo en ${
+    LANGUAGE_INFO[settings.language].label
+  }, estilo ${VISUAL_STYLE_INFO[settings.visualStyle].label}, formato ${settings.format === 'auto' ? 'automático' : formatById(settings.format)?.label}.`;
   if (!storyboard) return `${limits}\nTodavía no hay storyboard.`;
+  const made = `El storyboard actual es formato ${formatById(storyboard.format)?.label ?? 'libre'}, en ${
+    LANGUAGE_INFO[storyboard.production?.language ?? 'es'].label
+  } y estilo ${VISUAL_STYLE_INFO[storyboard.production?.visualStyle ?? 'celular'].label}.`;
   const scenes = [...storyboard.scenes]
     .sort((a, b) => a.index - b.index)
     .map((s) => ({
@@ -645,7 +683,7 @@ function storyboardSummary(
         .reduce((sum, s) => sum + (s.costo_render_usd ?? 0), 0)
         .toFixed(2)}; todo el video, unos $${scenes.reduce((sum, s) => sum + (s.costo_render_usd ?? 0), 0).toFixed(2)}.`
     : '';
-  return `${limits} El storyboard actual dura ${total} s.${costs}\nSTORYBOARD "${storyboard.title}": ${storyboard.concept}\nESCENAS:\n${json(scenes)}`;
+  return `${limits} ${made} El storyboard actual dura ${total} s.${costs}\nSTORYBOARD "${storyboard.title}": ${storyboard.concept}\nESCENAS:\n${json(scenes)}`;
 }
 
 /** Tarifas en el formato que usa la estimación compartida con el cliente. */
@@ -706,6 +744,9 @@ export async function planAgentActions(req: AgentRequest, emit: Emit, signal?: A
     if (a.aspectRatio !== 'sin_cambio') settings.aspectRatio = a.aspectRatio;
     if (a.maxScenes > 0) settings.maxScenes = a.maxScenes;
     if (a.maxTotalSeconds > 0) settings.maxTotalSeconds = a.maxTotalSeconds;
+    if (a.language !== 'sin_cambio') settings.language = a.language;
+    if (a.visualStyle !== 'sin_cambio') settings.visualStyle = a.visualStyle;
+    if (a.format !== 'sin_cambio') settings.format = a.format;
     // insert_scene admite 0 (al inicio); el resto solo escenas que existen
     const scenes = a.scenes.filter((n) => Number.isInteger(n) && n >= (a.type === 'insert_scene' ? 0 : 1) && n <= sceneCount);
     return { type: a.type, scenes, instructions: a.instructions.trim(), settings };
