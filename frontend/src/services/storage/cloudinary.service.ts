@@ -78,6 +78,17 @@ export class CloudinaryStorageService {
   }
 
   /**
+   * Sube un clip de video (MP4) a Cloudinary.
+   */
+  async uploadVideo(
+    buffer: Buffer,
+    filename: string = `clip_${Date.now()}.mp4`,
+    folder: string = 'lulo-studio/ugc-studio'
+  ): Promise<CloudinaryUploadResult> {
+    return this.uploadStream(buffer, 'video', folder, filename);
+  }
+
+  /**
    * Elimina un archivo de audio o video de Cloudinary para evitar acumulación de archivos huérfanos.
    */
   async deleteAudio(publicId: string): Promise<boolean> {

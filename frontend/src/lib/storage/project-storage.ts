@@ -50,6 +50,12 @@ export interface ProjectMetadata {
     audio: boolean;
     video: boolean;
   };
+  // UGC Studio multi-agente: storyboard completo, referencias y ajustes para rehidratar
+  ugcStudio?: {
+    storyboard: unknown;
+    references: unknown[];
+    settings: unknown;
+  };
 }
 
 export interface SaveProjectPayload extends Partial<ProjectMetadata> {
@@ -242,6 +248,7 @@ export async function saveProject(
     videoDurationReal: data.videoDurationReal,
     modelUsed: data.modelUsed,
     costPerSecondVerified: data.costPerSecondVerified,
+    ugcStudio: data.ugcStudio,
     mediaAvailable: {
       image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath))),
       audio: !!(data.audioMode === 'generar' || data.audioUrl || (resolvedAudioPath && fsSync.existsSync(resolvedAudioPath))),
@@ -420,6 +427,7 @@ export async function getProjectByPath(projectDir: string): Promise<ProjectMetad
     videoDurationReal: metadata.videoDurationReal,
     modelUsed: metadata.modelUsed,
     costPerSecondVerified: metadata.costPerSecondVerified,
+    ugcStudio: metadata.ugcStudio,
     mediaAvailable: {
       image: hasImage,
       audio: hasAudio,

@@ -6,6 +6,24 @@ import {
 } from '@/types/pipeline.types';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+
+export interface GenerativeVideoParams {
+  model: string;
+  prompt: string;
+  durationSeconds: number;
+  resolution: string;
+  aspectRatio: string;
+  seed?: number;
+  firstFrameUrl?: string;
+  referenceUrls?: string[];
+}
+
+export interface GenerativeVideoStatus {
+  status: 'processing' | 'completed' | 'failed';
+  contentUrl?: string;
+  costUSD?: number;
+  error?: string;
+}
 const DEFAULT_MODEL = 'heygen/avatar-iv';
 const DEFAULT_POLL_INTERVAL_MS = 3500;
 const DEFAULT_TIMEOUT_MS = 360000; // 6 minutos máximo
@@ -133,6 +151,91 @@ export class OpenRouterVideoService {
         err
       );
     }
+  }
+
+  /**
+   * Despacha un video generativo (texto + imagen) a modelos como heygen/heygen-video-1.
+   * `frameImages` fija el primer fotograma (image-to-video); `inputReferences` guía personaje
+   * y producto (reference-to-video). Si se envían ambos, OpenRouter prioriza frameImages.
+   */
+  async createGenerativeVideoTask(params: GenerativeVideoParams): Promise<string> {
+    const payload: Record<string, unknown> = {
+      model: params.model,
+      prompt: params.prompt,
+      duration: params.durationSeconds,
+      resolution: params.resolution,
+      aspect_ratio: params.aspectRatio,
+      ...(params.seed !== undefined && { seed: params.seed }),
+      ...(params.firstFrameUrl && {
+        frame_images: [{ type: 'image_url', image_url: { url: params.firstFrameUrl }, frame_type: 'first_frame' }],
+      }),
+      ...(!params.firstFrameUrl &&
+        params.referenceUrls?.length && {
+          input_references: params.referenceUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
+        }),
+    };
+
+    const response = await fetch(`${OPENROUTER_BASE_URL}/videos`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+        'X-Title': 'Lulo Studio Desktop - UGC Studio',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const text = await response.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // respuesta no JSON
+    }
+    if (!response.ok) {
+      throw new PipelineError(
+        `OpenRouter rechazó el video (${response.status}): ${data.error?.message || text}`,
+        'video_dispatch',
+        response.status >= 500,
+        data
+      );
+    }
+    const taskId = data.id || data.task_id || data.data?.id;
+    if (!taskId) throw new PipelineError('OpenRouter no devolvió un id de tarea.', 'video_dispatch', false, data);
+    return taskId;
+  }
+
+  /** Estado de una tarea de video generativo (sin bloquear). */
+  async getGenerativeVideoStatus(taskId: string): Promise<GenerativeVideoStatus> {
+    const response = await fetch(`${OPENROUTER_BASE_URL}/videos/${taskId}`, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    if (!response.ok) {
+      throw new PipelineError(`Error consultando el video (${response.status})`, 'video_polling', true, await response.text());
+    }
+    const data = await response.json();
+    const task = data.data || data;
+    const status = String(task.status || '').toLowerCase();
+    const contentUrl: string | undefined =
+      task.unsigned_urls?.[0] || task.video_url || task.output?.video_url || (status === 'completed' ? `${OPENROUTER_BASE_URL}/videos/${taskId}/content?index=0` : undefined);
+
+    return {
+      status: status === 'completed' ? 'completed' : ['failed', 'cancelled', 'canceled', 'expired', 'error'].includes(status) ? 'failed' : 'processing',
+      contentUrl,
+      costUSD: typeof task.usage?.cost === 'number' ? task.usage.cost : undefined,
+      error: task.error?.message || (typeof task.error === 'string' ? task.error : undefined),
+    };
+  }
+
+  /** Descarga el MP4 terminado (las URLs de OpenRouter requieren el header Authorization). */
+  async downloadVideo(contentUrl: string): Promise<Buffer> {
+    const isOpenRouter = contentUrl.startsWith(OPENROUTER_BASE_URL) || contentUrl.includes('openrouter.ai');
+    const response = await fetch(contentUrl, {
+      headers: isOpenRouter ? { Authorization: `Bearer ${this.apiKey}` } : undefined,
+    });
+    if (!response.ok) throw new PipelineError(`No se pudo descargar el video (${response.status})`, 'video_polling', true);
+    return Buffer.from(await response.arrayBuffer());
   }
 
   /**
