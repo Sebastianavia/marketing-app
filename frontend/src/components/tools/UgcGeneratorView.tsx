@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bot, Film, FolderCheck, History, Loader2, MessageSquare, RotateCcw, Settings2, Sparkles, Terminal, X } from 'lucide-react';
+import { ArrowLeft, Bot, Film, FolderCheck, History, Loader2, MessageSquare, Pencil, RotateCcw, Settings2, Sparkles, Square, Terminal, X } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useUgcStudioStore } from '@/store/useUgcStudioStore';
 import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
@@ -63,15 +63,22 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
   const messages = useUgcStudioStore((s) => s.messages);
   const renderQueue = useUgcStudioStore((s) => s.renderQueue);
   const actionsRunning = useUgcStudioStore((s) => s.actionsRunning);
-  const { setSettings, confirmRender, dismissEstimate, assemble, reset, hydrate } = useUgcStudioStore.getState();
+  const { setSettings, confirmRender, dismissEstimate, assemble, reset, hydrate, renameProject, stopRenderQueue, requestRenderPending } =
+    useUgcStudioStore.getState();
 
   const [chatOpen, setChatOpen] = useState(true);
   const [popover, setPopover] = useState<Popover>(null);
   const [injectedBrief, setInjectedBrief] = useState<string>();
   const [injectedNotice, setInjectedNotice] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmStaleJoin, setConfirmStaleJoin] = useState(false);
   const [finalOpen, setFinalOpen] = useState(false);
   const [pricing, setPricing] = useState<LivePricingInfo | null>(null);
+  const [titleDraft, setTitleDraft] = useState<string | null>(null); // no nulo = editando el nombre
+  const commitTitle = () => {
+    if (titleDraft !== null && titleDraft.trim() && titleDraft.trim() !== storyboard?.title) renameProject(titleDraft);
+    setTitleDraft(null);
+  };
   const togglePopover = (p: Popover) => setPopover((cur) => (cur === p ? null : p));
 
   // Recuperar el trabajo tras recargar la página (una vez por carga; volver a esta vista no lo repite)
@@ -125,6 +132,7 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
       spent: scenes.reduce((sum, s) => sum + (s.render?.videoUrl ? s.render.costUSD ?? 0 : 0), 0),
       totalSeconds: scenes.reduce((sum, s) => sum + s.durationSeconds, 0),
       rendered: scenes.filter((s) => s.render?.videoUrl && !s.render.stale).length,
+      pending: scenes.filter((s) => !s.render?.videoUrl || s.render.stale || s.status === 'failed').filter((s) => s.status !== 'rendering').length,
       allRendered: scenes.length > 0 && scenes.every((s) => s.status === 'rendered' && s.render?.videoUrl),
       anyStale: scenes.some((s) => s.render?.stale),
       atRisk: scenes.some((s) => s.status === 'rendering') || (!savedProjectPath && scenes.some((s) => s.render?.videoUrl)),
@@ -154,7 +162,34 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
           <div className="flex items-center gap-2 px-2">
             <Sparkles className="h-4 w-4 text-accent" />
             <div className="max-w-[260px]">
-              <p className="truncate text-[13px] font-semibold text-fg">{storyboard?.title ?? 'UGC Studio'}</p>
+              {titleDraft !== null ? (
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  maxLength={120}
+                  aria-label="Nombre del proyecto"
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTitle();
+                    if (e.key === 'Escape') setTitleDraft(null);
+                  }}
+                  className="input-clean w-[220px] px-1.5 py-0.5 text-[13px] font-semibold"
+                />
+              ) : storyboard ? (
+                <button
+                  type="button"
+                  title="Cambiar el nombre del proyecto"
+                  disabled={!!busy || actionsRunning}
+                  onClick={() => setTitleDraft(storyboard.title)}
+                  className="group flex max-w-full items-center gap-1 text-left"
+                >
+                  <span className="truncate text-[13px] font-semibold text-fg">{storyboard.title}</span>
+                  <Pencil className="h-3 w-3 shrink-0 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100" />
+                </button>
+              ) : (
+                <p className="truncate text-[13px] font-semibold text-fg">UGC Studio</p>
+              )}
               <p className="text-[11px] text-fg-subtle">
                 {storyboard
                   ? `${storyboard.scenes.length} escenas · ${costs.totalSeconds}s · gastado $${costs.spent.toFixed(2)}`
@@ -312,6 +347,28 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
                     : 'Todas las escenas listas'
                   : `${costs.rendered}/${storyboard.scenes.length} escenas renderizadas`}
             </p>
+            {renderQueue.length > 0 ? (
+              <button
+                type="button"
+                onClick={stopRenderQueue}
+                title="La escena que ya se está generando termina igual (ya está pagada)"
+                className="flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-[12px] font-medium text-rose-500 hover:bg-rose-500/10"
+              >
+                <Square className="h-3 w-3" /> Detener cola
+              </button>
+            ) : (
+              costs.pending > 0 && (
+                <button
+                  type="button"
+                  disabled={!!busy || actionsRunning}
+                  onClick={() => void requestRenderPending()}
+                  title="Calcula el costo y pide confirmación en el chat"
+                  className="h-8 rounded-xl px-2.5 text-[12px] font-medium text-fg-muted hover:bg-surface-2 hover:text-fg disabled:opacity-40"
+                >
+                  Renderizar pendientes ({costs.pending})
+                </button>
+              )
+            )}
             {finalVideoUrl && (
               <button
                 type="button"
@@ -323,12 +380,22 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
             )}
             <button
               type="button"
-              disabled={!costs.allRendered || assembling}
-              onClick={() => void assemble()}
+              disabled={!costs.allRendered || assembling || !!busy || actionsRunning}
+              onClick={() => {
+                // Con clips desactualizados los empalmes saltan: pedir un segundo clic
+                if (costs.anyStale && !confirmStaleJoin) {
+                  setConfirmStaleJoin(true);
+                  return;
+                }
+                setConfirmStaleJoin(false);
+                void assemble();
+              }}
+              onBlur={() => setConfirmStaleJoin(false)}
+              title={costs.anyStale ? 'Hay escenas desactualizadas: sus empalmes pueden saltar' : undefined}
               className="btn-primary h-8 px-3 text-[12px]"
             >
               {assembling && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {finalVideoUrl ? 'Volver a unir' : 'Unir y guardar'}
+              {confirmStaleJoin ? '¿Unir con escenas desactualizadas?' : finalVideoUrl ? 'Volver a unir' : 'Unir y guardar'}
             </button>
           </div>
         </div>

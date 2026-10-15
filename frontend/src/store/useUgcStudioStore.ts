@@ -7,6 +7,9 @@ import {
   AgentActivity,
   DEFAULT_STUDIO_SETTINGS,
   estimateSceneRenderUSD,
+  JointCheck,
+  JointFix,
+  JointIssue,
   LivePricingInfo,
   ReferenceRole,
   sanitizeSettings,
@@ -23,15 +26,16 @@ import {
  * hasta que el usuario lo confirma (guarda solo datos serializables para sobrevivir recargas).
  */
 export interface ChatCard {
-  kind: 'regenerate' | 'render' | 'delete' | 'open';
+  kind: 'regenerate' | 'render' | 'delete' | 'open' | 'joint';
   title: string;
   detail: string;
   status: 'pending' | 'confirmed' | 'cancelled';
   brief?: string; // regenerate
   settings?: Partial<StudioSettings>; // regenerate: ajustes que solo se aplican si se confirma
-  sceneIds?: string[]; // render / delete
+  sceneIds?: string[]; // render / delete / joint (una escena)
   costUSD?: number; // render
   projectName?: string; // open: carpeta del proyecto a abrir
+  jointFix?: JointFix; // joint: lo que sugiere el revisor de empalmes
 }
 
 export interface ChatMessage {
@@ -52,7 +56,8 @@ export interface RenderEstimate {
   referenceCount: number;
 }
 
-type Busy = 'agent' | 'storyboard' | 'revision' | 'insert' | null;
+type Busy = 'agent' | 'storyboard' | 'revision' | 'insert' | 'joints' | null;
+type SceneTransition = 'continua' | 'corte_con_referencias';
 
 interface UgcStudioState {
   messages: ChatMessage[];
@@ -67,6 +72,7 @@ interface UgcStudioState {
   renderQueue: string[]; // escenas en cola de "renderizar todo" (en orden)
   actionsRunning: boolean; // el agente está ejecutando sus acciones (entre pasos busy vuelve a null)
   insertDraft: { afterIndex: number; anchorId: string } | null; // "+" entre escenas: dónde se abre el formulario
+  edgeMenu: { sceneId: string; kind: 'transition' | 'joint' } | null; // menú del empalme que llega a una escena
   finalVideoUrl: string | null;
   savedProjectPath: string | null;
   assembling: boolean;
@@ -74,7 +80,8 @@ interface UgcStudioState {
 
   /** Mensaje al agente creativo: responde y ejecuta acciones sobre el storyboard. */
   sendMessage: (text: string) => Promise<void>;
-  confirmCard: (messageId: string) => Promise<void>;
+  /** `choice` = respuesta alternativa de la tarjeta (empalme: pasar a corte en vez de reescribir). */
+  confirmCard: (messageId: string, choice?: 'corte') => Promise<void>;
   cancelCard: (messageId: string) => void;
   cancel: () => void;
   addReference: (file: File, role: ReferenceRole, label: string) => Promise<boolean>;
@@ -82,12 +89,21 @@ interface UgcStudioState {
   removeReference: (id: string) => void;
   setSettings: (patch: Partial<StudioSettings>) => void;
   approveScene: (sceneId: string) => void;
-  reviseScene: (sceneId: string, feedback: string) => Promise<void>;
-  relightScene: (sceneId: string, lighting: string) => Promise<void>;
-  changeAngle: (sceneId: string, angle: string) => Promise<void>;
+  reviseScene: (sceneId: string, feedback: string) => Promise<boolean>;
+  relightScene: (sceneId: string, lighting: string) => Promise<boolean>;
+  changeAngle: (sceneId: string, angle: string) => Promise<boolean>;
   insertScene: (afterIndex: number, instructions: string) => Promise<void>;
   setInsertDraft: (draft: { afterIndex: number; anchorId: string } | null) => void;
+  setEdgeMenu: (menu: { sceneId: string; kind: 'transition' | 'joint' } | null) => void;
   requestDeleteScenes: (sceneIds: string[]) => void;
+  moveScene: (sceneId: string, to: number) => Promise<void>;
+  duplicateScene: (sceneId: string) => Promise<void>;
+  setTransition: (sceneId: string, type: SceneTransition) => Promise<void>;
+  /** Decide sobre un empalme que no encaja: reescribir el inicio, pasar a corte o dejarlo así. */
+  resolveJoint: (sceneId: string, choice: JointFix | 'ignorar') => Promise<void>;
+  renameProject: (title: string) => void;
+  stopRenderQueue: () => void;
+  requestRenderPending: () => Promise<void>;
   retakeScene: (sceneId: string) => Promise<void>;
   requestRenderEstimate: (sceneId: string) => Promise<void>;
   dismissEstimate: () => void;
@@ -128,6 +144,30 @@ const RELIGHT_FEEDBACK = (lighting: string) =>
   `Cambia SOLO la iluminación de la escena a: ${lighting}. Mantén igual el diálogo, la acción, el encuadre, el personaje, el vestuario, el producto y la duración.`;
 const ANGLE_FEEDBACK = (angle: string) =>
   `Cambia SOLO el ángulo o plano de cámara a: ${angle}. Mantén igual el diálogo, la acción, la iluminación, el personaje, el vestuario, el producto y la duración.`;
+const CUT_FEEDBACK =
+  'Ahora esta escena es un PLANO NUEVO (corte): no continúa el último fotograma de la anterior. Ajusta su inicio, encuadre y prompt para un plano nuevo con el mismo personaje y producto.';
+const CONTINUE_FEEDBACK =
+  'Ahora esta escena CONTINÚA desde el último fotograma de la anterior (mismo lugar y encuadre de partida). Ajusta su inicio y su prompt para que empalme sin corte.';
+const JOINT_FEEDBACK = (problem: string, opening: boolean) =>
+  `Ajusta SOLO el empalme con la escena anterior. Problema detectado: ${problem} Reescribe el inicio (startState), la primera acción y lo necesario del prompt para que ${
+    opening ? 'abra el video por sí sola, sin continuar de ningún plano previo' : 'arranque exactamente donde termina la escena anterior'
+  }. Mantén el objetivo, la duración y el final de la escena. Si el problema es de la historia (lo que dice no tiene sentido en esta posición), ajusta también el diálogo lo mínimo necesario.`;
+
+const DUPLICATE_FEEDBACK =
+  'Esta escena es una COPIA de la escena anterior y ahora va justo después de ella. Ajusta SOLO su inicio (startState, la primera acción y el arranque del prompt) para que empiece donde termina la anterior. Conserva el diálogo y el resto de la acción: el usuario dirá qué variación quiere.';
+
+/**
+ * Escenas cuya escena anterior cambió (o que son nuevas): sus empalmes hay que revisarlos.
+ * `exclude`: escenas que los agentes acaban de crear ya mirando a sus vecinas.
+ */
+function changedJointIds(before: StoryboardScene[], after: StoryboardScene[], exclude: string[] = []): string[] {
+  const sortedBefore = byIndex(before);
+  const prevBefore = new Map(sortedBefore.map((s, i) => [s.id, sortedBefore[i - 1]?.id ?? null]));
+  const sortedAfter = byIndex(after);
+  return sortedAfter
+    .filter((s, i) => !exclude.includes(s.id) && (!prevBefore.has(s.id) || prevBefore.get(s.id) !== (sortedAfter[i - 1]?.id ?? null)))
+    .map((s) => s.id);
+}
 
 /** Lee un stream NDJSON de StudioEvent y llama onEvent por cada línea. */
 async function readEventStream(res: Response, onEvent: (e: StudioEvent) => void): Promise<void> {
@@ -498,7 +538,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         });
 
       /** Mueve una escena a la posición `to` (1-based). */
-      const moveScene = (sceneId: string, to: number) =>
+      const moveSceneLocal = (sceneId: string, to: number) =>
         set((st) => {
           if (!st.storyboard) return {};
           const ordered = byIndex(st.storyboard.scenes);
@@ -510,7 +550,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         });
 
       /** Duplica una escena justo después de sí misma (la copia queda en borrador, sin render). */
-      const duplicateScene = (sceneId: string) =>
+      const duplicateSceneLocal = (sceneId: string) =>
         set((st) => {
           if (!st.storyboard) return {};
           const ordered = byIndex(st.storyboard.scenes);
@@ -568,12 +608,200 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         return true;
       };
 
+      /**
+       * Bloquea el chat y los botones mientras corre una secuencia de pasos (edición + revisión de
+       * empalmes). Dentro de un plan del agente el bloqueo ya está puesto.
+       */
+      const withLock = async <T,>(fn: () => Promise<T>): Promise<T> => {
+        if (get().actionsRunning) return fn();
+        stopActions = false;
+        set({ actionsRunning: true });
+        try {
+          return await fn();
+        } finally {
+          set({ actionsRunning: false });
+        }
+      };
+
+      /** Pide al revisor de empalmes su diagnóstico. Si falla no bloquea nada: solo avisa. */
+      const fetchJointChecks = async (sceneIds: string[]): Promise<JointCheck[] | null> => {
+        const { storyboard, references } = get();
+        if (!storyboard) return null;
+        set({ busy: 'joints', activities: [], error: null, phase: 'Revisando los empalmes entre escenas' });
+        abortController = new AbortController();
+        let joints: JointCheck[] | null = null;
+        let failure: string | null = null;
+        try {
+          const res = await fetch('/api/ugc-studio/scene/joints', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ storyboard, references, sceneIds }),
+            signal: abortController.signal,
+          });
+          await readEventStream(res, (event) => {
+            if (event.type === 'joints') joints = event.joints;
+            else if (event.type === 'error') failure = event.message;
+            else handleEvent(event);
+          });
+        } catch (err: any) {
+          if (err.name !== 'AbortError') failure = err.message;
+        } finally {
+          set({ busy: null, phase: null });
+          abortController = null;
+        }
+        if (failure) {
+          const numbers = byIndex(get().storyboard?.scenes ?? []).filter((s) => sceneIds.includes(s.id)).map((s) => s.index);
+          say(`No pude revisar los empalmes (${failure}). Revisa a mano el inicio de la escena ${numbers.join(', ')}.`);
+        }
+        return joints;
+      };
+
+      /** Cambia cómo arranca una escena y deja que los agentes reescriban su inicio y su prompt. */
+      const applyTransition = async (sceneId: string, type: SceneTransition): Promise<boolean> => {
+        const scene = get().storyboard?.scenes.find((s) => s.id === sceneId);
+        if (!scene) return false;
+        if (scene.index === 1) {
+          say('La escena 1 siempre abre el video desde las referencias.');
+          return false;
+        }
+        if (scene.transition.type === type) return true;
+        const previousType = scene.transition.type;
+        patchScene(sceneId, { transition: { ...scene.transition, type } });
+        const ok = await get().reviseScene(sceneId, type === 'corte_con_referencias' ? CUT_FEEDBACK : CONTINUE_FEEDBACK);
+        // Sin la reescritura, el prompt seguiría describiendo el inicio anterior
+        if (!ok) patchScene(sceneId, (s) => ({ transition: { ...s.transition, type: previousType } }));
+        return ok;
+      };
+
+      /** Corrige un empalme: reescribir el inicio de la escena o pasarla a plano nuevo. */
+      const fixJoint = async (sceneId: string, fix: JointFix, problem: string): Promise<boolean> => {
+        const scene = get().storyboard?.scenes.find((s) => s.id === sceneId);
+        if (!scene) return false;
+        if (fix === 'corte' && scene.index > 1) return applyTransition(sceneId, 'corte_con_referencias');
+        return get().reviseScene(sceneId, JOINT_FEEDBACK(problem, scene.index === 1));
+      };
+
+      /** Tarjeta en el chat para un empalme que no encaja en una escena aprobada o renderizada. */
+      const proposeJointFix = async (sceneId: string, issue: JointIssue) => {
+        const { storyboard, references, settings, messages } = get();
+        const scene = storyboard?.scenes.find((s) => s.id === sceneId);
+        if (!storyboard || !scene) return;
+        // Una sola tarjeta pendiente por escena
+        if (messages.some((m) => m.card?.kind === 'joint' && m.card.status === 'pending' && m.card.sceneIds?.includes(sceneId))) return;
+        let rerender = '';
+        if (scene.render?.videoUrl) {
+          try {
+            const cost = estimateSceneRenderUSD(storyboard.scenes, scene, references, await fetchPricing(), settings.resolution);
+            rerender = ` Corregirlo descarta su clip: habrá que renderizarla de nuevo (unos ${usd(cost)}).`;
+          } catch {
+            rerender = ' Corregirlo descarta su clip: habrá que renderizarla de nuevo.';
+          }
+        }
+        addMessage({
+          role: 'studio',
+          content: '',
+          card: {
+            kind: 'joint',
+            title: `El empalme de la escena ${scene.index} no encaja`,
+            detail: `${issue.problem}${rerender} Sugerencia: ${
+              issue.suggestion === 'corte' && scene.index > 1 ? 'pasarla a plano nuevo (corte)' : 'reescribir su inicio'
+            }.`,
+            status: 'pending',
+            sceneIds: [sceneId],
+            jointFix: issue.suggestion,
+          },
+        });
+      };
+
+      /**
+       * Revisa los empalmes que cambiaron. Los borradores se corrigen solos (reescribir texto es
+       * gratis); en escenas aprobadas o renderizadas se pregunta, porque luego hay que renderizar.
+       */
+      const reconcileJoints = async (sceneIds: string[]) => {
+        const ids = sceneIds.filter((id) => get().storyboard?.scenes.some((s) => s.id === id));
+        if (ids.length === 0 || stopActions) return;
+        const checks = await fetchJointChecks(ids);
+        if (!checks) return;
+        for (const check of checks) {
+          if (stopActions) return;
+          const scene = get().storyboard?.scenes.find((s) => s.id === check.sceneId);
+          if (!scene) continue;
+          if (check.coherent) {
+            if (scene.jointIssue) patchScene(scene.id, { jointIssue: undefined });
+            continue;
+          }
+          const issue: JointIssue = {
+            problem: check.problem || 'Su inicio no coincide con el final de la escena anterior.',
+            suggestion: check.suggestion,
+          };
+          if (scene.status === 'draft' && !scene.render?.videoUrl) {
+            // Siempre reescribir: pasar a corte sube la tarifa (usa referencias), eso lo decide el usuario
+            const ok = await fixJoint(scene.id, 'reescribir', issue.problem);
+            if (ok) {
+              say(
+                `Ajusté el inicio de la escena ${scene.index} para que empalme: ${issue.problem}${
+                  issue.suggestion === 'corte' && scene.index > 1 ? ' Si prefieres un plano nuevo, pídeme "pasa la escena a corte".' : ''
+                }`
+              );
+            } else {
+              patchScene(scene.id, { jointIssue: issue });
+            }
+          } else {
+            patchScene(scene.id, { jointIssue: issue });
+            await proposeJointFix(scene.id, issue);
+          }
+        }
+      };
+
+      /** Mueve una escena y revisa los empalmes que cambiaron. */
+      const moveAndCheck = async (sceneId: string, to: number): Promise<boolean> => {
+        const before = get().storyboard?.scenes ?? [];
+        moveSceneLocal(sceneId, to);
+        const after = get().storyboard?.scenes ?? [];
+        const changed = changedJointIds(before, after);
+        if (changed.length === 0) return false;
+        await reconcileJoints(changed);
+        return true;
+      };
+
+      /** Duplica una escena (si cabe en los límites) y adapta la copia para que empalme. */
+      const duplicateAndCheck = async (sceneId: string): Promise<boolean> => {
+        const { storyboard, settings } = get();
+        const original = storyboard?.scenes.find((s) => s.id === sceneId);
+        if (!storyboard || !original) return false;
+        const seconds = storyboard.scenes.reduce((sum, s) => sum + s.durationSeconds, 0);
+        if (storyboard.scenes.length >= settings.maxScenes) {
+          say(`Ya hay ${storyboard.scenes.length} escenas y el máximo es ${settings.maxScenes}: sube "Máx. escenas" para duplicar.`);
+          return false;
+        }
+        if (seconds + original.durationSeconds > settings.maxTotalSeconds) {
+          say(`Duplicarla dejaría el video en ${seconds + original.durationSeconds} s y el máximo es ${settings.maxTotalSeconds} s: sube "Máx. segundos".`);
+          return false;
+        }
+        const before = new Set(storyboard.scenes.map((s) => s.id));
+        duplicateSceneLocal(sceneId);
+        const copy = get().storyboard?.scenes.find((s) => !before.has(s.id));
+        if (!copy) return false;
+        // La copia arranca donde termina la original: se ajusta su inicio. Que repita el guion es a
+        // propósito (el usuario la duplicó para variarla), así que no se pasa por el revisor de empalmes.
+        // La escena que sigue a la copia no cambia de fotograma de partida: la copia termina igual que la original.
+        const ok = await get().reviseScene(copy.id, DUPLICATE_FEEDBACK);
+        say(
+          ok
+            ? `Dupliqué la escena ${original.index}: la copia es la ${copy.index}, en borrador, y ajusté su inicio para que arranque donde termina la original. Repite su diálogo: dime qué debe cambiar (o usa "Pedir cambios" en la tarjeta).`
+            : `Dupliqué la escena ${original.index} (la copia es la ${copy.index}), pero no pude ajustar su inicio. Pídeme cambios sobre ella antes de renderizarla.`
+        );
+        return true;
+      };
+
       /** Convierte los números de escena del agente en IDs con el storyboard del momento del plan. */
       const resolveIds = (numbers: number[], fallback: 'all' | 'pending' | 'none'): string[] => {
         const scenes = byIndex(get().storyboard?.scenes ?? []);
         if (numbers.length > 0) return scenes.filter((s) => numbers.includes(s.index)).map((s) => s.id);
         if (fallback === 'all') return scenes.map((s) => s.id);
-        if (fallback === 'pending') return scenes.filter((s) => !s.render?.videoUrl || s.render.stale || s.status === 'failed').map((s) => s.id);
+        // Las que ya se están renderizando no: volver a pedirlas pagaría dos veces
+        if (fallback === 'pending')
+          return scenes.filter((s) => s.status !== 'rendering' && (!s.render?.videoUrl || s.render.stale || s.status === 'failed')).map((s) => s.id);
         return [];
       };
 
@@ -624,43 +852,25 @@ export const useUgcStudioStore = create<UgcStudioState>()(
                 say('Dime qué escena mover y a qué posición, por ejemplo "pasa la 3 antes de la 2".');
                 break;
               }
-              moveScene(id, to);
-              say(`Moví la escena ${from} a la posición ${to}. Revisa los empalmes: las escenas marcadas como desactualizadas necesitan renderizarse de nuevo.`);
+              say(`Muevo la escena ${from} a la posición ${to} y reviso cómo quedan los empalmes.`);
+              await moveAndCheck(id, to);
               break;
             }
             case 'duplicate_scene':
-              ids.forEach(duplicateScene);
-              say('Escena duplicada justo después de la original (en borrador). Pídeme cambios sobre la copia si quieres una variación.');
-              break;
-            case 'set_transition': {
-              const corte = /corte|nuevo|otro|referencia/i.test(action.instructions);
               for (const id of ids) {
-                const scene = get().storyboard?.scenes.find((s) => s.id === id);
-                if (!scene) continue;
-                if (scene.index === 1) {
-                  say('La escena 1 siempre abre el video desde las referencias.');
-                  continue;
-                }
-                const type = corte ? 'corte_con_referencias' : 'continua';
-                if (scene.transition.type === type) continue;
-                patchScene(id, { transition: { ...scene.transition, type } });
-                // Los agentes reescriben el empalme y el prompt para el nuevo tipo de inicio
-                await get().reviseScene(
-                  id,
-                  corte
-                    ? 'Ahora esta escena es un PLANO NUEVO (corte): no continúa el último fotograma de la anterior. Ajusta su inicio, encuadre y prompt para un plano nuevo con el mismo personaje y producto.'
-                    : 'Ahora esta escena CONTINÚA desde el último fotograma de la anterior (mismo lugar y encuadre de partida). Ajusta su inicio y su prompt para que empalme sin corte.'
-                );
+                if (!(await duplicateAndCheck(id))) break;
               }
               break;
-            }
-            case 'rename_project': {
-              const title = action.instructions.trim();
-              if (!title || !get().storyboard) break;
-              set((st) => (st.storyboard ? { storyboard: { ...st.storyboard, title } } : {}));
-              say(`Listo, el proyecto ahora se llama "${title}". Se usa al guardar un video nuevo; un proyecto ya guardado conserva su carpeta.`);
+            case 'set_transition': {
+              // "continua" o "corte"; ojo con frases como "que no sea corte, que continúe"
+              const text = action.instructions.toLowerCase();
+              const corte = /^\s*corte/.test(text) || (!/continu/.test(text) && /corte|nuevo|otro|referencia/.test(text));
+              for (const id of ids) await applyTransition(id, corte ? 'corte_con_referencias' : 'continua');
               break;
             }
+            case 'rename_project':
+              get().renameProject(action.instructions);
+              break;
             case 'open_project': {
               const name = action.instructions.trim();
               if (!name) break;
@@ -684,11 +894,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               return; // el resto del plan era sobre el proyecto anterior
             }
             case 'stop_render':
-              if (get().renderQueue.length === 0) say('No hay renders en cola.');
-              else {
-                set({ renderQueue: [] });
-                say('Detuve la cola. La escena que ya se estaba generando termina igual (ya está pagada).');
-              }
+              get().stopRenderQueue();
               break;
             case 'update_settings': {
               const wanted = action.settings ?? {};
@@ -760,9 +966,12 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               if (ids.length === 0) say('No hay escenas pendientes de renderizar.');
               else await proposeRender(ids);
               break;
-            case 'assemble_video':
+            case 'assemble_video': {
+              const stale = byIndex(get().storyboard?.scenes ?? []).filter((s) => s.render?.stale).map((s) => s.index);
+              if (stale.length > 0) say(`Ojo: la escena ${stale.join(', ')} está desactualizada, así que su empalme puede saltar. La uno igual; si quieres, pídeme renderizar lo pendiente.`);
               await get().assemble(action.instructions || undefined);
               break;
+            }
           }
         }
       };
@@ -780,12 +989,14 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         renderQueue: [],
         actionsRunning: false,
         insertDraft: null,
+        edgeMenu: null,
         finalVideoUrl: null,
         savedProjectPath: null,
         assembling: false,
         error: null,
 
-        setInsertDraft: (insertDraft) => set({ insertDraft }),
+        setInsertDraft: (insertDraft) => set(insertDraft ? { insertDraft, edgeMenu: null } : { insertDraft }),
+        setEdgeMenu: (edgeMenu) => set(edgeMenu ? { edgeMenu, insertDraft: null } : { edgeMenu }),
 
         sendMessage: async (text) => {
           const message = text.trim();
@@ -828,9 +1039,9 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           }
         },
 
-        confirmCard: async (messageId) => {
+        confirmCard: async (messageId, choice) => {
           const card = get().messages.find((m) => m.id === messageId)?.card;
-          if (!card || card.status !== 'pending' || get().busy) return;
+          if (!card || card.status !== 'pending' || get().busy || get().actionsRunning) return;
           set((st) => ({
             messages: st.messages.map((m) => (m.id === messageId && m.card ? { ...m, card: { ...m.card, status: 'confirmed' } } : m)),
           }));
@@ -838,20 +1049,33 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             if (card.settings) get().setSettings(card.settings);
             await runStoryboard(card.brief);
           }
-          if (card.kind === 'delete' && card.sceneIds) deleteScenes(card.sceneIds);
+          if (card.kind === 'delete' && card.sceneIds) {
+            const sceneIds = card.sceneIds;
+            await withLock(async () => {
+              const before = get().storyboard?.scenes ?? [];
+              deleteScenes(sceneIds);
+              await reconcileJoints(changedJointIds(before, get().storyboard?.scenes ?? []));
+            });
+          }
+          if (card.kind === 'joint' && card.sceneIds?.[0]) await get().resolveJoint(card.sceneIds[0], choice ?? 'reescribir');
           if (card.kind === 'render' && card.sceneIds) await runRenderQueue(card.sceneIds);
           if (card.kind === 'open' && card.projectName) await openProjectByName(card.projectName);
         },
 
-        cancelCard: (messageId) =>
+        cancelCard: (messageId) => {
+          const card = get().messages.find((m) => m.id === messageId)?.card;
           set((st) => ({
             messages: st.messages.map((m) => (m.id === messageId && m.card ? { ...m, card: { ...m.card, status: 'cancelled' } } : m)),
-          })),
+          }));
+          // "Dejar así": el usuario acepta el empalme tal como está
+          if (card?.kind === 'joint' && card.status === 'pending' && card.sceneIds?.[0]) patchScene(card.sceneIds[0], { jointIssue: undefined });
+        },
 
+        // Detiene a los agentes; la cola de render tiene su propio botón ("Detener cola")
         cancel: () => {
           stopActions = true;
           abortController?.abort();
-          set({ busy: null, phase: null, renderQueue: [] });
+          set({ busy: null, phase: null });
         },
 
         addReference: async (file, role, label) => {
@@ -893,7 +1117,7 @@ export const useUgcStudioStore = create<UgcStudioState>()(
 
         reviseScene: async (sceneId, feedback) => {
           const { storyboard, references, settings } = get();
-          if (!storyboard || get().busy || blockedByQueue()) return;
+          if (!storyboard || get().busy || blockedByQueue()) return false;
           const changedIndex = storyboard.scenes.find((s) => s.id === sceneId)?.index ?? 0;
           const ok = await runEdit('revision', '/api/ugc-studio/scene/revise', { storyboard, references, settings, sceneId, feedback }, (sb) =>
             mergeEdited(sb, [sceneId])
@@ -901,8 +1125,15 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           if (ok) {
             set((st) => ({
               storyboard: st.storyboard ? { ...st.storyboard, scenes: markDownstreamStale(st.storyboard.scenes, changedIndex) } : null,
+              // La revisión ya rehízo la escena mirando a sus vecinas: su aviso de empalme queda resuelto
+              messages: st.messages.map((m) =>
+                m.card?.kind === 'joint' && m.card.status === 'pending' && m.card.sceneIds?.includes(sceneId)
+                  ? { ...m, card: { ...m.card, status: 'confirmed' } }
+                  : m
+              ),
             }));
           }
+          return ok;
         },
 
         relightScene: (sceneId, lighting) => get().reviseScene(sceneId, RELIGHT_FEEDBACK(lighting)),
@@ -912,24 +1143,30 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         insertScene: async (afterIndex, instructions) => {
           const { storyboard, references, settings } = get();
           if (!storyboard || get().busy || !instructions.trim() || blockedByQueue()) return;
-          const before = new Set(storyboard.scenes.map((s) => s.id));
-          let insertedIndex = afterIndex + 1;
-          const ok = await runEdit('insert', '/api/ugc-studio/scene/insert', { storyboard, references, settings, afterIndex, instructions }, (sb) => {
-            const added = sb.scenes.filter((s) => !before.has(s.id));
-            insertedIndex = added[0]?.index ?? insertedIndex;
-            mergeEdited(sb, added.map((s) => s.id));
-          });
-          if (ok) {
-            // La escena que ahora sigue a la insertada arranca desde otro fotograma (o pasó de abrir a continuar)
-            set((st) => {
-              if (!st.storyboard) return {};
-              const scenes = st.storyboard.scenes.map((s) =>
-                s.index === insertedIndex + 1 && s.render?.videoUrl ? { ...s, render: { ...s.render, stale: true } } : s
-              );
-              return { storyboard: { ...st.storyboard, scenes: markDownstreamStale(scenes, insertedIndex + 1) } };
+          await withLock(async () => {
+            const before = new Set(storyboard.scenes.map((s) => s.id));
+            let insertedIndex = afterIndex + 1;
+            let addedIds: string[] = [];
+            const ok = await runEdit('insert', '/api/ugc-studio/scene/insert', { storyboard, references, settings, afterIndex, instructions }, (sb) => {
+              const added = sb.scenes.filter((s) => !before.has(s.id));
+              insertedIndex = added[0]?.index ?? insertedIndex;
+              addedIds = added.map((s) => s.id);
+              mergeEdited(sb, addedIds);
             });
-            say(`Escena nueva insertada en la posición ${insertedIndex}. Apruébala y renderízala cuando quieras.`);
-          }
+            if (ok) {
+              // La escena que ahora sigue a la insertada arranca desde otro fotograma (o pasó de abrir a continuar)
+              set((st) => {
+                if (!st.storyboard) return {};
+                const scenes = st.storyboard.scenes.map((s) =>
+                  s.index === insertedIndex + 1 && s.render?.videoUrl ? { ...s, render: { ...s.render, stale: true } } : s
+                );
+                return { storyboard: { ...st.storyboard, scenes: markDownstreamStale(scenes, insertedIndex + 1) } };
+              });
+              say(`Escena nueva insertada en la posición ${insertedIndex}. Apruébala y renderízala cuando quieras.`);
+              // La escena nueva ya se diseñó mirando a sus vecinas; la que la sigue ahora arranca desde ella
+              await reconcileJoints(changedJointIds(storyboard.scenes, get().storyboard?.scenes ?? [], addedIds));
+            }
+          });
         },
 
         requestDeleteScenes: (sceneIds) => {
@@ -948,6 +1185,63 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               sceneIds: scenes.map((s) => s.id),
             },
           });
+        },
+
+        moveScene: async (sceneId, to) => {
+          if (get().busy || blockedByQueue()) return;
+          await withLock(() => moveAndCheck(sceneId, to));
+        },
+
+        duplicateScene: async (sceneId) => {
+          if (get().busy || blockedByQueue()) return;
+          await withLock(() => duplicateAndCheck(sceneId));
+        },
+
+        setTransition: async (sceneId, type) => {
+          if (get().busy || blockedByQueue()) return;
+          await withLock(() => applyTransition(sceneId, type));
+        },
+
+        resolveJoint: async (sceneId, choice) => {
+          // La decisión vale para la tarjeta del chat aunque se tome desde el lienzo
+          set((st) => ({
+            messages: st.messages.map((m) =>
+              m.card?.kind === 'joint' && m.card.status === 'pending' && m.card.sceneIds?.includes(sceneId)
+                ? { ...m, card: { ...m.card, status: choice === 'ignorar' ? 'cancelled' : 'confirmed' } }
+                : m
+            ),
+          }));
+          const scene = get().storyboard?.scenes.find((s) => s.id === sceneId);
+          if (!scene) return; // la escena ya no existe (p. ej. se eliminó)
+          if (choice === 'ignorar') {
+            patchScene(sceneId, { jointIssue: undefined });
+            return;
+          }
+          if (get().busy || blockedByQueue()) return;
+          const problem = scene.jointIssue?.problem ?? 'Su inicio no coincide con el final de la escena anterior.';
+          await withLock(() => fixJoint(sceneId, choice, problem));
+        },
+
+        renameProject: (title) => {
+          const name = title.trim().slice(0, 120);
+          if (!name || !get().storyboard) return;
+          set((st) => (st.storyboard ? { storyboard: { ...st.storyboard, title: name } } : {}));
+          say(`Listo, el proyecto ahora se llama "${name}". Se usa al guardar un video nuevo; un proyecto ya guardado conserva su carpeta.`);
+        },
+
+        stopRenderQueue: () => {
+          if (get().renderQueue.length === 0) {
+            say('No hay renders en cola.');
+            return;
+          }
+          set({ renderQueue: [] });
+          say('Detuve la cola. La escena que ya se estaba generando termina igual (ya está pagada).');
+        },
+
+        requestRenderPending: async () => {
+          const ids = resolveIds([], 'pending');
+          if (ids.length === 0) say('No hay escenas pendientes de renderizar.');
+          else await proposeRender(ids);
         },
 
         retakeScene: async (sceneId) => {
@@ -1023,6 +1317,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             messages: [{ id: uid(), role: 'studio', content: `Proyecto cargado: "${storyboard.title}". ¿Qué quieres cambiar?` }],
             activities: [],
             estimate: null,
+            insertDraft: null,
+            edgeMenu: null,
             renderQueue: [],
             finalVideoUrl: saved?.videoUrl ?? null,
             savedProjectPath: saved?.path ?? null,
@@ -1055,6 +1351,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             phase: null,
             busy: null,
             estimate: null,
+            insertDraft: null,
+            edgeMenu: null,
             renderQueue: [],
             finalVideoUrl: null,
             savedProjectPath: null,

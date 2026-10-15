@@ -24,13 +24,15 @@ interface PendingImage {
 function ConfirmCard({ message, disabled }: { message: ChatMessage; disabled: boolean }) {
   const { confirmCard, cancelCard } = useUgcStudioStore.getState();
   const card = message.card!;
+  // La escena 1 siempre abre el video: no puede pasar a corte (su número cambia al reordenar)
+  const jointIndex = useUgcStudioStore((s) => s.storyboard?.scenes.find((sc) => sc.id === card.sceneIds?.[0])?.index);
   const tone = card.kind === 'render' ? 'border-accent/40' : 'border-amber-500/40';
   return (
     <div className={`rounded-xl border ${tone} bg-surface p-3`}>
       <p className="text-[13px] font-semibold text-fg">{card.title}</p>
       <p className="mt-0.5 text-[12px] leading-relaxed text-fg-muted">{card.detail}</p>
       {card.status === 'pending' ? (
-        <div className="mt-2.5 flex gap-2">
+        <div className="mt-2.5 flex flex-wrap gap-2">
           <button type="button" disabled={disabled} onClick={() => void confirmCard(message.id)} className="btn-primary h-8 flex-1 text-[12px]">
             {card.kind === 'render'
               ? `Confirmar${card.costUSD !== undefined ? ` (~$${card.costUSD.toFixed(2)})` : ''}`
@@ -38,19 +40,31 @@ function ConfirmCard({ message, disabled }: { message: ChatMessage; disabled: bo
                 ? 'Eliminar'
                 : card.kind === 'open'
                   ? 'Abrir proyecto'
-                  : 'Crear storyboard nuevo'}
+                  : card.kind === 'joint'
+                    ? 'Reescribir inicio'
+                    : 'Crear storyboard nuevo'}
           </button>
+          {card.kind === 'joint' && jointIndex !== undefined && jointIndex > 1 && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => void confirmCard(message.id, 'corte')}
+              className="h-8 flex-1 rounded-lg border border-line text-[12px] text-fg transition-colors hover:border-line-strong disabled:opacity-40"
+            >
+              Pasar a corte
+            </button>
+          )}
           <button
             type="button"
             onClick={() => cancelCard(message.id)}
             className="h-8 flex-1 rounded-lg border border-line text-[12px] text-fg-muted transition-colors hover:border-line-strong hover:text-fg"
           >
-            Cancelar
+            {card.kind === 'joint' ? 'Dejar así' : 'Cancelar'}
           </button>
         </div>
       ) : (
         <p className={`mt-2 text-[11px] font-medium ${card.status === 'confirmed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-fg-subtle'}`}>
-          {card.status === 'confirmed' ? 'Confirmado' : 'Cancelado'}
+          {card.status === 'confirmed' ? 'Confirmado' : card.kind === 'joint' ? 'Se deja así' : 'Cancelado'}
         </p>
       )}
     </div>
@@ -163,7 +177,7 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
           m.card ? (
             <div key={m.id} className="space-y-1.5">
               {m.content && <p className="text-[12px] text-fg-muted">{m.content}</p>}
-              <ConfirmCard message={m} disabled={Boolean(busy) || renderQueue.length > 0} />
+              <ConfirmCard message={m} disabled={Boolean(busy) || actionsRunning || renderQueue.length > 0} />
             </div>
           ) : (
             <div key={m.id} className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : ''}`}>

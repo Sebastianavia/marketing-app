@@ -6,7 +6,10 @@ import {
   AlertTriangle,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
+  Copy,
   Film,
   Info,
   Loader2,
@@ -19,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { useUgcStudioStore } from '@/store/useUgcStudioStore';
+import { EdgeMenuPanel } from './InsertEdge';
 import {
   CharacterBible,
   ProductStrategy,
@@ -208,6 +212,8 @@ export type SceneNodeData = {
   locked: boolean; // agentes trabajando: no se permiten acciones
   aspectRatio: StudioAspectRatio;
   queued: boolean; // en la cola de "renderizar todo"
+  sceneCount: number;
+  queueActive: boolean; // con una cola de render en marcha no se reordena (cada escena parte de la anterior)
 };
 export type SceneFlowNode = Node<SceneNodeData, 'scene'>;
 
@@ -217,14 +223,25 @@ const CHAT_RESERVED_PX = 430; // ancho del chat flotante + margen
 const INFO_TABS = ['Guion', 'Cámara', 'Audio', 'Empalme', 'Prompt'] as const;
 
 export function SceneNode({ data }: NodeProps<SceneFlowNode>) {
-  const { scene, references, sentReferenceIds, previousRendered, locked, aspectRatio, queued } = data;
-  const { approveScene, reviseScene, relightScene, changeAngle, requestRenderEstimate, retakeScene, requestDeleteScenes } =
-    useUgcStudioStore.getState();
+  const { scene, references, sentReferenceIds, previousRendered, locked, aspectRatio, queued, sceneCount, queueActive } = data;
+  const {
+    approveScene,
+    reviseScene,
+    relightScene,
+    changeAngle,
+    requestRenderEstimate,
+    retakeScene,
+    requestDeleteScenes,
+    moveScene,
+    duplicateScene,
+  } = useUgcStudioStore.getState();
   const { hover, enter, leave } = useHoverIntent();
   const [mode, setMode] = useState<Mode>(null);
   const [tab, setTab] = useState<(typeof INFO_TABS)[number]>('Guion');
   const insertDraft = useUgcStudioStore((s) => s.insertDraft);
   const insertHere = insertDraft?.anchorId === scene.id ? insertDraft : null;
+  const edgeMenu = useUgcStudioStore((s) => s.edgeMenu);
+  const edgeMenuHere = edgeMenu?.sceneId === scene.id ? edgeMenu.kind : null;
   const [infoSide, setInfoSide] = useState<Position>(Position.Right);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -234,6 +251,8 @@ export function SceneNode({ data }: NodeProps<SceneFlowNode>) {
   const blockedByPrevious = scene.transition.type === 'continua' && !previousRendered;
   const isRendering = scene.status === 'rendering' || queued;
   const canRender = !locked && !isRendering && !blockedByPrevious;
+  // Reordenar o duplicar cambia de qué fotograma parte cada escena: no con renders en marcha
+  const structureLocked = locked || isRendering || queueActive;
   const toggle = (m: Mode) => {
     // El panel de detalles se abre del lado con espacio: a la derecha suele estar el chat flotante
     if (m === 'info' && cardRef.current) {
@@ -287,6 +306,19 @@ export function SceneNode({ data }: NodeProps<SceneFlowNode>) {
           <ToolButton icon={Camera} label="Cambiar ángulo de cámara" disabled={locked || isRendering} active={mode === 'angle'} onClick={() => toggle('angle')} />
           <ToolButton icon={MessageSquareText} label="Pedir cambios" disabled={locked || isRendering} active={mode === 'edit'} onClick={() => toggle('edit')} />
           <span className="mx-0.5 h-5 w-px bg-line" />
+          <ToolButton
+            icon={ChevronLeft}
+            label="Mover a la izquierda"
+            disabled={structureLocked || scene.index === 1}
+            onClick={() => void moveScene(scene.id, scene.index - 1)}
+          />
+          <ToolButton
+            icon={ChevronRight}
+            label="Mover a la derecha"
+            disabled={structureLocked || scene.index === sceneCount}
+            onClick={() => void moveScene(scene.id, scene.index + 1)}
+          />
+          <ToolButton icon={Copy} label="Duplicar escena" disabled={structureLocked} onClick={() => void duplicateScene(scene.id)} />
           <ToolButton icon={Trash2} label="Eliminar escena" danger disabled={locked || isRendering} onClick={() => requestDeleteScenes([scene.id])} />
         </div>
       </NodeToolbar>
@@ -345,6 +377,11 @@ export function SceneNode({ data }: NodeProps<SceneFlowNode>) {
             )}
             {tab === 'Empalme' && (
               <>
+                {scene.jointIssue && (
+                  <p className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[12px] leading-relaxed text-amber-700 dark:text-amber-300">
+                    El empalme no encaja: {scene.jointIssue.problem} Decide qué hacer en el aviso de la conexión o en el chat.
+                  </p>
+                )}
                 <Field label="Tipo">{TRANSITION_LABEL[scene.transition.type]}</Field>
                 <Field label="Inicio">{scene.transition.startState}</Field>
                 <Field label="Final">{scene.transition.endState}</Field>
@@ -433,6 +470,10 @@ export function SceneNode({ data }: NodeProps<SceneFlowNode>) {
             />
           </Panel>
         )}
+      </NodeToolbar>
+
+      <NodeToolbar isVisible={Boolean(edgeMenuHere)} position={Position.Left} offset={16}>
+        {edgeMenuHere && <EdgeMenuPanel scene={scene} kind={edgeMenuHere} disabled={locked || isRendering} />}
       </NodeToolbar>
 
       {/* Tarjeta: solo el video (o un marcador mientras no hay clip) */}

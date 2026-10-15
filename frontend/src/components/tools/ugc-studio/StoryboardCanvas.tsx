@@ -25,7 +25,7 @@ import { sentReferenceIds } from '@/types/ugc-studio.types';
 const nodeTypes = { scene: SceneNode, overview: OverviewNode, addScene: AddSceneNode };
 const edgeTypes = { insert: InsertEdge };
 
-const GAP = 90; // separación horizontal entre tarjetas
+const GAP = 120; // separación horizontal entre tarjetas (caben los botones de la conexión)
 const OVERVIEW_WIDTH = 220;
 const CARD_WIDTH = { '9:16': 210, '1:1': 280, '16:9': 360 } as const;
 
@@ -75,6 +75,8 @@ export function StoryboardCanvas({ rightInset = 0 }: { rightInset?: number }) {
         locked,
         aspectRatio,
         queued: renderQueue.includes(scene.id) && scene.status !== 'rendering',
+        sceneCount: scenes.length,
+        queueActive: renderQueue.length > 0,
       },
     }));
 
@@ -91,7 +93,15 @@ export function StoryboardCanvas({ rightInset = 0 }: { rightInset?: number }) {
       target: scene.id,
       type: 'insert',
       markerEnd: { type: MarkerType.ArrowClosed },
-      data: { afterIndex: i, anchorId: scene.id, continuous: scene.transition.type === 'continua', locked },
+      data: {
+        afterIndex: i,
+        anchorId: scene.id,
+        transition: scene.transition.type,
+        jointIssue: scene.jointIssue,
+        rendered: Boolean(scene.render?.videoUrl),
+        sceneBusy: scene.status === 'rendering' || renderQueue.includes(scene.id),
+        locked,
+      },
     }));
     const tail: Edge = {
       id: 'e-add',

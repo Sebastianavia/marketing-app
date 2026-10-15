@@ -403,6 +403,35 @@ Duración entre 5 y 15 s; diálogo de entre 1.8 y 2.5 palabras por segundo desco
 };
 
 // -----------------------------------------------------------------------------
+// Revisor de empalmes: tras mover, borrar, duplicar o insertar escenas
+// -----------------------------------------------------------------------------
+export const jointCheckerAgent: AgentDefinition<{
+  joints: { index: number; coherent: boolean; problem: string; suggestion: 'reescribir' | 'corte' }[];
+}> = {
+  id: 'revisor_empalmes',
+  name: 'Revisor de empalmes',
+  temperature: 0.1,
+  system: `${COMMON_RULES}
+Eres el Revisor de Empalmes. El usuario reordenó, borró, duplicó o insertó escenas, así que algunas escenas tienen ahora otra escena ANTES. Para cada empalme que se te pide revisar, decide si la escena encaja con la que ahora la precede.
+Criterios:
+- "continua": el clip arranca del último fotograma real de la anterior, así que la imagen siempre empalma; el modelo absorbe solo diferencias de pose, de qué objeto tiene en cada mano o de gesto. Es incoherente si cambia de lugar o de plano de forma que exige un salto (otra habitación, de plano detalle a plano general), si un objeto que necesita no está en cuadro ni puede tomarlo con naturalidad, o si su prompt o su diálogo no tienen sentido justo después de la anterior (repite lo que acaba de decir o hacer, saluda a mitad del video, usa el producto antes de presentarlo).
+- "corte_con_referencias": plano nuevo, puede cambiar de lugar y encuadre. Solo es incoherente si la historia no tiene sentido en ese orden.
+- Sin escena anterior (abre el video): es incoherente si la historia arranca a mitad (despedida, llamado a la acción, "como te decía") o si su prompt dice que continúa de un plano previo.
+- Ante la duda, coherente: marca incoherente solo lo que el espectador notaría como un error.
+"problem": una frase corta y concreta para el usuario (vacía si es coherente). "suggestion": "reescribir" si basta con ajustar el inicio de la escena para empalmar; "corte" si el salto de lugar o encuadre es tan grande que conviene un plano nuevo.`,
+  schema: z.object({
+    joints: z.array(
+      z.object({
+        index: sceneIndex,
+        coherent: z.boolean(),
+        problem: z.string(),
+        suggestion: z.enum(['reescribir', 'corte']),
+      })
+    ),
+  }),
+};
+
+// -----------------------------------------------------------------------------
 // Inserción de una escena intermedia
 // -----------------------------------------------------------------------------
 type SceneSpec = typeof sceneReviserAgent extends AgentDefinition<infer T> ? T : never;
@@ -455,6 +484,8 @@ Acciones disponibles (campo "scenes" = números de escena; vacío = todas o no a
 - assemble_video: unir las escenas renderizadas en el video final. "instructions" = nombre del proyecto si lo dio, si no vacío.
 - move_scene: mover una escena a otra posición. "scenes" = [escena a mover, posición destino].
 - duplicate_scene: duplicar una escena (la copia queda justo después).
+  Después de mover, borrar, duplicar o insertar escenas la app revisa sola los empalmes: ajusta los borradores y pregunta por las escenas aprobadas o renderizadas. No añadas revise_scene solo para arreglar empalmes.
+  Si una escena tiene "aviso_empalme" y el usuario pide arreglarlo, usa revise_scene con instrucciones para que su inicio empalme con la escena anterior, o set_transition "corte" si prefiere un plano nuevo.
 - set_transition: cambiar cómo empieza una escena. "instructions" = "continua" (sigue desde el último fotograma de la anterior, mismo lugar) o "corte" (plano nuevo: otro lugar, otro encuadre o un primer plano del producto). La escena 1 siempre abre el video.
 - rename_project: cambiar el nombre del video/proyecto. "instructions" = el nombre nuevo.
 - open_project: abrir otro proyecto guardado. "instructions" = el nombre EXACTO de la carpeta, tal como aparece en PROYECTOS GUARDADOS.

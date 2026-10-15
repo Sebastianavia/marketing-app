@@ -131,6 +131,28 @@ export interface StoryboardScene {
   status: SceneStatus;
   render?: SceneRender;
   seed?: number; // semilla propia tras "repetir toma"; si no, la del storyboard
+  jointIssue?: JointIssue; // el empalme con la escena anterior no encaja (tras mover, borrar, duplicar o insertar)
+}
+
+/** Problema de empalme detectado por el revisor de empalmes, pendiente de que el usuario decida. */
+export interface JointIssue {
+  problem: string;
+  suggestion: JointFix;
+}
+export type JointFix = 'reescribir' | 'corte';
+
+export interface JointCheck {
+  sceneId: string;
+  index: number;
+  coherent: boolean;
+  problem: string;
+  suggestion: JointFix;
+}
+
+export interface JointCheckRequest {
+  storyboard: Storyboard;
+  references: UgcReference[];
+  sceneIds: string[];
 }
 
 /**
@@ -211,6 +233,7 @@ export type StudioEvent =
   | { type: 'references'; references: UgcReference[] }
   | { type: 'storyboard'; storyboard: Storyboard }
   | { type: 'agent_reply'; reply: string; actions: AgentAction[] }
+  | { type: 'joints'; joints: JointCheck[] }
   | { type: 'error'; message: string };
 
 export interface StoryboardRequest {

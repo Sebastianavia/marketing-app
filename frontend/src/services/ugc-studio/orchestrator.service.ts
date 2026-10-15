@@ -8,6 +8,7 @@ import {
   cinematographerAgent,
   continuitySupervisorAgent,
   creativeAgent,
+  jointCheckerAgent,
   makeSupervisorAgent,
   orchestratorAgent,
   productStrategistAgent,
@@ -27,6 +28,8 @@ import {
   AgentResponse,
   chainReferenceIds,
   estimateSceneRenderUSD,
+  JointCheck,
+  JointCheckRequest,
   LivePricingInfo,
   ProductStrategy,
   SCENE_MAX_SECONDS,
@@ -469,6 +472,7 @@ export async function reviseScene(req: SceneRevisionRequest, emit: Emit, signal?
     transition: { ...scene.transition, startState: revised.startState, endState: revised.endState, visualEffects: revised.visualEffects },
     status: 'draft',
     render: undefined,
+    jointIssue: undefined, // la revisión ya tuvo en cuenta a sus vecinas
   };
 
   const scenes = withChainReferences(storyboard.scenes.map((s) => (s.id === sceneId ? updated : s)));
@@ -562,6 +566,50 @@ export async function insertScene(req: SceneInsertRequest, emit: Emit, signal?: 
   return { ...storyboard, scenes: finalized };
 }
 
+/**
+ * Revisa si las escenas indicadas encajan con la escena que ahora las precede (tras mover, borrar,
+ * duplicar o insertar). Solo lee: las correcciones las decide el cliente.
+ */
+export async function checkJoints(req: JointCheckRequest, emit: Emit, signal?: AbortSignal): Promise<JointCheck[]> {
+  const ordered = [...req.storyboard.scenes].sort((a, b) => a.index - b.index);
+  const targets = ordered.filter((s) => req.sceneIds.includes(s.id));
+  if (targets.length === 0) return [];
+  const brief = (s: StoryboardScene) => ({
+    index: s.index,
+    title: s.title,
+    transition: s.transition.type,
+    startState: s.transition.startState,
+    endState: s.transition.endState,
+    setting: s.visual.setting,
+    shot: s.visual.shot,
+    action: s.visual.action,
+    dialogue: s.dialogue.map((d) => d.line).join(' '),
+    videoPrompt: s.videoPrompt,
+  });
+  const pairs = targets.map((s) => ({ escena: brief(s), anterior: ordered[s.index - 2] ? brief(ordered[s.index - 2]) : null }));
+
+  emit({ type: 'phase', label: 'Revisando los empalmes entre escenas' });
+  const result = await runAgent(
+    jointCheckerAgent,
+    `CONCEPTO: ${req.storyboard.concept}${strategyBlock(req.storyboard.strategy)}\n\nORDEN ACTUAL: ${ordered
+      .map((s) => `${s.index}. ${s.title}`)
+      .join(' | ')}\n\nEMPALMES A REVISAR (cada escena con la que ahora la precede):\n${json(pairs)}`,
+    emit,
+    signal
+  );
+  return targets.map((s) => {
+    const r = result.joints.find((j) => j.index === s.index);
+    // Si el revisor omitió una escena, se da por buena: no se toca nada sin motivo
+    return {
+      sceneId: s.id,
+      index: s.index,
+      coherent: r?.coherent ?? true,
+      problem: r?.problem?.trim() ?? '',
+      suggestion: r?.suggestion ?? 'reescribir',
+    };
+  });
+}
+
 /** Resumen compacto del storyboard para el agente creativo del chat. */
 function storyboardSummary(
   storyboard: Storyboard | null,
@@ -581,6 +629,7 @@ function storyboardSummary(
       desactualizada: Boolean(s.render?.stale),
       segundos: s.durationSeconds,
       transicion: s.transition.type,
+      aviso_empalme: s.jointIssue?.problem, // empalme que no encaja, pendiente de decisión del usuario
       dialogo: s.dialogue.map((d) => d.line).join(' '),
       plano: s.visual.shot,
       accion: s.visual.action,
