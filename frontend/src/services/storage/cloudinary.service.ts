@@ -9,6 +9,25 @@ export interface CloudinaryUploadResult {
   resourceType: 'image' | 'video' | 'raw';
 }
 
+export interface CloudinaryCountResult {
+  totalCount: number;
+  breakdown: Record<string, number>;
+  configured: boolean;
+  oldestCreatedAt?: string;
+  bytesTotal?: number;
+}
+
+export interface CloudinaryCleanResult {
+  deletedCount: number;
+  remainingCount: number;
+  requestedLimit: number;
+  details: {
+    imagesDeleted: number;
+    videosDeleted: number;
+    rawDeleted: number;
+  };
+}
+
 export class CloudinaryStorageService {
   private isConfigured: boolean = false;
 
@@ -91,6 +110,17 @@ export class CloudinaryStorageService {
   /**
    * Elimina un archivo de audio o video de Cloudinary para evitar acumulación de archivos huérfanos.
    */
+  /** Borra un archivo temporal (imagen o audio/video) por su public_id. */
+  async deleteAsset(publicId: string, resourceType: 'image' | 'video'): Promise<boolean> {
+    if (!this.isConfigured) return false;
+    try {
+      const res = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+      return res?.result === 'ok' || res?.result === 'not found';
+    } catch {
+      return false;
+    }
+  }
+
   async deleteAudio(publicId: string): Promise<boolean> {
     if (!this.isConfigured || !publicId || publicId.startsWith('sample_')) return true;
     try {
@@ -100,6 +130,151 @@ export class CloudinaryStorageService {
       console.warn(`[CloudinaryStorageService] Fallo al eliminar audio ${publicId}:`, err);
       return false;
     }
+  }
+
+  /**
+   * Obtiene el conteo total de recursos almacenados en Cloudinary y su desglose por tipo.
+   */
+  async getTotalCount(): Promise<CloudinaryCountResult> {
+    if (!this.isConfigured) {
+      return { totalCount: 0, breakdown: {}, configured: false };
+    }
+
+    try {
+      // Usamos Search API para obtener el total exacto y los recursos más antiguos
+      const searchRes = await cloudinary.search
+        .expression('')
+        .sort_by('created_at', 'asc')
+        .max_results(100)
+        .execute();
+
+      const breakdown: Record<string, number> = {
+        image: 0,
+        video: 0,
+        raw: 0,
+      };
+
+      let bytesTotal = 0;
+      if (Array.isArray(searchRes.resources)) {
+        for (const r of searchRes.resources) {
+          const type = r.resource_type || 'image';
+          breakdown[type] = (breakdown[type] || 0) + 1;
+          bytesTotal += r.bytes || 0;
+        }
+      }
+
+      const totalCount = typeof searchRes.total_count === 'number'
+        ? searchRes.total_count
+        : (searchRes.resources?.length || 0);
+
+      const oldestCreatedAt = searchRes.resources?.[0]?.created_at;
+
+      return {
+        totalCount,
+        breakdown,
+        configured: true,
+        oldestCreatedAt,
+        bytesTotal,
+      };
+    } catch (err: any) {
+      console.warn('[CloudinaryStorageService] Fallo en search API, intentando fallback de usage:', err);
+      try {
+        const usage = await cloudinary.api.usage();
+        const total = usage?.objects?.usage ?? 0;
+        return {
+          totalCount: total,
+          breakdown: {},
+          configured: true,
+        };
+      } catch (usageErr: any) {
+        console.error('[CloudinaryStorageService] Error al obtener conteo:', usageErr);
+        throw new Error(err.message || 'No se pudo consultar el almacenamiento de Cloudinary.');
+      }
+    }
+  }
+
+  /**
+   * Identifica y elimina por lotes los N archivos más antiguos basándose en created_at.
+   */
+  async deleteOldestFiles(limit: number = 100): Promise<CloudinaryCleanResult> {
+    if (!this.isConfigured) {
+      throw new Error('Cloudinary no está configurado en el servidor.');
+    }
+
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    // 1. Consultar los N recursos más antiguos ordenados ascendentemente por created_at
+    const searchRes = await cloudinary.search
+      .expression('')
+      .sort_by('created_at', 'asc')
+      .max_results(safeLimit)
+      .execute();
+
+    const resources = searchRes.resources || [];
+    if (resources.length === 0) {
+      return {
+        deletedCount: 0,
+        remainingCount: 0,
+        requestedLimit: safeLimit,
+        details: { imagesDeleted: 0, videosDeleted: 0, rawDeleted: 0 },
+      };
+    }
+
+    // 2. Agrupar por resource_type (image, video, raw)
+    const byType: Record<string, string[]> = {
+      image: [],
+      video: [],
+      raw: [],
+    };
+
+    for (const r of resources) {
+      const type = r.resource_type || 'image';
+      if (!byType[type]) byType[type] = [];
+      byType[type].push(r.public_id);
+    }
+
+    const details = {
+      imagesDeleted: 0,
+      videosDeleted: 0,
+      rawDeleted: 0,
+    };
+
+    // 3. Ejecutar borrado por lotes para cada resource_type
+    for (const [type, publicIds] of Object.entries(byType)) {
+      if (publicIds.length === 0) continue;
+      try {
+        const delRes = await cloudinary.api.delete_resources(publicIds, {
+          resource_type: type as any,
+        });
+        const count = Object.values(delRes.deleted || {}).filter(
+          (status) => status === 'deleted'
+        ).length;
+
+        if (type === 'image') details.imagesDeleted += count;
+        else if (type === 'video') details.videosDeleted += count;
+        else details.rawDeleted += count;
+      } catch (delErr) {
+        console.error(`[CloudinaryStorageService] Error eliminando lote de ${type}:`, delErr);
+      }
+    }
+
+    const deletedCount = details.imagesDeleted + details.videosDeleted + details.rawDeleted;
+
+    // 4. Conocer conteo restante actualizado
+    let remainingCount = 0;
+    try {
+      const updated = await this.getTotalCount();
+      remainingCount = updated.totalCount;
+    } catch {
+      remainingCount = Math.max((searchRes.total_count || 0) - deletedCount, 0);
+    }
+
+    return {
+      deletedCount,
+      remainingCount,
+      requestedLimit: safeLimit,
+      details,
+    };
   }
 
   /**

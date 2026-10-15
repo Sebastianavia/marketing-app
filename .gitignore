@@ -48,6 +48,7 @@ yarn-error.log*
 # OS Files
 .DS_Store
 Thumbs.db
+.backup-rediseno-ui/
 
 # Proyectos guardados localmente: en Mac la ruta Windows del storage-config ("C:\\...") se crea dentro de frontend/
 frontend/C:*/

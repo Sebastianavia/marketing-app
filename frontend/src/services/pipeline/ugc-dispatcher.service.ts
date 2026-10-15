@@ -126,12 +126,21 @@ export class UgcDispatcherService {
       const apiKey = customOpenRouterKey || process.env.OPENROUTER_API_KEY || '';
       const openRouterService = new OpenRouterVideoService(apiKey);
 
+      // Nunca enviar imágenes o audios de relleno: se pagaría un video que no sirve
+      if (!firstFrameImageUrl || !audioUrl) {
+        throw new PipelineError(
+          `${modelConfig.name} necesita una imagen y un audio reales (URLs públicas) para generar el video.`,
+          'video_dispatch',
+          false
+        );
+      }
+
       try {
         // Despacho a endpoint OpenRouter Videos
         const task = await openRouterService.createVideoTask({
           model: modelConfig.id,
-          imageUrl: firstFrameImageUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800',
-          audioUrl: audioUrl || 'https://actions.google.com/sounds/v1/speech/greeting.ogg',
+          imageUrl: firstFrameImageUrl,
+          audioUrl,
           aspectRatio: aspectRatio === '1:1' ? '9:16' : aspectRatio,
           prompt,
         });

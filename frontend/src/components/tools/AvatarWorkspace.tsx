@@ -23,18 +23,37 @@ import {
   Cloud,
   FolderOpen,
   Receipt,
+  RefreshCw,
+  ChevronDown,
+  KeyRound,
 } from 'lucide-react';
+import { VoiceModelPanel } from '@/components/voice/VoiceModelPanel';
+import { MotionControls, type Expressiveness } from '@/components/voice/MotionControls';
+import { postOrchestrated } from '@/lib/ai/orchestrator-client';
+import {
+  DEFAULT_ELEVEN_MODEL,
+  DEFAULT_VOICE_SETTINGS,
+  type VoiceSettingsState,
+} from '@/config/elevenlabs-models';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useProjectHydration } from '@/store/useProjectHydrationStore';
 import { SaveProjectWidget } from '../storage/SaveProjectWidget';
 import { usePricingStore } from '@/store/usePricingStore';
-import { extractVideoDurationSeconds } from '@/lib/video/video-metadata';
+import { useCloudinaryStore } from '@/store/useCloudinaryStore';
 
-const ELEVENLABS_VOICES = [
-  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', style: 'Conversacional / Calma' },
-  { id: '2EiwWnXFnvU5JabPnv8n', name: 'Clyde', style: 'Publicitario / Enérgico' },
-  { id: 'AZnzlk1XvdvUeBnXmlld', name: 'Domi', style: 'Narrativa / Juvenil' },
-  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', style: 'Comercial / Cercana' },
+export interface VoiceOption {
+  id: string;
+  name: string;
+  style: string;
+  category?: 'configured' | 'cloned' | 'premade';
+  isDefault?: boolean;
+}
+
+const DEFAULT_ELEVENLABS_VOICES: VoiceOption[] = [
+  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', style: 'Conversacional / Calma', category: 'premade' },
+  { id: '2EiwWnXFnvU5JabPnv8n', name: 'Clyde', style: 'Publicitario / Enérgico', category: 'premade' },
+  { id: 'AZnzlk1XvdvUeBnXmlld', name: 'Domi', style: 'Narrativa / Juvenil', category: 'premade' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', style: 'Comercial / Cercana', category: 'premade' },
 ];
 
 // Error específico de subida a Cloudinary (permite mostrar el toast correcto en la UI)
@@ -44,6 +63,8 @@ class CloudinaryUploadError extends Error {
     this.name = 'CloudinaryUploadError';
   }
 }
+
+const ACTIVE_JOB_KEY = 'lulo_avatar_active_job';
 
 export function AvatarWorkspace() {
   // Integración de Hidratación de Proyectos Guardados en Disco
@@ -71,9 +92,131 @@ export function AvatarWorkspace() {
 
   // Estado del Audio Condicional: 'generar' (ElevenLabs) vs 'local' (Archivo MP3)
   const [audioMode, setAudioMode] = useState<'generar' | 'local'>('generar');
-  const [selectedVoiceId, setSelectedVoiceId] = useState(ELEVENLABS_VOICES[0].id);
+  const [availableVoices, setAvailableVoices] = useState<VoiceOption[]>(DEFAULT_ELEVENLABS_VOICES);
+  const [selectedVoiceId, setSelectedVoiceId] = useState(DEFAULT_ELEVENLABS_VOICES[0].id);
+  const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_ELEVEN_MODEL);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsState>(DEFAULT_VOICE_SETTINGS);
+  const [motionPrompt, setMotionPrompt] = useState('');
+  const [expressiveness, setExpressiveness] = useState<Expressiveness>('low');
+  const [isElevenLabsConfigured, setIsElevenLabsConfigured] = useState<boolean>(true);
   const [localAudioFile, setLocalAudioFile] = useState<File | null>(null);
   const [loadedAudioName, setLoadedAudioName] = useState<string | null>(null);
+
+  // Voz activa actualmente seleccionada
+  const selectedVoice = availableVoices.find((v) => v.id === selectedVoiceId) || availableVoices[0];
+
+  // Estado para inyección manual y forzado de Voice ID explícito
+  const [customVoiceId, setCustomVoiceId] = useState<string>('');
+  const [useCustomVoiceId, setUseCustomVoiceId] = useState<boolean>(false);
+
+  // Hidratación desde localStorage para persistencia del ID personalizado
+  useEffect(() => {
+    try {
+      const savedCustomId = localStorage.getItem('elevenlabs_custom_voice_id');
+      if (savedCustomId) {
+        setCustomVoiceId(savedCustomId);
+      }
+      const savedUseCustom = localStorage.getItem('elevenlabs_use_custom_voice_id');
+      if (savedUseCustom === 'true') {
+        setUseCustomVoiceId(true);
+      }
+    } catch (e) {
+      console.warn('[AvatarWorkspace] Error leyendo custom_voice_id de localStorage:', e);
+    }
+  }, []);
+
+  const handleCustomVoiceIdChange = (id: string) => {
+    setCustomVoiceId(id);
+    try {
+      localStorage.setItem('elevenlabs_custom_voice_id', id);
+    } catch (e) {}
+  };
+
+  const handleToggleCustomVoiceId = (enabled: boolean) => {
+    setUseCustomVoiceId(enabled);
+    try {
+      localStorage.setItem('elevenlabs_use_custom_voice_id', String(enabled));
+    } catch (e) {}
+  };
+
+  // Voice ID efectivo: Si el usuario introdujo un ID manual activo, tiene prioridad máxima
+  const isForcingManualVoice = useCustomVoiceId && customVoiceId.trim().length > 0;
+  const effectiveVoiceId = isForcingManualVoice ? customVoiceId.trim() : selectedVoiceId;
+
+  // Estados de sincronización y eliminación de voces de ElevenLabs
+  const [isSyncingVoices, setIsSyncingVoices] = useState(false);
+  const [voiceToDelete, setVoiceToDelete] = useState<VoiceOption | null>(null);
+  const [isDeletingVoice, setIsDeletingVoice] = useState(false);
+  const [voiceSuccessMsg, setVoiceSuccessMsg] = useState<string | null>(null);
+
+  // Cargar y sincronizar dinámicamente voces de ElevenLabs en tiempo real (purgando registros fantasma)
+  const fetchVoices = async (showSyncIndicator = false) => {
+    if (showSyncIndicator) setIsSyncingVoices(true);
+    try {
+      const res = await fetch(`/api/elevenlabs/voices?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      const data = await res.json();
+      if (Array.isArray(data?.voices) && data.voices.length > 0) {
+        setAvailableVoices(data.voices);
+        // Validar si la voz actualmente seleccionada sigue existiendo tras la sincronización
+        setSelectedVoiceId((prevId) => {
+          const exists = data.voices.some((v: VoiceOption) => v.id === prevId);
+          if (exists) return prevId;
+          return data.configuredVoiceId || data.voices[0]?.id;
+        });
+      }
+      if (typeof data?.isConfigured === 'boolean') {
+        setIsElevenLabsConfigured(data.isConfigured);
+      }
+      if (showSyncIndicator) {
+        setVoiceSuccessMsg('Sincronización en tiempo real completada: voces actualizadas y registros fantasma purgados.');
+        setTimeout(() => setVoiceSuccessMsg(null), 3500);
+      }
+    } catch (err) {
+      console.warn('[AvatarWorkspace] No se pudieron sincronizar las voces de ElevenLabs:', err);
+    } finally {
+      if (showSyncIndicator) setIsSyncingVoices(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchVoices();
+  }, []);
+
+  const handleDeleteVoice = async () => {
+    if (!voiceToDelete) return;
+    setIsDeletingVoice(true);
+    try {
+      const res = await fetch(`/api/elevenlabs/voices/${voiceToDelete.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Fallo al eliminar la voz.');
+      }
+
+      setVoiceSuccessMsg(`Voz "${voiceToDelete.name}" eliminada de ElevenLabs y almacenamiento local.`);
+      setTimeout(() => setVoiceSuccessMsg(null), 4000);
+      const deletedId = voiceToDelete.id;
+      setVoiceToDelete(null);
+
+      // Si la voz borrada era la que estaba seleccionada, cambiar selección
+      if (selectedVoiceId === deletedId) {
+        const remaining = availableVoices.filter((v) => v.id !== deletedId);
+        if (remaining.length > 0) {
+          setSelectedVoiceId(remaining[0].id);
+        }
+      }
+
+      await fetchVoices();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error al eliminar la voz.');
+    } finally {
+      setIsDeletingVoice(false);
+    }
+  };
 
   // Estado de Renderizado: Cloudinary Upload + OpenRouter Render
   const [isRendering, setIsRendering] = useState(false);
@@ -86,6 +229,20 @@ export function AvatarWorkspace() {
   // Facturación y Recibo de Consumo Final
   const [finalCostUSD, setFinalCostUSD] = useState<number | null>(null);
   const [videoDurationReal, setVideoDurationReal] = useState<number | null>(null);
+  // Ruta del MP4 guardado automáticamente en la biblioteca (Generados/AAAA-MM)
+  const [finalVideoPath, setFinalVideoPath] = useState<string | null>(null);
+
+  // El render corre en el servidor; la vista solo sigue el trabajo. Si se cierra
+  // la vista o la app, el trabajo continúa y se retoma al volver (ver efecto de reanudación).
+  const followingJobRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      followingJobRef.current = null;
+    };
+  }, []);
 
   // Sincronización dinámica de precios al montar el componente
   useEffect(() => {
@@ -101,6 +258,20 @@ export function AvatarWorkspace() {
   // URLs públicas de activos en Cloudinary
   const [cloudinaryImageInfo, setCloudinaryImageInfo] = useState<{ url: string; id: string } | null>(null);
   const [cloudinaryAudioInfo, setCloudinaryAudioInfo] = useState<{ url: string; id: string } | null>(null);
+
+  // Invalida el caché de Cloudinary para audio si el usuario cambia el guion, la voz, el modelo, parámetros de síntesis, ID manual o el archivo local
+  useEffect(() => {
+    setCloudinaryAudioInfo(null);
+  }, [
+    scriptText,
+    selectedVoiceId,
+    selectedModelId,
+    audioMode,
+    localAudioFile,
+    voiceSettings,
+    customVoiceId,
+    useCustomVoiceId,
+  ]);
 
   // Escucha activa de inyección desde Asistente (Mia)
   const injectedData = useMiaStore((s) => s.injectedData);
@@ -197,28 +368,24 @@ export function AvatarWorkspace() {
     setCloudinaryImageInfo(null);
   };
 
-  // 1. Módulo de Texto: Generar Guion con Google Gemini (Cero Costos / Pool de Keys)
+  // 1. Módulo de Texto: guion con el orquestador (Gemini gratis o Claude, según Ajustes)
   const handleGenerateScriptWithAI = async () => {
     if (!scriptPrompt.trim()) return;
     setIsGeneratingScript(true);
     setErrorMsg(null);
 
     try {
-      const res = await fetch('/api/script/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: scriptPrompt }),
-      });
+      const res = await postOrchestrated('/api/script/generate', { prompt: scriptPrompt, tool: 'avatar-studio' });
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Error al conectar con Google Gemini para redactar el guion.');
+        throw new Error(errData.error || 'No se pudo redactar el guion.');
       }
 
       const data = await res.json();
       setScriptText(data.script || scriptPrompt);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error generando guion con Gemini.');
+      setErrorMsg(err.message || 'Error generando el guion.');
     } finally {
       setIsGeneratingScript(false);
     }
@@ -232,6 +399,91 @@ export function AvatarWorkspace() {
     setToast(message);
     setTimeout(() => setToast(null), 5000);
   };
+
+  /**
+   * Sigue un trabajo de render del servidor hasta que termine.
+   * Si la vista se desmonta, deja de consultar (el trabajo sigue en el servidor).
+   */
+  const followJob = async (jobId: string, startedAtMs: number) => {
+    followingJobRef.current = jobId;
+    setIsRendering(true);
+    const tick = setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000)));
+    }, 1000);
+
+    try {
+      while (mountedRef.current && followingJobRef.current === jobId) {
+        const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+        if (res.status === 404) {
+          throw new Error('El trabajo de render ya no existe.');
+        }
+        if (res.ok) {
+          const job = await res.json();
+          setRenderPhase(job.phase || 'Generando el video…');
+
+          if (job.status === 'completed' && job.videoUrl) {
+            setFinalVideoUrl(job.videoUrl);
+            setFinalVideoPath(job.outputPath ?? null);
+            setVideoDurationReal(job.durationSec ?? null);
+            setFinalCostUSD(typeof job.costUSD === 'number' ? Number(job.costUSD.toFixed(2)) : null);
+            setRenderProgress(100);
+            setRenderPhase('Video listo y guardado en tu biblioteca');
+            setIsRendering(false);
+            try {
+              localStorage.removeItem(ACTIVE_JOB_KEY);
+            } catch {}
+            return;
+          }
+
+          if (job.status === 'failed') {
+            try {
+              localStorage.removeItem(ACTIVE_JOB_KEY);
+            } catch {}
+            throw new Error(`${job.error || 'El render falló en el proveedor.'} Puedes reintentar.`);
+          }
+
+          // Avance aproximado mientras el proveedor procesa
+          setRenderProgress((prev) => (job.status === 'queued' ? Math.max(prev, 62) : Math.min(Math.max(prev, 70) + 1, 95)));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    } finally {
+      clearInterval(tick);
+    }
+  };
+
+  // Reanudar un render que seguía en curso al cerrar la vista o la app
+  useEffect(() => {
+    let jobId: string | null = null;
+    try {
+      jobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    } catch {}
+    if (!jobId) return;
+
+    (async () => {
+      const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' }).catch(() => null);
+      if (!res || !res.ok) {
+        try {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        } catch {}
+        return;
+      }
+      const job = await res.json();
+      if (job.status === 'queued' || job.status === 'processing' || job.status === 'completed') {
+        setErrorMsg(null);
+        setRenderProgress(job.status === 'completed' ? 100 : 70);
+        followJob(job.id, Date.parse(job.createdAt)).catch((err) => {
+          setErrorMsg(err.message);
+          setIsRendering(false);
+        });
+      } else {
+        try {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        } catch {}
+      }
+    })();
+    // Solo al montar la vista
+  }, []);
 
   const handleRender = async () => {
     // Resolver foto activa (archivo seleccionado o hidratado desde preview / disco / nube)
@@ -282,6 +534,9 @@ export function AvatarWorkspace() {
     setElapsedSeconds(0);
     setErrorMsg(null);
     setFinalVideoUrl(null);
+    setFinalVideoPath(null);
+    setFinalCostUSD(null);
+    setVideoDurationReal(null);
 
     const timer = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
@@ -311,6 +566,8 @@ export function AvatarWorkspace() {
         if (!res.ok || !/^https?:\/\//i.test(url)) {
           throw new CloudinaryUploadError(data?.error || `Cloudinary no devolvió una secure_url válida para ${type}.`);
         }
+        // Refrescar contador en tiempo real tras la subida
+        useCloudinaryStore.getState().fetchCount();
         return { url, id: data.publicId || '' };
       };
 
@@ -335,9 +592,13 @@ export function AvatarWorkspace() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              tool: 'avatar-studio',
               text: scriptText.trim(),
-              voiceId: selectedVoiceId,
+              voiceId: effectiveVoiceId,
               language: 'es',
+              modelId: selectedModelId,
+              // El servidor envía a ElevenLabs solo los ajustes que admite el modelo
+              voiceSettings,
             }),
           });
 
@@ -365,110 +626,50 @@ export function AvatarWorkspace() {
       }
 
       // -----------------------------------------------------------------------
-      // PASO 3: CAMBIAR ESTADO A "Enviando a OpenRouter..."
+      // PASO 3: CREAR EL TRABAJO DE RENDER EN SEGUNDO PLANO
+      //         El servidor envía a OpenRouter (heygen/avatar-iv), espera el
+      //         resultado, guarda el MP4 en la biblioteca y registra el costo.
       // -----------------------------------------------------------------------
-      setRenderPhase('Enviando a OpenRouter...');
+      setRenderPhase('Enviando el trabajo…');
       setRenderProgress(60);
 
-      // -----------------------------------------------------------------------
-      // PASO 4: LLAMAR A OPENROUTER (/v1/videos) CON MODELO heygen/avatar-iv
-      //         PASÁNDOLE ESTRICTAMENTE LAS URLs DE CLOUDINARY EN input_references
-      // -----------------------------------------------------------------------
-      const generateResponse = await fetch('/api/openrouter/videos/generate', {
+      const jobResponse = await fetch('/api/render-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tool: 'avatar-studio',
+          title: activeProject?.title || activeProject?.name || 'Avatar Studio',
+          provider: 'openrouter',
           model: 'heygen/avatar-iv',
           imageUrl: publicImageUrl,
           audioUrl: publicAudioUrl,
           aspectRatio,
+          estimatedSeconds,
+          motionPrompt: motionPrompt.trim() || undefined,
+          expressiveness,
         }),
       });
 
-      if (!generateResponse.ok) {
-        const errData = await generateResponse.json().catch(() => ({}));
-        throw new Error(errData.error || 'Fallo al despachar la tarea en OpenRouter.');
+      const jobData = await jobResponse.json().catch(() => ({}));
+      if (!jobResponse.ok || !jobData.jobId) {
+        throw new Error(jobData.error || 'No se pudo crear el trabajo de render.');
       }
 
-      const { taskId } = await generateResponse.json();
-
-      // -----------------------------------------------------------------------
-      // PASO 5: INICIAR POLLING HASTA QUE OPENROUTER DEVUELVA EL MP4
-      // -----------------------------------------------------------------------
-      setRenderPhase('Renderizando fotorrealismo y lip-sync en OpenRouter...');
-      setRenderProgress(70);
-
-      let completed = false;
-      const startTime = Date.now();
-      const TIMEOUT_MS = 360000; // 6 minutos
-
-      while (!completed) {
-        await new Promise((resolve) => setTimeout(resolve, 3500));
-
-        if (Date.now() - startTime > TIMEOUT_MS) {
-          throw new Error('Tiempo de espera superado esperando la respuesta de OpenRouter.');
-        }
-
-        const pollRes = await fetch(`/api/openrouter/videos/status/${taskId}`);
-        if (!pollRes.ok) {
-          console.warn('[Polling] Advertencia temporal de red consultando OpenRouter.');
-          continue;
-        }
-
-        const pollData = await pollRes.json();
-        console.log('[Polling check]:', JSON.stringify(pollData, null, 2));
-
-        const status = (pollData.status || pollData.state || '').toLowerCase();
-        const videoUrl =
-          pollData.videoUrl ||
-          pollData.video_url ||
-          pollData.url ||
-          pollData.output ||
-          pollData.result?.url ||
-          pollData.output?.video_url;
-
-        const isFinished =
-          ['completed', 'succeeded', 'success', 'done'].includes(status) || Boolean(videoUrl);
-
-        // Resolución Inmediata
-        if (isFinished && videoUrl) {
-          completed = true;
-          clearInterval(timer);
-
-          setRenderPhase('Extrayendo duración real y procesando recibo...');
-          setRenderProgress(98);
-
-          // 2. Extracción de Duración Real del MP4 vía metadatos
-          const realDuration = await extractVideoDurationSeconds(videoUrl);
-          const verifiedRate = usePricingStore.getState().getRatePerSecond('heygen/avatar-iv');
-          const finalCost = Number((realDuration * verifiedRate).toFixed(2));
-
-          setFinalCostUSD(finalCost);
-          setVideoDurationReal(realDuration);
-          setFinalVideoUrl(videoUrl);
-          setRenderProgress(100);
-          setRenderPhase('¡Video completado con éxito!');
-          setIsRendering(false);
-          return;
-        }
-
-        // Manejo de Errores del Proveedor (failed, error, canceled)
-        if (['failed', 'error', 'canceled'].includes(status)) {
-          clearInterval(timer);
-          setIsRendering(false);
-          throw new Error(pollData.error || `El renderizado fue rechazado por el proveedor (${status}).`);
-        }
-
-        // Incrementar barra suavemente entre 70% y 95%
-        setRenderProgress((prev) => Math.min(prev + 4, 95));
+      try {
+        localStorage.setItem(ACTIVE_JOB_KEY, jobData.jobId);
+      } catch {
+        // Sin localStorage la reanudación no funciona, pero el render sigue en el servidor
       }
+
+      clearInterval(timer);
+      await followJob(jobData.jobId, Date.now());
     } catch (err: any) {
       console.error('[Render Error]:', err);
       if (err instanceof CloudinaryUploadError) {
         showToast('Error al subir archivos multimedia');
-        setErrorMsg(`Error al subir archivos multimedia: ${err.message}`);
+        setErrorMsg(`Error al subir archivos a Cloudinary: ${err.message}. Verifica tu conexión y vuelve a intentar.`);
       } else {
-        setErrorMsg(err.message || 'Error durante el proceso de renderizado.');
+        setErrorMsg(err.message || 'Error durante el proceso de renderizado. Por favor reintenta la operación.');
       }
       setIsRendering(false);
       clearInterval(timer);
@@ -485,21 +686,21 @@ export function AvatarWorkspace() {
         >
           <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
           <span>{toast}</span>
-          <button type="button" onClick={() => setToast(null)} className="ml-2 text-zinc-500 hover:text-white">✕</button>
+          <button type="button" onClick={() => setToast(null)} className="ml-2 text-fg-subtle hover:text-white">✕</button>
         </div>
       )}
       {/* 1. Banner de Proyecto Hidratado desde Disco */}
       {activeProject && (
-        <div className="rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-zinc-950 p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+        <div className="rounded-xl border border-line bg-surface-2 p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-2.5">
             <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-mono text-slate-500 dark:text-zinc-400">
+            <span className="text-xs tabular-nums text-fg-subtle">
               Proyecto Activo en Disco:
             </span>
-            <span className="text-xs font-semibold text-slate-800 dark:text-zinc-100">
+            <span className="text-xs font-semibold text-fg">
               {activeProject.title || activeProject.name}
             </span>
-            <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-500 bg-slate-200/60 dark:bg-zinc-900 border border-slate-300/80 dark:border-white/[0.06] px-2 py-0.5 rounded">
+            <span className="text-[10px] tabular-nums text-fg-subtle bg-surface-2/60 border border-line-strong px-2 py-0.5 rounded">
               /{activeProject.category}/{activeProject.name}
             </span>
           </div>
@@ -508,7 +709,7 @@ export function AvatarWorkspace() {
             <button
               type="button"
               onClick={handleOpenProjectFolder}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white text-xs font-mono transition-colors shadow-2xs"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-surface text-fg-muted hover:text-fg text-xs tabular-nums transition-colors shadow-2xs"
               title="Abrir carpeta exacta en Explorador de Windows"
             >
               <FolderOpen className="h-3.5 w-3.5" />
@@ -527,7 +728,7 @@ export function AvatarWorkspace() {
                 setLocalAudioFile(null);
                 setLoadedAudioName(null);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-zinc-900 text-slate-500 dark:text-zinc-400 hover:text-rose-500 text-xs font-mono transition-colors shadow-2xs"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-line bg-surface text-fg-subtle hover:text-rose-500 text-xs tabular-nums transition-colors shadow-2xs"
               title="Desvincular este proyecto y empezar uno nuevo"
             >
               <RotateCcw className="h-3 w-3" />
@@ -551,7 +752,7 @@ export function AvatarWorkspace() {
                   {warning}
                 </p>
               ))}
-              <p className="text-[11px] text-slate-600 dark:text-zinc-400 font-mono pt-0.5">
+              <p className="text-[11px] text-fg-muted tabular-nums pt-0.5">
                 ✓ El texto de tu guion y la configuración se han mantenido intactos en el editor.
               </p>
             </div>
@@ -559,7 +760,7 @@ export function AvatarWorkspace() {
           <button
             type="button"
             onClick={clearWarnings}
-            className="text-slate-700 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white text-xs px-2.5 py-1 rounded bg-slate-200/80 dark:bg-black/40 hover:bg-slate-300 dark:hover:bg-black/60 shrink-0 transition-colors"
+            className="text-fg-muted hover:text-fg text-xs px-2.5 py-1 rounded bg-surface-2/80 hover:bg-surface-2 shrink-0 transition-colors"
           >
             Entendido
           </button>
@@ -573,21 +774,21 @@ export function AvatarWorkspace() {
         <div className="lg:col-span-5 space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
-            <Camera className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
-            <span className="text-xs font-medium text-slate-800 dark:text-zinc-200">
+            <Camera className="h-4 w-4 text-accent" />
+            <span className="text-xs font-medium text-fg">
               Lienzo de Producción (Stage)
             </span>
           </div>
 
           {/* Selector de relación de aspecto del lienzo */}
-          <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-zinc-900 border border-slate-200/80 dark:border-white/[0.08] text-xs">
+          <div className="inline-flex p-0.5 rounded-lg bg-surface-2 border border-line text-xs">
             <button
               type="button"
               onClick={() => setAspectRatio('9:16')}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${
                 aspectRatio === '9:16'
-                  ? 'bg-white text-slate-900 shadow-xs dark:bg-white/10 dark:text-white font-medium'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
+                  ? 'bg-surface text-fg shadow-xs font-medium'
+                  : 'text-fg-subtle hover:text-fg'
               }`}
             >
               <Smartphone className="h-3 w-3" />
@@ -598,8 +799,8 @@ export function AvatarWorkspace() {
               onClick={() => setAspectRatio('16:9')}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all ${
                 aspectRatio === '16:9'
-                  ? 'bg-white text-slate-900 shadow-xs dark:bg-white/10 dark:text-white font-medium'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
+                  ? 'bg-surface text-fg shadow-xs font-medium'
+                  : 'text-fg-subtle hover:text-fg'
               }`}
             >
               <Monitor className="h-3 w-3" />
@@ -610,7 +811,7 @@ export function AvatarWorkspace() {
 
         {/* CONTENEDOR PRINCIPAL DEL CANVAS */}
         <div
-          className={`relative mx-auto rounded-2xl border border-slate-200/80 dark:border-white/[0.1] bg-slate-100 dark:bg-zinc-950 overflow-hidden shadow-xl transition-all duration-300 flex items-center justify-center ${
+          className={`relative mx-auto rounded-2xl border border-line bg-surface-2 overflow-hidden shadow-xl transition-all duration-300 flex items-center justify-center ${
             aspectRatio === '9:16'
               ? 'w-full max-w-[340px] aspect-[9/16]'
               : 'w-full aspect-[16/9]'
@@ -629,7 +830,7 @@ export function AvatarWorkspace() {
               <div className="absolute top-3 right-3 flex items-center gap-2">
                 {finalCostUSD !== null && (
                   <div
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg backdrop-blur-md border text-[11px] font-mono shadow-lg ${
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg backdrop-blur-md border text-[11px] tabular-nums shadow-lg ${
                       estimatedCostUSD !== undefined && finalCostUSD > estimatedCostUSD
                         ? 'bg-amber-950/80 border-amber-500/40 text-amber-300'
                         : 'bg-emerald-950/80 border-emerald-500/40 text-emerald-300'
@@ -684,13 +885,13 @@ export function AvatarWorkspace() {
                   <p className="text-xs font-semibold text-white tracking-wide mb-1">
                     {renderPhase}
                   </p>
-                  <p className="text-[11px] font-mono text-zinc-400 mb-4">
+                  <p className="text-[11px] tabular-nums text-fg-muted mb-4">
                     Tiempo transcurrido: {elapsedSeconds}s · Progreso: {renderProgress}%
                   </p>
 
-                  <div className="w-full max-w-[200px] bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="w-full max-w-[200px] bg-surface-2 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className="bg-gradient-to-r from-emerald-500 to-indigo-500 h-full transition-all duration-500"
+                      className="bg-gradient-to-r from-emerald-500 to-accent h-full transition-all duration-500"
                       style={{ width: `${renderProgress}%` }}
                     />
                   </div>
@@ -721,15 +922,15 @@ export function AvatarWorkspace() {
                 if (file) handlePhotoSelect(file);
               }}
               onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center p-8 text-center cursor-pointer group w-full h-full hover:bg-slate-200/50 dark:hover:bg-zinc-900/30 transition-colors"
+              className="flex flex-col items-center justify-center p-8 text-center cursor-pointer group w-full h-full hover:bg-surface-2/50 transition-colors"
             >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-2xs dark:bg-white/[0.04] group-hover:bg-slate-50 dark:group-hover:bg-white/[0.08] text-slate-500 dark:text-zinc-400 group-hover:text-emerald-500 dark:group-hover:text-emerald-400 transition-all mb-3 border border-slate-200 dark:border-white/[0.08]">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-surface shadow-2xs group-hover:bg-surface-2 text-fg-subtle group-hover:text-emerald-500 dark:group-hover:text-emerald-400 transition-all mb-3 border border-line">
                 <Camera className="h-6 w-6" />
               </div>
-              <p className="text-xs font-medium text-slate-800 dark:text-zinc-200 mb-1">
+              <p className="text-xs font-medium text-fg mb-1">
                 Arrastra tu foto de avatar aquí
               </p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-500 max-w-[200px]">
+              <p className="text-[11px] text-fg-subtle max-w-[200px]">
                 Retrato nítido frontal (.jpg, .png). Rostro iluminado y mirando a cámara.
               </p>
             </div>
@@ -754,21 +955,40 @@ export function AvatarWorkspace() {
       <div className="lg:col-span-7 space-y-4">
         {/* Banner de error si ocurre fallo */}
         {errorMsg && (
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs animate-in fade-in">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{errorMsg}</span>
+          <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300 text-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-500 dark:text-rose-400" />
+              <span>{errorMsg}</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleRender}
+              disabled={isRendering}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium text-[11px] transition-colors shrink-0 shadow-xs cursor-pointer"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reintentar</span>
+            </button>
           </div>
         )}
 
-        <div className="rounded-2xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-zinc-950/60 p-5 space-y-5 shadow-xs">
+        {/* Banner informativo de sincronización o borrado de voces */}
+        {voiceSuccessMsg && (
+          <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs animate-in fade-in">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+            <span>{voiceSuccessMsg}</span>
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-line bg-surface p-5 space-y-5 shadow-xs">
           {/* =================================================================
               MÓDULO 1: GUION & TEXTO (Google Gemini - Cero Costos / Pool Activo)
               ================================================================= */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <label className="text-xs font-medium text-fg-muted flex items-center gap-1.5">
                 <Bot className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
-                <span>1. Guion de Locución (Gemini 2.5 Flash • Cero Costos)</span>
+                <span>1. Guion de locución</span>
               </label>
 
               <button
@@ -778,7 +998,7 @@ export function AvatarWorkspace() {
                 className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors disabled:opacity-40 cursor-pointer"
               >
                 <Sparkles className="h-3 w-3" />
-                <span>{isGeneratingScript ? 'Redactando con Gemini...' : 'Generar con Gemini'}</span>
+                <span>{isGeneratingScript ? 'Redactando…' : 'Generar con IA'}</span>
               </button>
             </div>
 
@@ -788,7 +1008,7 @@ export function AvatarWorkspace() {
               value={scriptPrompt}
               onChange={(e) => setScriptPrompt(e.target.value)}
               placeholder="Idea o producto (ej: Serum antiedad de vitamina C)"
-              className="w-full rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100/60 dark:hover:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/40 px-3.5 py-2 text-xs text-slate-900 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-all"
+              className="w-full rounded-xl bg-surface-2 hover:bg-surface-2/60 border border-line focus:border-accent/60 focus:ring-1 focus:ring-accent/40 px-3.5 py-2 text-xs text-fg placeholder:text-fg-subtle outline-none transition-all"
             />
 
             {/* Textarea con el guion final que dirá el avatar */}
@@ -797,10 +1017,10 @@ export function AvatarWorkspace() {
               value={scriptText}
               onChange={(e) => setScriptText(e.target.value)}
               placeholder="Escribe o edita el texto exacto que el avatar dirá..."
-              className="w-full rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100/60 dark:hover:bg-white/[0.05] border border-slate-200 dark:border-white/[0.08] focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/40 p-3.5 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 outline-none transition-all resize-none leading-relaxed"
+              className="w-full rounded-xl bg-surface-2 hover:bg-surface-2/60 border border-line focus:border-accent/60 focus:ring-1 focus:ring-accent/40 p-3.5 text-xs text-fg placeholder:text-fg-subtle outline-none transition-all resize-none leading-relaxed"
             />
 
-            <div className="flex justify-between text-[11px] text-slate-500 dark:text-zinc-500 font-mono">
+            <div className="flex justify-between text-[11px] text-fg-subtle tabular-nums">
               <span>Aprox. ~{Math.round(scriptText.split(/\s+/).filter(Boolean).length / 2.5)}s de locución</span>
               <span>{scriptText.length} caracteres</span>
             </div>
@@ -809,22 +1029,36 @@ export function AvatarWorkspace() {
           {/* =================================================================
               MÓDULO 2: AUDIO CONDICIONAL (ElevenLabs vs Local MP3)
               ================================================================= */}
-          <div className="space-y-3 pt-3 border-t border-slate-200/80 dark:border-white/[0.06]">
+          <div className="space-y-3 pt-3 border-t border-line">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
-                <Music className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-                <span>2. Fuente de Audio (Locución o Archivo Local)</span>
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-fg-muted flex items-center gap-1.5">
+                  <Music className="h-3.5 w-3.5 text-accent" />
+                  <span>2. Fuente de Audio (Locución o Archivo Local)</span>
+                </label>
+                {audioMode === 'generar' && (
+                  <button
+                    type="button"
+                    onClick={() => fetchVoices(true)}
+                    disabled={isSyncingVoices}
+                    title="Sincronizar directamente con ElevenLabs y purgar registros fantasma"
+                    className="flex items-center gap-1 text-[10px] tabular-nums px-2 py-0.5 rounded-lg border border-line bg-surface-2 hover:bg-surface-2 text-fg-muted hover:text-accent transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`h-2.5 w-2.5 ${isSyncingVoices ? 'animate-spin text-accent' : ''}`} />
+                    <span>{isSyncingVoices ? 'Sincronizando...' : 'Sincronizar'}</span>
+                  </button>
+                )}
+              </div>
 
               {/* Segmented Switch: generar vs local */}
-              <div className="inline-flex p-0.5 rounded-lg bg-slate-100 dark:bg-zinc-900 border border-slate-200/80 dark:border-white/[0.08] text-xs">
+              <div className="inline-flex p-0.5 rounded-lg bg-surface-2 border border-line text-xs">
                 <button
                   type="button"
                   onClick={() => setAudioMode('generar')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all ${
                     audioMode === 'generar'
-                      ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-white font-medium'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      ? 'bg-surface text-fg shadow-xs font-medium'
+                      : 'text-fg-subtle hover:text-fg'
                   }`}
                 >
                   <Mic className="h-3 w-3" />
@@ -835,8 +1069,8 @@ export function AvatarWorkspace() {
                   onClick={() => setAudioMode('local')}
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-all ${
                     audioMode === 'local'
-                      ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-white font-medium'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
+                      ? 'bg-surface text-fg shadow-xs font-medium'
+                      : 'text-fg-subtle hover:text-fg'
                   }`}
                 >
                   <FileAudio className="h-3 w-3" />
@@ -847,27 +1081,154 @@ export function AvatarWorkspace() {
 
             {/* Sub-vista Condicional: MODO GENERAR (ElevenLabs) */}
             {audioMode === 'generar' ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {ELEVENLABS_VOICES.map((voice) => {
-                  const isSelected = selectedVoiceId === voice.id;
-                  return (
+              <div className="space-y-2.5">
+                {/* 1. Selector Minimalista de Voces (Menú Desplegable o ID Manual) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-medium text-fg-muted flex items-center gap-1.5">
+                      <Mic className="h-3 w-3 text-accent" />
+                      <span>Voz de Locución:</span>
+                    </span>
+
+                    {/* Botón para alternar / usar ID personalizado */}
                     <button
-                      key={voice.id}
                       type="button"
-                      onClick={() => setSelectedVoiceId(voice.id)}
-                      className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition-all ${
-                        isSelected
-                          ? 'bg-indigo-50 border-indigo-400 text-indigo-700 dark:bg-white/[0.08] dark:border-white/30 dark:text-white shadow-xs'
-                          : 'bg-slate-50 border-slate-200/80 text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:bg-white/[0.02] dark:border-white/[0.06] dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-white/[0.04]'
+                      onClick={() => handleToggleCustomVoiceId(!useCustomVoiceId)}
+                      className={`flex items-center gap-1 text-[10px] tabular-nums px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                        useCustomVoiceId
+                          ? 'bg-accent border-accent text-accent font-semibold shadow-2xs'
+                          : 'border-line bg-surface-2 hover:bg-surface-2 text-fg-muted hover:text-accent'
                       }`}
+                      title="Forzar un Voice ID específico sin depender de la lista desplegable"
                     >
-                      <span className="text-xs font-semibold truncate w-full">{voice.name}</span>
-                      <span className="text-[10px] text-slate-500 dark:text-zinc-500 truncate w-full mt-0.5">
-                        {voice.style}
-                      </span>
+                      <KeyRound className="h-2.5 w-2.5 text-accent" />
+                      <span>{useCustomVoiceId ? '✓ ID Manual Activo' : 'Usar ID Personalizado'}</span>
                     </button>
-                  );
-                })}
+                  </div>
+
+                  {useCustomVoiceId ? (
+                    /* Inyección Manual de Voice ID */
+                    <div className="space-y-2 p-2.5 rounded-xl bg-accent/60 border border-accent/80 animate-in fade-in">
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            value={customVoiceId}
+                            onChange={(e) => handleCustomVoiceIdChange(e.target.value)}
+                            placeholder="Introduce tu voice_id explícito (ej: oio1IiuJQR7FuDyK6NYDno)..."
+                            className="w-full rounded-lg bg-surface border border-accent/80 focus:border-accent focus:ring-1 focus:ring-accent/40 px-3 py-1.5 text-xs tabular-nums text-fg placeholder:text-fg-subtle outline-none transition-all"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCustomVoiceId(false)}
+                          className="px-2.5 py-1.5 rounded-lg border border-line bg-surface text-[11px] tabular-nums text-fg-subtle hover:text-fg transition-colors cursor-pointer shrink-0"
+                          title="Volver a seleccionar desde el menú desplegable"
+                        >
+                          Usar Menú
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] tabular-nums text-accent px-0.5">
+                        <span>⚡ Prioridad Alta: Este Voice ID forzará la síntesis ignorando el desplegable.</span>
+                        {customVoiceId.trim() && (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Guardado localmente ✓</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Selector Desplegable Estándar */
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <select
+                          value={selectedVoiceId}
+                          onChange={(e) => setSelectedVoiceId(e.target.value)}
+                          className="w-full appearance-none rounded-xl bg-surface-2 hover:bg-surface-2/80 border border-line focus:border-accent/60 focus:ring-1 focus:ring-accent/40 pl-3 pr-8 py-2 text-xs font-medium text-fg outline-none transition-all cursor-pointer"
+                        >
+                          {availableVoices.map((voice) => {
+                            const isCloned = voice.category === 'configured' || voice.category === 'cloned';
+                            return (
+                              <option
+                                key={voice.id}
+                                value={voice.id}
+                                className="bg-surface text-fg py-1"
+                              >
+                                {isCloned ? `⭐ ${voice.name} (Clonada)` : voice.name}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-fg-subtle pointer-events-none" />
+                      </div>
+
+                      {/* Botón de borrado si la voz activa es clonada */}
+                      {selectedVoice && (selectedVoice.category === 'cloned' || selectedVoice.category === 'configured') && (
+                        <button
+                          type="button"
+                          title="Eliminar esta voz clonada de ElevenLabs y almacenamiento local"
+                          onClick={() => setVoiceToDelete(selectedVoice)}
+                          className="p-2 rounded-xl border border-line bg-surface-2 hover:bg-rose-500/10 hover:border-rose-500/30 dark:hover:bg-rose-500/20 text-fg-subtle hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+
+                      {/* Botón Sincronizar en tiempo real */}
+                      <button
+                        type="button"
+                        onClick={() => fetchVoices(true)}
+                        disabled={isSyncingVoices}
+                        title="Sincronizar en tiempo real con ElevenLabs y purgar registros fantasma"
+                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-line bg-surface-2 hover:bg-surface-2 text-fg-muted hover:text-accent transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${isSyncingVoices ? 'animate-spin text-accent' : ''}`} />
+                        <span className="hidden sm:inline">{isSyncingVoices ? 'Sincronizando...' : 'Sincronizar'}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Subtítulo informativo */}
+                  <div className="flex items-center justify-between text-[11px] text-fg-subtle px-1">
+                    {useCustomVoiceId && customVoiceId.trim() ? (
+                      <span className="tabular-nums text-accent">
+                        Voice ID Forzado: {customVoiceId.trim()}
+                      </span>
+                    ) : selectedVoice ? (
+                      <span className="truncate">{selectedVoice.style}</span>
+                    ) : null}
+
+                    {useCustomVoiceId && customVoiceId.trim() ? (
+                      <span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:bg-amber-400/20 dark:text-amber-300 font-medium">
+                        Prioridad Manual Activa
+                      </span>
+                    ) : selectedVoice && (selectedVoice.category === 'configured' || selectedVoice.category === 'cloned') ? (
+                      <span className="text-[10px] tabular-nums px-1.5 py-0.5 rounded bg-accent/10 text-accent font-medium shrink-0 ml-2">
+                        {selectedVoice.category === 'configured' ? '⭐ Voz Oficial' : '⭐ Clonada'}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Modelo de ElevenLabs y sus ajustes (solo los que admite cada modelo) */}
+                <div className="pt-2 border-t border-line">
+                  <VoiceModelPanel
+                    modelId={selectedModelId}
+                    onModelChange={setSelectedModelId}
+                    settings={voiceSettings}
+                    onSettingsChange={setVoiceSettings}
+                    text={scriptText}
+                    onTextChange={setScriptText}
+                    tool="avatar-studio"
+                  />
+                </div>
+
+                {!isElevenLabsConfigured && (
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-[11px]">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <p>
+                      Configura <strong>ELEVENLABS_API_KEY</strong> y tu <strong>ELEVENLABS_VOICE_ID</strong> en tu archivo <code className="px-1 py-0.5 rounded bg-bg/10 tabular-nums">.env.local</code> para activar la locución con tu voz personalizada sin límites.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               /* Sub-vista Condicional: MODO LOCAL (Subir MP3 de disco) */
@@ -884,13 +1245,13 @@ export function AvatarWorkspace() {
                 />
 
                 {localAudioFile ? (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/[0.08]">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-surface-2 border border-line">
                     <div className="flex items-center gap-2.5 truncate">
                       <FileAudio className="h-4 w-4 text-emerald-500 dark:text-emerald-400 shrink-0" />
-                      <span className="text-xs font-medium text-slate-800 dark:text-zinc-200 truncate">
+                      <span className="text-xs font-medium text-fg truncate">
                         {localAudioFile.name}
                       </span>
-                      <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-500 shrink-0">
+                      <span className="text-[11px] tabular-nums text-fg-subtle shrink-0">
                         ({(localAudioFile.size / (1024 * 1024)).toFixed(2)} MB)
                       </span>
                     </div>
@@ -898,19 +1259,19 @@ export function AvatarWorkspace() {
                     <button
                       type="button"
                       onClick={() => setLocalAudioFile(null)}
-                      className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1 cursor-pointer"
+                      className="text-fg-subtle hover:text-rose-500 dark:hover:text-rose-400 p-1 cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 ) : loadedAudioName || activeProject?.audioName ? (
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-emerald-500/20">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-surface-2 border border-emerald-500/20">
                     <div className="flex items-center gap-2.5 truncate">
                       <FileAudio className="h-4 w-4 text-emerald-500 dark:text-emerald-400 shrink-0" />
-                      <span className="text-xs font-medium text-slate-800 dark:text-zinc-200 truncate">
+                      <span className="text-xs font-medium text-fg truncate">
                         {loadedAudioName || activeProject?.audioName}
                       </span>
-                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 shrink-0">
+                      <span className="text-[10px] tabular-nums text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 shrink-0">
                         Restaurado de Disco
                       </span>
                     </div>
@@ -919,7 +1280,7 @@ export function AvatarWorkspace() {
                       <button
                         type="button"
                         onClick={() => audioInputRef.current?.click()}
-                        className="text-[11px] text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white px-2 py-1 rounded bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] transition-colors shadow-2xs"
+                        className="text-[11px] text-fg-muted hover:text-fg px-2 py-1 rounded bg-surface border border-line transition-colors shadow-2xs"
                         title="Cambiar archivo por otro"
                       >
                         Cambiar
@@ -930,7 +1291,7 @@ export function AvatarWorkspace() {
                           setLoadedAudioName(null);
                           setLocalAudioFile(null);
                         }}
-                        className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1 cursor-pointer"
+                        className="text-fg-subtle hover:text-rose-500 dark:hover:text-rose-400 p-1 cursor-pointer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -939,9 +1300,9 @@ export function AvatarWorkspace() {
                 ) : (
                   <div
                     onClick={() => audioInputRef.current?.click()}
-                    className="flex items-center justify-center gap-2 p-3.5 rounded-xl border border-dashed border-slate-300 dark:border-white/[0.12] hover:border-slate-400 dark:hover:border-white/30 bg-slate-50/70 hover:bg-slate-100/60 dark:bg-white/[0.01] dark:hover:bg-white/[0.03] cursor-pointer text-xs text-slate-600 dark:text-zinc-400 transition-colors"
+                    className="flex items-center justify-center gap-2 p-3.5 rounded-xl border border-dashed border-line-strong hover:border-line-strong bg-surface-2/70 hover:bg-surface-2/60 cursor-pointer text-xs text-fg-muted transition-colors"
                   >
-                    <Upload className="h-4 w-4 text-slate-400 dark:text-zinc-400" />
+                    <Upload className="h-4 w-4 text-fg-subtle" />
                     <span>Seleccionar archivo .mp3 desde tu disco duro</span>
                   </div>
                 )}
@@ -949,31 +1310,41 @@ export function AvatarWorkspace() {
             )}
           </div>
 
+          {/* Movimiento y expresividad de HeyGen Avatar IV */}
+          <div className="pt-3 border-t border-line">
+            <MotionControls
+              motionPrompt={motionPrompt}
+              onMotionPromptChange={setMotionPrompt}
+              expressiveness={expressiveness}
+              onExpressivenessChange={setExpressiveness}
+            />
+          </div>
+
           {/* =================================================================
               MÓDULO 3: BOTÓN PRINCIPAL DE RENDERIZADO (Cloudinary -> OpenRouter)
               ================================================================= */}
-          <div className="pt-3 border-t border-slate-200/80 dark:border-white/[0.06]">
+          <div className="pt-3 border-t border-line">
             <button
               type="button"
               disabled={isRendering || (!photoFile && !photoPreviewUrl)}
               onClick={handleRender}
-              className="w-full relative overflow-hidden group flex items-center justify-between py-3.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black disabled:opacity-40 font-semibold text-xs tracking-wide transition-all shadow-md shadow-slate-900/10 dark:shadow-white/5 cursor-pointer"
+              className="btn-primary w-full h-12 px-4 text-sm !justify-between"
             >
               <div className="flex items-center gap-2">
                 {isRendering ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-white dark:text-black" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Cloud className="h-4 w-4 text-white dark:text-black" />
+                  <Cloud className="h-4 w-4" />
                 )}
                 <span>
                   {isRendering
                     ? renderPhase
-                    : 'Renderizar con Cloudinary & OpenRouter'}
+                    : 'Generar video'}
                 </span>
               </div>
 
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-800 text-white dark:bg-zinc-900 dark:text-white shadow-sm font-mono">
-                heygen/avatar-iv
+              <span className="text-[12px] font-medium opacity-75 tabular-nums">
+                Avatar IV
               </span>
             </button>
           </div>
@@ -999,6 +1370,7 @@ export function AvatarWorkspace() {
             audioName: localAudioFile ? localAudioFile.name : (loadedAudioName || activeProject?.audioName || undefined),
             ratio: aspectRatio,
             videoUrl: finalVideoUrl || undefined,
+            videoPath: finalVideoPath || activeProject?.videoPath || undefined,
             status: finalVideoUrl ? 'rendered' : 'draft',
             finalCostUSD: finalCostUSD ?? undefined,
             videoDurationReal: videoDurationReal ?? undefined,
@@ -1012,6 +1384,60 @@ export function AvatarWorkspace() {
         />
       </div>
     </div>
+
+    {/* Modal de Confirmación para Eliminar Voz en ElevenLabs */}
+    {voiceToDelete && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-2xl space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-500 dark:text-rose-400 border border-rose-500/20 shrink-0">
+              <Trash2 className="h-5 w-5" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-semibold text-fg">
+                ¿Eliminar Voz de ElevenLabs?
+              </h3>
+              <p className="text-xs text-fg-subtle leading-relaxed">
+                ¿Estás seguro de que deseas eliminar permanentemente la voz{' '}
+                <strong className="text-fg">
+                  &quot;{voiceToDelete.name}&quot;
+                </strong>{' '}
+                tanto de ElevenLabs como de tu almacenamiento local? Esta acción no se puede deshacer.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
+            <button
+              type="button"
+              disabled={isDeletingVoice}
+              onClick={() => setVoiceToDelete(null)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-fg-muted hover:bg-surface-2 transition-colors cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={isDeletingVoice}
+              onClick={handleDeleteVoice}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+            >
+              {isDeletingVoice ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Eliminando...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3 w-3" />
+                  <span>Eliminar Voz</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   </div>
   );
 }

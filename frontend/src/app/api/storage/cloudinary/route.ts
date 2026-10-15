@@ -48,3 +48,51 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+export async function GET() {
+  try {
+    const data = await cloudinaryStorageService.getTotalCount();
+    return NextResponse.json({
+      success: true,
+      ...data,
+    });
+  } catch (err: any) {
+    console.error('[API Cloudinary Count Error]:', err);
+    return NextResponse.json(
+      { error: err.message || 'Error al consultar almacenamiento de Cloudinary.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    let limit = 100;
+    try {
+      const url = new URL(req.url);
+      const qLimit = url.searchParams.get('limit');
+      if (qLimit) {
+        limit = parseInt(qLimit, 10) || 100;
+      } else {
+        const body = await req.json().catch(() => null);
+        if (body && typeof body.limit === 'number') {
+          limit = body.limit;
+        }
+      }
+    } catch {
+      // default limit
+    }
+
+    const cleanResult = await cloudinaryStorageService.deleteOldestFiles(limit);
+    return NextResponse.json({
+      success: true,
+      ...cleanResult,
+    });
+  } catch (err: any) {
+    console.error('[API Cloudinary Delete Error]:', err);
+    return NextResponse.json(
+      { error: err.message || 'Error al ejecutar limpieza en Cloudinary.' },
+      { status: 500 }
+    );
+  }
+}

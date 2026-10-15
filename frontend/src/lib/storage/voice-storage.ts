@@ -109,7 +109,7 @@ export async function saveStoredVoice(voice: ClonedVoiceRecord): Promise<void> {
 }
 
 /**
- * Elimina una voz clonada del almacenamiento local
+ * Elimina una voz clonada del almacenamiento local (cloned_voices.json)
  */
 export async function deleteStoredVoice(voiceId: string): Promise<boolean> {
   const filePath = await getVoicesFilePath();
@@ -118,6 +118,8 @@ export async function deleteStoredVoice(voiceId: string): Promise<boolean> {
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     let clonedList: ClonedVoiceRecord[] = JSON.parse(content);
+    if (!Array.isArray(clonedList)) return false;
+
     const initialLen = clonedList.length;
     clonedList = clonedList.filter((v) => v.id !== voiceId);
 
@@ -131,3 +133,34 @@ export async function deleteStoredVoice(voiceId: string): Promise<boolean> {
 
   return false;
 }
+
+/**
+ * Sincroniza la lista local de voces clonadas contra los IDs válidos existentes en ElevenLabs.
+ * Purga de forma atómica cualquier registro fantasma que haya sido borrado en ElevenLabs.
+ */
+export async function syncStoredVoices(validRemoteVoiceIds: Set<string>): Promise<ClonedVoiceRecord[]> {
+  const filePath = await getVoicesFilePath();
+  if (!fsSync.existsSync(filePath)) return [];
+
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const clonedList: ClonedVoiceRecord[] = JSON.parse(content);
+    if (!Array.isArray(clonedList)) return [];
+
+    // Conservar únicamente las voces que aún existen en la cuenta remota de ElevenLabs
+    const purgedList = clonedList.filter((v) => validRemoteVoiceIds.has(v.id));
+
+    // Si se detectaron registros fantasma eliminados remotamente, actualizar el JSON local
+    if (purgedList.length !== clonedList.length) {
+      const removedCount = clonedList.length - purgedList.length;
+      console.log(`[VoiceStorage] Purgadas ${removedCount} voces fantasma inexistentes en ElevenLabs.`);
+      await fs.writeFile(filePath, JSON.stringify(purgedList, null, 2), 'utf-8');
+    }
+
+    return purgedList;
+  } catch (err) {
+    console.warn('[VoiceStorage] Error sincronizando archivo cloned_voices.json:', err);
+    return [];
+  }
+}
+

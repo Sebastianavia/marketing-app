@@ -2,48 +2,99 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+/* =============================================================================
+   Lulo Studio — tokens de diseño
+   Una sola familia de grises neutros + un único acento (azul eléctrico).
+   El acento se reserva para: acción principal (Generar), estado activo y
+   progreso de IA. Todo lo demás es neutro.
+   ============================================================================= */
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+
+  --radius-card: 14px;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @layer base {
   :root {
-    --background: #f8fafc;
-    --foreground: #09090b;
-    --muted: #64748b;
-    --border: rgba(0, 0, 0, 0.08);
+    --bg: #f6f6f7;
     --surface: #ffffff;
-    --surface-elevated: #f1f5f9;
+    --surface-2: #f0f0f2;
+    --line: rgb(17 17 22 / 0.08);
+    --line-strong: rgb(17 17 22 / 0.15);
+    --fg: #111114;
+    --fg-muted: #55555e;
+    --fg-subtle: #8a8a93;
+    --accent: #3a63f5;
+    --accent-hover: #2f55e0;
+    --accent-fg: #ffffff;
+    --shadow-card: 0 1px 2px rgb(17 17 22 / 0.04), 0 8px 24px -12px rgb(17 17 22 / 0.10);
+    --shadow-lift: 0 2px 4px rgb(17 17 22 / 0.05), 0 18px 40px -16px rgb(17 17 22 / 0.18);
+    --glass: rgb(255 255 255 / 0.72);
+    color-scheme: light;
   }
 
   .dark {
-    --background: #000000;
-    --foreground: #EDEDED;
-    --muted: #707070;
-    --border: rgba(255, 255, 255, 0.08);
-    --surface: #0A0A0A;
-    --surface-elevated: #111111;
+    --bg: #0b0b0d;
+    --surface: #131316;
+    --surface-2: #1a1a1e;
+    --line: rgb(255 255 255 / 0.07);
+    --line-strong: rgb(255 255 255 / 0.13);
+    --fg: #ececef;
+    --fg-muted: #a1a1aa;
+    --fg-subtle: #6c6c75;
+    --accent: #5b80ff;
+    --accent-hover: #7193ff;
+    --accent-fg: #ffffff;
+    --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -14px rgb(0 0 0 / 0.6);
+    --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 22px 44px -18px rgb(0 0 0 / 0.75);
+    --glass: rgb(22 22 26 / 0.72);
+    color-scheme: dark;
   }
 
-  /* Desktop App Root: Strict 100vw / 100vh lock, no window scroll */
   html,
   body {
     width: 100vw;
-    height: 100vh;
-    max-width: 100vw;
-    max-height: 100vh;
+    height: 100dvh;
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: var(--background);
-    color: var(--foreground);
-    letter-spacing: -0.015em;
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     user-select: none;
     -webkit-user-select: none;
     overscroll-behavior: none;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    font-feature-settings: "ss01", "cv11";
   }
 
-  /* Allow text selection inside inputs, textareas, and code output */
+  h1, h2, h3 {
+    text-wrap: balance;
+    letter-spacing: -0.022em;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
   input,
   textarea,
   pre,
@@ -53,9 +104,19 @@
     user-select: text;
     -webkit-user-select: text;
   }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+  }
 }
 
-/* Frameless Desktop Window Drag Region Utilities (Electron / Tauri / Wails) */
+/* Ventana sin marco (Electron / Tauri) */
 .drag-region {
   -webkit-app-region: drag;
   app-region: drag;
@@ -66,102 +127,216 @@
   app-region: no-drag;
 }
 
-/* Linear/Vercel-style Micro-Utility Tokens */
+/* -----------------------------------------------------------------------------
+   Superficies
+   ----------------------------------------------------------------------------- */
+
 .surface-card {
   background-color: var(--surface);
-  border: 1px solid var(--border);
-  transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 0.2s var(--ease-out-soft),
+    box-shadow 0.25s var(--ease-out-soft),
+    transform 0.25s var(--ease-out-soft);
 }
 
-.surface-card:hover {
-  border-color: rgba(0, 0, 0, 0.15);
-  background-color: #f8fafc;
+.surface-card-interactive:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-lift);
+  transform: translateY(-2px);
 }
 
-.dark .surface-card:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-  background-color: #0F0F0F;
+.surface-card-interactive:active {
+  transform: translateY(0) scale(0.995);
 }
 
+/* Cristal para modales y paneles flotantes */
+.glass-panel {
+  background: var(--glass);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lift), inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.glass-panel-hover {
+  transition: border-color 0.2s ease, transform 0.25s var(--ease-out-soft);
+}
+
+.glass-panel-hover:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+
+/* Campos de formulario */
 .input-clean {
   background-color: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--foreground);
-  transition: border-color 0.15s ease;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input-clean:hover {
+  border-color: var(--line-strong);
 }
 
 .input-clean:focus {
   outline: none;
-  border-color: rgba(0, 0, 0, 0.25);
-}
-
-.dark .input-clean:focus {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .input-clean::placeholder {
-  color: #94A3B8;
+  color: var(--fg-subtle);
 }
 
-.dark .input-clean::placeholder {
-  color: #52525B;
+/* Botón principal: el único lugar donde el acento se usa como fondo */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 500;
+  border-radius: 10px;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.18) inset,
+    0 6px 18px -8px color-mix(in srgb, var(--accent) 70%, transparent);
+  transition: background-color 0.15s ease, transform 0.12s ease, box-shadow 0.2s ease, opacity 0.15s ease;
 }
 
-/* High-Precision Subtle Pulse */
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.2) inset,
+    0 10px 24px -8px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Botón secundario neutro */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-weight: 500;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.12s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Etiqueta de sección (sustituye a las etiquetas mono en mayúsculas) */
+.field-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--fg);
+  letter-spacing: -0.006em;
+}
+
+/* Progreso de IA: brillo que recorre la barra */
+@keyframes ai-sheen {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.ai-progress-sheen {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  animation: ai-sheen 1.6s var(--ease-out-soft) infinite;
+}
+
 @keyframes subtle-pulse {
-  0%, 100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.9;
-  }
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
 }
 
 .animate-subtle-pulse {
   animation: subtle-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Desktop App Scrollbar (Sleek, slim, non-intrusive) */
-.desktop-scroll::-webkit-scrollbar,
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.desktop-scroll::-webkit-scrollbar-track,
+.animate-view-enter {
+  animation: view-enter 0.32s var(--ease-out-soft) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-view-enter,
+  .ai-progress-sheen,
+  .animate-subtle-pulse {
+    animation: none;
+  }
+  .surface-card-interactive:hover {
+    transform: none;
+  }
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.desktop-scroll::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--line-strong);
   border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
-.dark .desktop-scroll::-webkit-scrollbar-thumb,
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.desktop-scroll::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--fg-subtle);
+  background-clip: padding-box;
 }
 
-.dark .desktop-scroll::-webkit-scrollbar-thumb:hover,
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-/* Minimalist Range Slider (Linear / Apple style) */
+/* Slider minimalista */
 input[type="range"].slider-minimal {
   -webkit-appearance: none;
   appearance: none;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-2);
   border-radius: 9999px;
   outline: none;
   height: 4px;
+  accent-color: var(--accent);
 }
 
 input[type="range"].slider-minimal::-webkit-slider-thumb {
@@ -170,23 +345,23 @@ input[type="range"].slider-minimal::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 255, 255, 0.2);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s ease, border-color 0.15s ease;
 }
 
 input[type="range"].slider-minimal::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6), 0 0 0 4px rgba(255, 255, 255, 0.25);
+  transform: scale(1.12);
+  border-color: var(--accent);
 }
 
 input[type="range"].slider-minimal::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #ffffff;
-  border: none;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(255, 255, 255, 0.2);
 }

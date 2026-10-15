@@ -1,16 +1,217 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import { createRequire } from 'module';
+import fsSync from 'fs';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
 
 /**
- * Utilidades de ffmpeg (servidor). La app corre en escritorio con ffmpeg instalado;
- * FFMPEG_PATH permite apuntar a un binario específico.
+ * FFmpeg para cortar la voz por escenas y montar el video final.
+ * Busca el ejecutable en este orden:
+ *   1. FFMPEG_PATH en .env.local
+ *   2. el paquete npm `ffmpeg-static` (npm i ffmpeg-static), que el futuro .exe puede incluir
+ *   3. `ffmpeg` instalado en el sistema (PATH)
  */
 
+let cached: string | null = null;
+
+export function resolveFfmpegPath(): string {
+  if (cached) return cached;
+  const fromEnv = process.env.FFMPEG_PATH?.trim();
+  if (fromEnv && fsSync.existsSync(fromEnv)) return (cached = fromEnv);
+  try {
+    const req = createRequire(path.join(process.cwd(), 'package.json'));
+    const pkg = 'ffmpeg-static';
+    const p = req(pkg) as string | null;
+    if (p && fsSync.existsSync(p)) return (cached = p);
+  } catch {
+    // ffmpeg-static no instalado
+  }
+  return (cached = 'ffmpeg');
+}
+
+export function runFfmpeg(args: string[], timeoutMs = 10 * 60 * 1000): Promise<string> {
+  const bin = resolveFfmpegPath();
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { windowsHide: true });
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('FFmpeg tardó demasiado y se detuvo.'));
+    }, timeoutMs);
+    child.stderr.on('data', (d) => {
+      stderr = (stderr + d.toString()).slice(-8000);
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(
+        new Error(
+          (err as NodeJS.ErrnoException).code === 'ENOENT'
+            ? 'No se encontró FFmpeg. En la carpeta frontend ejecuta: npm i ffmpeg-static (o define FFMPEG_PATH en .env.local).'
+            : `No se pudo ejecutar FFmpeg: ${err.message}`
+        )
+      );
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stderr);
+      else reject(new Error(`FFmpeg falló (código ${code}): ${stderr.split('\n').slice(-6).join(' ').trim()}`));
+    });
+  });
+}
+
+/** Devuelve la versión de FFmpeg o null si no está disponible. */
+export async function ffmpegVersion(): Promise<string | null> {
+  try {
+    const bin = resolveFfmpegPath();
+    return await new Promise((resolve) => {
+      const child = spawn(bin, ['-version'], { windowsHide: true });
+      let out = '';
+      child.stdout.on('data', (d) => (out += d.toString()));
+      child.on('error', () => resolve(null));
+      child.on('close', (code) => resolve(code === 0 ? out.split('\n')[0].trim() : null));
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Corta un tramo de audio [start, end] en segundos a un MP3 nuevo. */
+export async function sliceAudio(input: string, start: number, end: number, output: string) {
+  await runFfmpeg([
+    '-y', '-i', input,
+    '-ss', start.toFixed(3), '-to', end.toFixed(3),
+    '-c:a', 'libmp3lame', '-b:a', '192k',
+    output,
+  ]);
+}
+
+export interface StitchClip {
+  path: string;
+}
+
+export interface StitchOptions {
+  clips: StitchClip[];
+  /** Segundo del video final en el que empieza cada escena (la primera en 0). */
+  starts: number[];
+  /** Duración total = duración de la voz (o de los clips si se usa su propio audio). */
+  total: number;
+  /** Voz continua encima de todo. Si falta, se usa el audio de cada clip (clipHasAudio). */
+  audioPath?: string;
+  /** Duración de cada clip a usar (si no, sale de los inicios). */
+  lens?: number[];
+  /** Con audio propio de los clips: si cada clip trae pista de audio. */
+  clipHasAudio?: boolean[];
+  output: string;
+  width: number;
+  height: number;
+  fps?: number;
+  /** Fundido entre clips, en segundos. */
+  crossfade?: number;
+}
+
+/**
+ * Argumentos de FFmpeg para el montaje: cada clip se ajusta al cuadro, se congela
+ * el último fotograma si es más corto que su escena (tpad), se recorta a su duración,
+ * y se une con xfade. Encima va la voz completa, sin cortes.
+ */
+export function buildStitchArgs(o: StitchOptions): string[] {
+  const n = o.clips.length;
+  if (n === 0) throw new Error('No hay clips para montar.');
+  if (o.starts.length !== n) throw new Error('Cada clip necesita su inicio.');
+  const fps = o.fps ?? 30;
+  const d = n > 1 ? Math.max(0, o.crossfade ?? 0.5) : 0;
+
+  const lens =
+    o.lens ??
+    o.clips.map((_, i) => (i < n - 1 ? o.starts[i + 1] - o.starts[i] + d : o.total - o.starts[i]));
+  const useClipAudio = !o.audioPath;
+  if (useClipAudio && !o.clipHasAudio) throw new Error('Falta saber qué clips traen audio.');
+  if (lens.some((l) => !(l > d))) throw new Error('Hay una escena demasiado corta para el fundido.');
+
+  const args: string[] = ['-y'];
+  o.clips.forEach((c) => args.push('-i', c.path));
+  if (o.audioPath) args.push('-i', o.audioPath);
+
+  const f: string[] = [];
+  o.clips.forEach((_, i) => {
+    f.push(
+      `[${i}:v]scale=${o.width}:${o.height}:force_original_aspect_ratio=increase,crop=${o.width}:${o.height},` +
+        `fps=${fps},format=yuv420p,setsar=1,tpad=stop_mode=clone:stop_duration=${lens[i].toFixed(3)},` +
+        `trim=duration=${lens[i].toFixed(3)},setpts=PTS-STARTPTS,settb=AVTB[v${i}]`
+    );
+  });
+  let last = 'v0';
+  for (let k = 1; k < n; k++) {
+    const out = k === n - 1 ? 'vout' : `x${k}`;
+    f.push(`[${last}][v${k}]xfade=transition=fade:duration=${d.toFixed(3)}:offset=${o.starts[k].toFixed(3)}[${out}]`);
+    last = out;
+  }
+  if (n === 1) f.push(`[v0]null[vout]`);
+
+  let audioMap = `${n}:a`;
+  if (useClipAudio) {
+    // Audio de cada clip (o silencio si no trae), recortado a su duración y unido con fundido cruzado
+    o.clips.forEach((_, i) => {
+      f.push(
+        o.clipHasAudio![i]
+          ? `[${i}:a]aresample=44100,aformat=channel_layouts=stereo,apad,atrim=duration=${lens[i].toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`
+          : `anullsrc=r=44100:cl=stereo,atrim=duration=${lens[i].toFixed(3)}[a${i}]`
+      );
+    });
+    let la = 'a0';
+    for (let k = 1; k < n; k++) {
+      const out = k === n - 1 ? 'aout' : `ax${k}`;
+      f.push(`[${la}][a${k}]acrossfade=d=${d.toFixed(3)}[${out}]`);
+      la = out;
+    }
+    if (n === 1) f.push(`[a0]anull[aout]`);
+    audioMap = '[aout]';
+  }
+
+  args.push(
+    '-filter_complex', f.join(';'),
+    '-map', '[vout]', '-map', audioMap,
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '192k',
+    '-t', o.total.toFixed(3),
+    '-movflags', '+faststart',
+    o.output
+  );
+  return args;
+}
+
+export async function stitchScenes(o: StitchOptions) {
+  await runFfmpeg(buildStitchArgs(o));
+}
+
+/** Duración y si trae audio, leyendo la cabecera con FFmpeg. */
+export async function probeMedia(file: string): Promise<{ duration: number | null; hasAudio: boolean }> {
+  const bin = resolveFfmpegPath();
+  const stderr: string = await new Promise((resolve) => {
+    const child = spawn(bin, ['-hide_banner', '-i', file], { windowsHide: true });
+    let err = '';
+    child.stderr.on('data', (d) => (err += d.toString()));
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(err));
+  });
+  const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
+  const duration = m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : null;
+  return { duration, hasAudio: /Stream #\S+.*Audio:/.test(stderr) };
+}
+
+export function frameSize(aspect: '9:16' | '16:9' | '1:1'): { width: number; height: number } {
+  if (aspect === '16:9') return { width: 1280, height: 720 };
+  if (aspect === '1:1') return { width: 720, height: 720 };
+  return { width: 720, height: 1280 };
+}
+
+// =============================================================================
+// UGC Studio: unión de escenas encadenadas (recortes, degradado de color, ventanas A/V)
+// =============================================================================
+
 const run = promisify(execFile);
-const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
 
 export async function makeTempDir(prefix = 'ugc-studio-'): Promise<string> {
@@ -76,7 +277,7 @@ export async function frameColorStats(
 ): Promise<ColorStats> {
   const seek = at.fromEnd !== undefined ? ['-sseof', `-${at.fromEnd}`] : ['-ss', String(at.start ?? 0)];
   const { stdout } = await promisify(execFile)(
-    FFMPEG,
+    resolveFfmpegPath(),
     ['-v', 'error', ...seek, '-i', file, '-frames:v', '1', '-vf', `${fillCrop(size)},scale=${STATS_WIDTH}:${STATS_HEIGHT},format=rgb24`, '-f', 'rawvideo', '-'],
     { encoding: 'buffer', maxBuffer: 10 * 1024 * 1024 }
   );
@@ -125,7 +326,7 @@ export interface ColorRamp {
 /** Extrae el último fotograma como JPG (se usa como first_frame de la escena siguiente). */
 export async function extractLastFrame(videoFile: string): Promise<Buffer> {
   const out = path.join(path.dirname(videoFile), `${path.basename(videoFile, path.extname(videoFile))}_last.jpg`);
-  await run(FFMPEG, ['-y', '-sseof', '-0.15', '-i', videoFile, '-update', '1', '-q:v', '2', out]);
+  await run(resolveFfmpegPath(), ['-y', '-sseof', '-0.15', '-i', videoFile, '-update', '1', '-q:v', '2', out]);
   return fs.readFile(out);
 }
 
@@ -197,7 +398,7 @@ export async function concatClips(
   }
 
   await run(
-    FFMPEG,
+    resolveFfmpegPath(),
     [
       '-y',
       ...files.flatMap((f) => ['-i', f]),

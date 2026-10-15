@@ -5,6 +5,8 @@ import { getGeminiKeyPool } from '@/lib/ai/gemini-pool';
 import { heygenService, HeyGenApiError } from '@/services/heygen.service';
 import { ElevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
 import { openRouterService } from '@/services/openrouter.service';
+import { recordUsage } from '@/lib/usage/usage-store';
+import { llmCost } from '@/config/llm-models';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 minutos máximo
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
 
       if (!generated) {
         // Fallback de emergencia si no hubiera llaves de Gemini
-        const scriptResponse = await openRouterService.generateMarketingScript({
+        const { script: scriptResponse, model, inputTokens, outputTokens } = await openRouterService.generateMarketingScript({
           productName: prompt.slice(0, 40),
           productDescription: prompt,
           targetAudience: 'Audiencia general de video marketing',
@@ -69,6 +71,17 @@ export async function POST(req: NextRequest) {
           format: 'ugc_testimonial',
         });
         scriptText = scriptResponse.fullSpokenText || scriptResponse.coreHook;
+        await recordUsage({
+          tool: 'avatar-studio',
+          kind: 'script',
+          provider: 'openrouter',
+          model,
+          description: `Guion de respaldo (sin Gemini) · "${prompt.slice(0, 50)}"`,
+          units: inputTokens + outputTokens,
+          unit: 'tokens',
+          costUSD: llmCost(model, inputTokens, outputTokens),
+          estimated: inputTokens + outputTokens === 0,
+        });
       }
     }
 

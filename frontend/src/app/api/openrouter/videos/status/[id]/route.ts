@@ -45,7 +45,21 @@ export async function GET(
 
     const taskData = data.data || data;
     const status = (taskData.status || taskData.state || '').toLowerCase();
+
+    // Captura de array unsigned_urls retornado por OpenRouter
+    const unsignedUrls =
+      (Array.isArray(taskData.unsigned_urls) && taskData.unsigned_urls) ||
+      (Array.isArray(data.unsigned_urls) && data.unsigned_urls) ||
+      (Array.isArray(taskData.output?.unsigned_urls) && taskData.output.unsigned_urls) ||
+      [];
+
+    const firstUnsignedUrl =
+      unsignedUrls.length > 0 && typeof unsignedUrls[0] === 'string'
+        ? unsignedUrls[0].trim()
+        : null;
+
     const videoUrl =
+      firstUnsignedUrl ||
       taskData.video_url ||
       taskData.url ||
       taskData.output ||
@@ -66,6 +80,8 @@ export async function GET(
       status: isFailed ? 'failed' : isFinished ? 'completed' : status || 'processing',
       progress,
       videoUrl: typeof videoUrl === 'string' ? videoUrl : null,
+      unsigned_urls: unsignedUrls,
+      unsignedUrls,
       error: taskData.error?.message || taskData.error || (isFailed ? 'La generación de video fue cancelada o falló en el proveedor.' : null),
       rawStatus: status,
       isFinished,
