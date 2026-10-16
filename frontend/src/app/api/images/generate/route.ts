@@ -102,7 +102,11 @@ export async function POST(req: NextRequest) {
             { status: 401 }
           );
         }
-        errors.push(msg);
+        errors.push(
+          /exceeded your current quota|resource has been exhausted|rate.?limit/i.test(String(msg))
+            ? `${spec.name} está saturado en este momento (el proveedor se quedó sin cupo; no se te cobró). Prueba en unos minutos o usa otro modelo.`
+            : msg
+        );
         await recordUsage({
           tool: 'image-studio', kind: 'image', provider: 'openrouter', model: spec.id,
           description: `Imagen falló: ${String(msg).slice(0, 80)}`, units: 0, unit: 'imágenes', costUSD: 0, estimated: false, status: 'failed',
@@ -154,7 +158,15 @@ export async function POST(req: NextRequest) {
     if (!out.length) {
       return NextResponse.json({ error: errors[0] || 'No se pudo generar la imagen.' }, { status: 502 });
     }
-    return NextResponse.json({ images: out, errors });
+    return NextResponse.json({
+      images: out,
+      errors,
+      sent: {
+        avatar: avatarLabel ? avatarLabel.replace(' · avatar ', '') : null,
+        avatarPhotos: references.length - body.references.length,
+        extraRefs: body.references.length,
+      },
+    });
   } catch (err) {
     if (err instanceof AvatarError) return NextResponse.json({ error: err.message }, { status: err.status });
     if (err instanceof DailyLimitError) return NextResponse.json({ error: err.message }, { status: 402 });

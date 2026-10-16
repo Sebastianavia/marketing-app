@@ -1,7 +1,9 @@
 /**
  * Modelos de imagen (OpenRouter Image API, POST /api/v1/images).
  * Datos de /api/v1/images/models y /endpoints, consultados el 13 oct 2026.
- * Todos aceptan hasta 14 imágenes de referencia (input_references).
+ * Límite de referencias según cada proveedor (OpenRouter anuncia 14 para todos, pero el proveedor manda):
+ *  - Seedream 5.0 Flash: 10 (docs BytePlus ModelArk; el proveedor rechaza 11+ con "cannot exceed 10").
+ *  - Seedream 4.5: 14 (docs BytePlus). Nano Banana 2.1: 14 (docs Google).
  */
 export interface ImageModelSpec {
   id: string;
@@ -17,11 +19,11 @@ export const IMAGE_MODELS: ImageModelSpec[] = [
   {
     id: 'bytedance-seed/seedream-5-0-flash',
     name: 'Seedream 5.0 Flash',
-    maxRefs: 14,
+    maxRefs: 10,
     resolutions: ['1K', '2K'],
     // $0.018 por imagen; las imágenes de entrada no se cobran
     pricePerImage: { '1K': 0.018, '2K': 0.018 },
-    note: 'El más barato: $0.018 por imagen, referencias gratis.',
+    note: 'El más barato: $0.018 por imagen, referencias gratis. Máximo 10 referencias (avatar + extras).',
   },
   {
     id: 'google/gemini-nano-banana-2.1',
@@ -36,9 +38,10 @@ export const IMAGE_MODELS: ImageModelSpec[] = [
     id: 'bytedance-seed/seedream-4.5',
     name: 'Seedream 4.5',
     maxRefs: 14,
-    resolutions: ['1K', '2K', '4K'],
-    pricePerImage: { '1K': 0.04, '2K': 0.04, '4K': 0.04 },
-    note: '$0.04 por imagen, hasta 4K.',
+    // El proveedor exige al menos 3.686.400 píxeles de salida: 1K no se admite.
+    resolutions: ['2K', '4K'],
+    pricePerImage: { '2K': 0.04, '4K': 0.04 },
+    note: '$0.04 por imagen, hasta 4K y 14 referencias: úsalo si tu avatar tiene más de 10 fotos.',
   },
 ];
 

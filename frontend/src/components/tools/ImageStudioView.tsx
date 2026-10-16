@@ -29,9 +29,12 @@ interface Result {
   path: string;
   costUSD: number;
   prompt: string;
+  /** Qué se envió de verdad al modelo (lo confirma el servidor). */
+  sent?: string;
 }
 
 const usd = (n: number) => `$${n.toFixed(3)}`;
+const LAST_AVATAR_KEY = 'lulo.imageStudio.avatarId';
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,7 +59,25 @@ export function ImageStudioView() {
   const input = useRef<HTMLInputElement>(null);
   const [avatars, setAvatars] = useState<AvatarDto[] | null>(null);
   // Si venimos de "Crear imágenes con este avatar", arranca con ese avatar elegido.
-  const [avatarId, setAvatarId] = useState<string | null>(() => useNavStore.getState().pendingAvatarId);
+  const [avatarId, setAvatarIdState] = useState<string | null>(() => {
+    const pending = useNavStore.getState().pendingAvatarId;
+    if (pending) return pending;
+    try {
+      return localStorage.getItem(LAST_AVATAR_KEY);
+    } catch {
+      return null;
+    }
+  });
+  /** El avatar elegido se recuerda aunque recargues la página o cierres la app. */
+  const setAvatarId = (id: string | null) => {
+    setAvatarIdState(id);
+    try {
+      if (id) localStorage.setItem(LAST_AVATAR_KEY, id);
+      else localStorage.removeItem(LAST_AVATAR_KEY);
+    } catch {
+      // sin almacenamiento: solo se pierde el recuerdo
+    }
+  };
   const takePendingAvatar = useNavStore((s) => s.takePendingAvatar);
   const openTool = useNavStore((s) => s.openTool);
 
@@ -98,6 +119,7 @@ export function ImageStudioView() {
   const generate = async () => {
     setError(null);
     if (prompt.trim().length < 3) return setError('Escribe qué imagen quieres.');
+    if (refs.length > maxExtra) return setError(`${spec.name} acepta hasta ${spec.maxRefs} imágenes en total; quita ${refs.length - maxExtra} referencia(s) extra.`);
     setBusy(true);
     try {
       const r = await fetch('/api/images/generate', {
@@ -116,7 +138,10 @@ export function ImageStudioView() {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'No se pudo generar la imagen.');
-      setResults((cur) => [...d.images.map((im: Omit<Result, 'prompt'>) => ({ ...im, prompt })), ...cur]);
+      const sent = d.sent
+        ? `${d.sent.avatar ? `${d.sent.avatarPhotos} fotos de ${d.sent.avatar}` : 'Sin avatar'}${d.sent.extraRefs ? ` + ${d.sent.extraRefs} referencias` : ''}`
+        : undefined;
+      setResults((cur) => [...d.images.map((im: Omit<Result, 'prompt'>) => ({ ...im, prompt, sent })), ...cur]);
       if (d.errors?.length) setError(`Algunas imágenes fallaron: ${d.errors[0]}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo generar la imagen.');
@@ -312,6 +337,13 @@ export function ImageStudioView() {
             </select>
           </label>
           <span className="text-[12px] tabular-nums text-fg-muted">≈ {usd(unit * count)}</span>
+          <span className={`text-[12px] ${avatar || refs.length ? 'text-fg-muted' : 'text-amber-600 dark:text-amber-400'}`}>
+            {avatar
+              ? `Con ${avatar.name} (${avatarUsed} fotos)${refs.length ? ` + ${refs.length} ref.` : ''}`
+              : refs.length
+                ? `${refs.length} referencias, sin avatar`
+                : 'Sin avatar ni referencias: el modelo inventará a la persona'}
+          </span>
           <button type="button" onClick={generate} disabled={busy} className="btn-primary ml-auto h-10 px-5 text-[13px]">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {busy ? 'Generando…' : count > 1 ? `Generar ${count} imágenes` : 'Generar imagen'}
@@ -337,6 +369,7 @@ export function ImageStudioView() {
                 <img src={r.url} alt={r.prompt} className="w-full bg-surface-2 object-contain" />
                 <figcaption className="flex flex-wrap items-center gap-2 p-3 text-[11px] text-fg-muted">
                   <span className="tabular-nums">{usd(r.costUSD)}</span>
+                  {r.sent && <span>· {r.sent}</span>}
                   <a href={r.url} download className="ml-auto flex items-center gap-1 hover:text-fg">
                     <Download className="h-3.5 w-3.5" /> Descargar
                   </a>
