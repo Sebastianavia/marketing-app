@@ -71,6 +71,8 @@ Navegación en `src/app/page.tsx`: estado `activeTool` (no hay rutas por herrami
 
 ## Sistema de diseño actual
 
+- **Marca (2026-10-21):** logo "LULO" (Archivo Black, ancho 125 %) con la O como lulo partido (naranja `#FF8A1F`, lima `#C6FF3D`, play al centro). Archivos en `brand/lulo-studio-logo/` (SVG con letras en trazos, PNG, `favicon.ico`, `lulo-icono-app.ico` para el .exe, `LEEME.md` con reglas de uso). En la app: `components/brand/LuloLogo.tsx` (`LuloLogo`, `LuloMark`), `app/favicon.ico`, `app/icon.svg`, `app/apple-icon.png`. Tokens actuales: acento lima (`--accent`, oliva `#4d7c0f` en modo claro), `--brand` lima con texto oscuro, títulos con `font-display` (Archivo).
+
 - Estética "Linear/Vercel": negro puro `#000` / `#050505`, superficies `#0A0A0A`/`#111`, bordes `white/[0.06–0.08]`,
   tipografía pequeña (text-xs/11px), mucho `font-mono` uppercase para etiquetas. Modo claro completo (`useThemeStore`, clave `lulo_theme`).
 - Tokens en `src/app/globals.css` (`--background`, `--surface`, `--border`…) + utilidades `.surface-card`, `.input-clean`,

@@ -4,6 +4,7 @@ import React, { useState, useSyncExternalStore } from 'react';
 import { Minus, Square, Copy, X, Sparkles } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { LuloLogo } from '@/components/brand/LuloLogo';
 import { CloudinaryCleanWidget } from '@/components/storage/CloudinaryCleanWidget';
 import { TodaySpend } from '@/components/layout/TodaySpend';
 import { OrchestratorPicker } from '@/components/layout/OrchestratorPicker';
@@ -78,12 +79,7 @@ export function TitleBar({ activeToolTitle, onNavigateHome, onOpenCosts }: Title
           className="flex items-center gap-2 rounded-md px-1 py-1 transition-opacity hover:opacity-75"
           aria-label="Ir al inicio"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand font-display text-[14px] font-black text-brand-fg">
-            L
-          </span>
-          <span className="font-display text-[14px] font-extrabold uppercase tracking-[-0.01em] text-fg" style={{ fontStretch: '118%' }}>
-            Lulo Studio
-          </span>
+          <LuloLogo size={17} />
         </button>
 
         {activeToolTitle && (
