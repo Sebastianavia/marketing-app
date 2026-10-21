@@ -14,6 +14,7 @@ import { ImageStudioView } from '@/components/tools/ImageStudioView';
 import { AvatarsView } from '@/components/tools/AvatarsView';
 import { useNavStore } from '@/store/useNavStore';
 import { BuzzyView } from '@/components/tools/BuzzyView';
+import { PromptLibraryView } from '@/components/tools/PromptLibraryView';
 import { CostsView } from '@/components/costs/CostsView';
 import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
@@ -108,6 +109,7 @@ export default function Home() {
               {activeTool === 'image-studio' && <ImageStudioView />}
               {activeTool === 'avatars' && <AvatarsView />}
               {activeTool === 'buzzy' && <BuzzyView />}
+              {activeTool === 'prompt-library' && <PromptLibraryView />}
               {activeTool === 'costs' && <CostsView />}
               {activeTool === 'projects' && (
                 <ProjectsLibraryView

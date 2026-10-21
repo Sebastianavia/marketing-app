@@ -10,6 +10,7 @@ import {
   Receipt,
   ImagePlus,
   Contact,
+  BookOpenText,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -26,6 +27,7 @@ export type ToolId =
   | 'image-studio'
   | 'avatars'
   | 'buzzy'
+  | 'prompt-library'
   | 'projects'
   | 'costs';
 
@@ -121,6 +123,15 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     preview: true,
     shortcut: '6',
   },
+  'prompt-library': {
+    id: 'prompt-library',
+    title: 'Biblioteca de prompts',
+    formula: 'Copia, pega y genera',
+    description:
+      'Prompts listos para imagen, video y formatos UGC: ángulos, ropa, producto, cámara, gestos, voces y acentos.',
+    icon: BookOpenText,
+    engines: 'Prompts propios · imagen y video',
+  },
   projects: {
     id: 'projects',
     title: 'Proyectos',
@@ -160,6 +171,7 @@ export const NAV_ORDER: ToolId[] = [
   'avatars',
   'voice-studio',
   'buzzy',
+  'prompt-library',
 ];
 
 export const HOME_ICON = LayoutGrid;
