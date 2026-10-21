@@ -21,14 +21,14 @@ function NavButton({ label, shortcut, icon: Icon, active, preview, onClick }: Na
   return (
     <div className="group relative flex w-full justify-center">
       {active && (
-        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-accent" aria-hidden />
+        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-accent" aria-hidden />
       )}
       <button
         type="button"
         onClick={onClick}
         aria-label={label}
         aria-current={active ? 'page' : undefined}
-        className={`relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+        className={`relative flex h-10 w-10 items-center justify-center rounded-[10px] transition-colors ${
           active ? 'bg-surface-2 text-fg' : 'text-fg-subtle hover:bg-surface-2/70 hover:text-fg'
         }`}
       >
@@ -38,7 +38,7 @@ function NavButton({ label, shortcut, icon: Icon, active, preview, onClick }: Na
         )}
       </button>
 
-      <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] text-fg shadow-[var(--shadow-lift)] group-hover:flex">
+      <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-line-strong bg-surface px-2.5 py-1.5 text-[12px] font-medium text-fg shadow-[var(--shadow-lift)] group-hover:flex">
         <span>{label}</span>
         {preview && <span className="text-fg-subtle">· vista previa</span>}
         {shortcut && <kbd className="rounded border border-line px-1 text-[10px] text-fg-subtle">⌘{shortcut}</kbd>}

@@ -69,7 +69,7 @@ export function TitleBar({ activeToolTitle, onNavigateHome, onOpenCosts }: Title
   };
 
   return (
-    <header className="drag-region relative z-40 flex h-12 w-full shrink-0 select-none items-center justify-between border-b border-line bg-bg/80 px-3 backdrop-blur-xl">
+    <header className="drag-region relative z-40 flex h-[52px] w-full shrink-0 select-none items-center justify-between border-b border-line bg-bg/80 px-3 backdrop-blur-xl">
       {/* Marca + ubicación */}
       <div className="no-drag flex min-w-0 items-center gap-2 pl-1">
         <button
@@ -78,10 +78,12 @@ export function TitleBar({ activeToolTitle, onNavigateHome, onOpenCosts }: Title
           className="flex items-center gap-2 rounded-md px-1 py-1 transition-opacity hover:opacity-75"
           aria-label="Ir al inicio"
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-[7px] bg-fg text-[11px] font-semibold tracking-tight text-bg">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand font-display text-[14px] font-black text-brand-fg">
             L
           </span>
-          <span className="text-[13px] font-semibold tracking-tight text-fg">Lulo Studio</span>
+          <span className="font-display text-[14px] font-extrabold uppercase tracking-[-0.01em] text-fg" style={{ fontStretch: '118%' }}>
+            Lulo Studio
+          </span>
         </button>
 
         {activeToolTitle && (

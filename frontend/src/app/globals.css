@@ -4,7 +4,9 @@
 
 /* =============================================================================
    Lulo Studio — tokens de diseño
-   Una sola familia de grises neutros + un único acento (azul eléctrico).
+   Una sola familia de grises neutros + un acento verde lima ("lulo").
+   --accent es el acento funcional (legible como texto y como fondo con
+   --accent-fg); --brand es el lima de marca, siempre con texto oscuro.
    El acento se reserva para: acción principal (Generar), estado activo y
    progreso de IA. Todo lo demás es neutro.
    ============================================================================= */
@@ -12,6 +14,7 @@
 @theme inline {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-archivo), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -24,24 +27,28 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
+  --color-brand: var(--brand);
+  --color-brand-fg: var(--brand-fg);
 
-  --radius-card: 14px;
+  --radius-card: 16px;
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @layer base {
   :root {
-    --bg: #f6f6f7;
+    --bg: #f5f5f2;
     --surface: #ffffff;
-    --surface-2: #f0f0f2;
-    --line: rgb(17 17 22 / 0.08);
-    --line-strong: rgb(17 17 22 / 0.15);
-    --fg: #111114;
-    --fg-muted: #55555e;
-    --fg-subtle: #8a8a93;
-    --accent: #3a63f5;
-    --accent-hover: #2f55e0;
+    --surface-2: #efefea;
+    --line: rgb(14 14 16 / 0.09);
+    --line-strong: rgb(14 14 16 / 0.16);
+    --fg: #0e0e10;
+    --fg-muted: #55555c;
+    --fg-subtle: #6e6e76;
+    --accent: #4d7c0f;
+    --accent-hover: #3f6a0a;
     --accent-fg: #ffffff;
+    --brand: #c6ff3d;
+    --brand-fg: #0a0a0b;
     --shadow-card: 0 1px 2px rgb(17 17 22 / 0.04), 0 8px 24px -12px rgb(17 17 22 / 0.10);
     --shadow-lift: 0 2px 4px rgb(17 17 22 / 0.05), 0 18px 40px -16px rgb(17 17 22 / 0.18);
     --glass: rgb(255 255 255 / 0.72);
@@ -49,20 +56,22 @@
   }
 
   .dark {
-    --bg: #0b0b0d;
-    --surface: #131316;
-    --surface-2: #1a1a1e;
+    --bg: #0a0a0b;
+    --surface: #0f0f11;
+    --surface-2: #18181b;
     --line: rgb(255 255 255 / 0.07);
     --line-strong: rgb(255 255 255 / 0.13);
-    --fg: #ececef;
-    --fg-muted: #a1a1aa;
-    --fg-subtle: #6c6c75;
-    --accent: #5b80ff;
-    --accent-hover: #7193ff;
-    --accent-fg: #ffffff;
+    --fg: #f4f4f1;
+    --fg-muted: #a8a8ae;
+    --fg-subtle: #8a8a91;
+    --accent: #c6ff3d;
+    --accent-hover: #d4ff66;
+    --accent-fg: #0a0a0b;
+    --brand: #c6ff3d;
+    --brand-fg: #0a0a0b;
     --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 24px -14px rgb(0 0 0 / 0.6);
     --shadow-lift: 0 1px 0 rgb(255 255 255 / 0.05) inset, 0 22px 44px -18px rgb(0 0 0 / 0.75);
-    --glass: rgb(22 22 26 / 0.72);
+    --glass: rgb(18 18 21 / 0.72);
     color-scheme: dark;
   }
 
@@ -205,7 +214,7 @@
   border-radius: 10px;
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.18) inset,
-    0 6px 18px -8px color-mix(in srgb, var(--accent) 70%, transparent);
+    0 6px 18px -8px color-mix(in srgb, var(--accent) 55%, transparent);
   transition: background-color 0.15s ease, transform 0.12s ease, box-shadow 0.2s ease, opacity 0.15s ease;
 }
 
@@ -364,4 +373,137 @@ input[type="range"].slider-minimal::-moz-range-thumb {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   cursor: pointer;
+}
+
+
+/* -----------------------------------------------------------------------------
+   Inicio (dashboard) — tarjetas bento
+   ----------------------------------------------------------------------------- */
+
+.bento-card {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  transition:
+    border-color 0.25s var(--ease-out-soft),
+    transform 0.3s var(--ease-out-soft),
+    box-shadow 0.3s var(--ease-out-soft);
+}
+
+.bento-card:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lift);
+}
+
+.bento-card:active {
+  transform: translateY(-1px) scale(0.997);
+}
+
+.bento-card .bento-go {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.3s var(--ease-out-soft);
+}
+
+.bento-card:hover .bento-go {
+  background-color: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-fg);
+  transform: rotate(45deg);
+}
+
+.bento-card img {
+  transition: transform 0.6s var(--ease-out-soft);
+}
+
+.bento-card:hover img {
+  transform: scale(1.04);
+}
+
+/* Tarjeta destacada con fondo lima de marca */
+.bento-card.bento-card-brand {
+  background-color: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-fg);
+}
+
+.bento-card.bento-card-brand .bento-go {
+  background-color: #0a0a0b;
+  border-color: #0a0a0b;
+  color: #f4f4f1;
+}
+
+.bento-card.bento-card-brand:hover .bento-go {
+  background-color: #0a0a0b;
+  border-color: #0a0a0b;
+  color: var(--brand);
+}
+
+@keyframes bento-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-bento-enter {
+  animation: bento-enter 0.6s var(--ease-out-soft) both;
+}
+
+/* Ondas de voz que "suenan" */
+@keyframes wave-bounce {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.45); }
+}
+
+.wave-bar {
+  transform-origin: center;
+  animation: wave-bounce 1.2s ease-in-out infinite;
+}
+
+/* -----------------------------------------------------------------------------
+   Cambio de tema: mancha orgánica que crece desde el botón
+   ----------------------------------------------------------------------------- */
+
+@keyframes theme-blob {
+  0% { transform: scale(0) rotate(0deg); border-radius: 62% 38% 55% 45% / 48% 60% 40% 52%; opacity: 1; }
+  25% { border-radius: 38% 62% 42% 58% / 63% 37% 63% 37%; }
+  45% { border-radius: 55% 45% 65% 35% / 40% 58% 42% 60%; }
+  62% { transform: scale(1) rotate(48deg); border-radius: 50%; opacity: 1; }
+  80% { transform: scale(1) rotate(56deg); opacity: 1; }
+  100% { transform: scale(1) rotate(60deg); border-radius: 50%; opacity: 0; }
+}
+
+@keyframes theme-lobe {
+  0% { transform: scale(0); border-radius: 45% 55% 60% 40% / 55% 45% 55% 45%; opacity: 1; }
+  50% { transform: scale(1); border-radius: 60% 40% 38% 62% / 42% 62% 38% 58%; opacity: 1; }
+  75% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1.15); opacity: 0; }
+}
+
+.theme-blob {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  will-change: transform, border-radius, opacity;
+  animation: theme-blob 1100ms cubic-bezier(0.62, 0, 0.32, 1) forwards;
+}
+
+.theme-lobe {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  transform: scale(0);
+  will-change: transform, border-radius, opacity;
+  animation: theme-lobe 1000ms cubic-bezier(0.55, 0, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bento-enter,
+  .wave-bar {
+    animation: none;
+  }
+  .bento-card:hover,
+  .bento-card:hover img {
+    transform: none;
+  }
 }

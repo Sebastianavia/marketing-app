@@ -770,7 +770,7 @@ export function VoiceStudioView() {
                     <button
                       type="button"
                       onClick={handleSendToAvatarStudio}
-                      className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-accent hover:bg-accent text-white text-xs font-medium transition-colors shadow-md shadow-indigo-600/10 cursor-pointer"
+                      className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg bg-accent hover:bg-accent-hover text-accent-fg text-xs font-medium transition-colors shadow-md shadow-black/10 cursor-pointer"
                     >
                       <Share2 className="h-3.5 w-3.5" />
                       <span>Inyectar en Avatar Studio (HeyGen)</span>

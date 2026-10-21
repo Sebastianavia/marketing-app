@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { TitleBar } from '@/components/layout/TitleBar';
 import { DesktopSidebar } from '@/components/layout/DesktopSidebar';
-import { ToolCard } from '@/components/dashboard/ToolCard';
+import { DashboardHome } from '@/components/dashboard/DashboardHome';
 import { AvatarStudioView } from '@/components/tools/AvatarStudioView';
 import { UgcGeneratorView } from '@/components/tools/UgcGeneratorView';
 import { DeepSwapView } from '@/components/tools/DeepSwapView';
@@ -20,7 +20,7 @@ import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
-import { PRIMARY_TOOLS, TOOLS, getToolByShortcut, normalizeToolId, type ToolId } from '@/config/tools.config';
+import { TOOLS, getToolByShortcut, normalizeToolId, type ToolId } from '@/config/tools.config';
 
 export default function Home() {
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
@@ -132,35 +132,5 @@ export default function Home() {
 }
 
 function Dashboard({ onOpen }: { onOpen: (id: ToolId) => void }) {
-  const voice = TOOLS['voice-studio'];
-  const projects = TOOLS.projects;
-  const costs = TOOLS.costs;
-
-  return (
-    <div className="animate-view-enter mx-auto w-full max-w-6xl px-4 pb-20 pt-12 sm:px-8 lg:pt-16">
-      <header className="max-w-2xl">
-        <h1 className="text-[34px] font-semibold leading-[1.1] text-fg sm:text-[40px]">Video Marketing Studio</h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-fg-muted">
-          Crea anuncios con avatares, voces clonadas y contenido UGC. Elige una herramienta para empezar.
-        </p>
-      </header>
-
-      <section className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-2" aria-label="Herramientas principales">
-        {PRIMARY_TOOLS.map((id) => (
-          <ToolCard key={id} tool={TOOLS[id]} onSelect={onOpen} />
-        ))}
-      </section>
-
-      <section className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3" aria-label="Más herramientas">
-        <ToolCard tool={voice} onSelect={onOpen} size="compact" />
-        <ToolCard tool={projects} onSelect={onOpen} size="compact" />
-        <ToolCard tool={costs} onSelect={onOpen} size="compact" />
-      </section>
-
-      <p className="mt-10 text-[12px] text-fg-subtle">
-        Atajos: <kbd className="rounded border border-line px-1">⌘1</kbd>–<kbd className="rounded border border-line px-1">⌘9</kbd>{' '}
-        para cambiar de herramienta, <kbd className="rounded border border-line px-1">⌘0</kbd> para volver aquí.
-      </p>
-    </div>
-  );
+  return <DashboardHome onOpen={onOpen} />;
 }
