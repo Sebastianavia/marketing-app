@@ -7,6 +7,7 @@ import { recordUsage } from '@/lib/usage/usage-store';
 import { videoRate } from '@/config/cost-rates';
 import { listJobs, updateJob, type RenderJob } from './job-store';
 import { errorMessage } from '@/lib/errors';
+import { onProductionJobCompleted, onProductionJobFailed } from '@/lib/director/production-jobs';
 
 /**
  * Runner de renders en segundo plano, dentro del propio servidor de la app.
@@ -171,7 +172,14 @@ async function finishJob(job: RenderJob, videoUrl: string) {
       estimated: durationSec === 0,
       filePath: outputPath,
       jobId: job.id,
+      productionId: job.productionId,
     });
+
+    // Producciones del Director: el MP4 va a la carpeta de la producción (una sola tarjeta en Proyectos)
+    if (job.productionId) {
+      await onProductionJobCompleted({ ...job, outputPath, durationSec, costUSD, status: 'completed' });
+      return;
+    }
 
     // Proyectos: los videos sueltos (Avatar Studio, UGC…) se guardan solos en su carpeta.
     // Los clips de Guion a video no: allí se guarda el video final montado.
@@ -253,8 +261,10 @@ async function markFailed(job: RenderJob, message: string) {
     costUSD: 0,
     estimated: false,
     jobId: job.id,
+    productionId: job.productionId,
     status: 'failed',
   });
+  if (job.productionId) await onProductionJobFailed(job, message);
 }
 
 async function fetchOpenRouterStatus(taskId: string) {

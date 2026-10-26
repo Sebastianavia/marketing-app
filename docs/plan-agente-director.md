@@ -65,7 +65,7 @@ Logo + «Envío gratis hoy», música suave de fondo.
 
 ## Fases (cada una usable sola)
 1. MCP solo lectura + estimar_costo (gasto $0). Prueba: en Claude Code, "¿qué avatares tengo y cuánto costaría un video de 30 s con Valentina?".
-2. Herramientas que generan + carpeta de producción, con aprobación y presupuesto. Prueba: producción de 2 escenas (< $1).
+2. Herramientas que generan + carpeta de producción, con aprobación y presupuesto. Prueba: producción de 2 escenas (< $1). **Hecha en código (2026-10-26), verificada sin gasto; falta la prueba con dinero.** Decisiones: se aprueba solo en la app; cualquier cambio pide aprobar de nuevo; solo la tarjeta de la producción en Proyectos.
 3. Montaje + editor por prompt (pantalla Editar video, versiones, botón en videos terminados y en Proyectos). Prueba gratis sobre un video existente.
 4. Skill "director" para Claude Code (formato de guion, orden de trabajo, reglas de gasto). Prueba: guion de ejemplo de punta a punta.
 5. Chat Director dentro de la app (opción B) con las mismas herramientas. Prueba: mismo guion sin terminal.

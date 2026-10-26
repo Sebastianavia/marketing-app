@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { listJobs, saveJob, type RenderJob } from '@/lib/jobs/job-store';
-import { wakeRunner } from '@/lib/jobs/runner';
-import { getPersonName, getSettings } from '@/lib/data/settings';
-import { assertWithinDailyLimit, DailyLimitError } from '@/lib/usage/usage-store';
+import { listJobs } from '@/lib/jobs/job-store';
+import { createRenderJob, MISSING_VIDEO_KEY } from '@/lib/jobs/create-job';
+import { DailyLimitError } from '@/lib/usage/usage-store';
 import { videoRate } from '@/config/cost-rates';
 import { localMediaUrl } from '@/lib/storage/generated-library';
 import { errorMessage } from '@/lib/errors';
-import { assertVideoModelAvailable } from '@/lib/video/video-catalog';
+import { GenerationError, assertOpenRouterKey } from '@/lib/generation/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,30 +29,11 @@ const CreateJob = z.object({
 /** Crea un trabajo de render y responde al instante; el runner lo procesa en segundo plano. */
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.OPENROUTER_API_KEY?.trim()) {
-      return NextResponse.json(
-        { error: 'Falta OPENROUTER_API_KEY en .env.local: no se puede generar video.' },
-        { status: 400 },
-      );
-    }
-
+    assertOpenRouterKey(MISSING_VIDEO_KEY);
     const body = CreateJob.parse(await req.json());
-    try {
-      await assertVideoModelAvailable(body.model);
-    } catch (e) {
-      return NextResponse.json({ error: errorMessage(e, 'Modelo no disponible.') }, { status: 400 });
-    }
-    const estimatedCostUSD = (body.estimatedSeconds ?? 15) * videoRate(body.model);
-
-    const settings = await getSettings();
-    await assertWithinDailyLimit(estimatedCostUSD, settings.dailyLimitUSD);
-
-    const now = new Date().toISOString();
-    const job: RenderJob = {
-      id: crypto.randomUUID(),
+    const job = await createRenderJob({
       tool: body.tool,
       title: body.title,
-      provider: body.provider,
       model: body.model,
       input: {
         imageUrl: body.imageUrl,
@@ -62,19 +42,13 @@ export async function POST(req: NextRequest) {
         motionPrompt: body.motionPrompt?.trim() || undefined,
         expressiveness: body.expressiveness,
       },
-      status: 'queued',
-      phase: 'En cola',
-      attempts: 0,
-      person: await getPersonName(),
-      estimatedCostUSD,
-      createdAt: now,
-      updatedAt: now,
-    };
-    await saveJob(job);
-    wakeRunner();
-
+      estimatedCostUSD: (body.estimatedSeconds ?? 15) * videoRate(body.model),
+    });
     return NextResponse.json({ jobId: job.id }, { status: 202 });
   } catch (err: unknown) {
+    if (err instanceof GenerationError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     if (err instanceof DailyLimitError) {
       return NextResponse.json({ error: err.message, code: 'daily_limit' }, { status: 402 });
     }

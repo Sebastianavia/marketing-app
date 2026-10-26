@@ -33,6 +33,8 @@ export interface UsageEvent {
   /** Archivo guardado en la biblioteca, si aplica. */
   filePath?: string;
   jobId?: string;
+  /** Producción del Director a la que pertenece. */
+  productionId?: string;
   status: 'ok' | 'failed';
 }
 

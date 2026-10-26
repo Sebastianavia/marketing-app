@@ -69,3 +69,33 @@ export async function assertLocalRequest(req: Request): Promise<void> {
     throw new ForbiddenError('Falta el token del Director o no es válido.');
   }
 }
+
+/**
+ * Para aprobar o rechazar gastos (solo desde la interfaz de la app, nunca desde el agente):
+ *  - Se rechaza cualquier petición con el token del Director: el MCP siempre lo envía.
+ *  - Debe venir de este equipo y a localhost (mismas reglas de IP y Host).
+ *  - Debe parecer una petición del navegador desde la propia app (Sec-Fetch-Site: same-origin
+ *    y Origin = Host). Un programa local podría falsificar estas cabeceras: esto frena al agente
+ *    usando sus herramientas, no a un proceso con acceso total al PC (ver .claude/settings.json).
+ */
+export function assertAppUiRequest(req: Request): void {
+  if (req.headers.has(DIRECTOR_TOKEN_HEADER)) {
+    throw new ForbiddenError('El Director no puede aprobar ni rechazar gastos: lo hace una persona desde la app.');
+  }
+  const forwarded = req.headers.get('x-forwarded-for');
+  const ips = forwarded ? forwarded.split(',').map((ip) => ip.trim()) : [];
+  if (ips.length === 0 || !ips.every((ip) => LOOPBACK_IPS.has(ip))) {
+    throw new ForbiddenError('Solo se aceptan peticiones desde este mismo equipo.');
+  }
+  const host = req.headers.get('host')?.toLowerCase() ?? '';
+  if (!LOCAL_HOSTS.has(hostName(host))) throw new ForbiddenError('Solo se aceptan peticiones a localhost.');
+  let originHost = '';
+  try {
+    originHost = new URL(req.headers.get('origin') ?? '').host.toLowerCase();
+  } catch {
+    originHost = '';
+  }
+  if (req.headers.get('sec-fetch-site') !== 'same-origin' || originHost !== host) {
+    throw new ForbiddenError('Aprueba desde la ventana de Lulo Studio.');
+  }
+}

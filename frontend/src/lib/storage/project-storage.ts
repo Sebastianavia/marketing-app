@@ -70,7 +70,7 @@ export interface SaveProjectPayload extends Partial<ProjectMetadata> {
   audioFileName?: string;
 }
 
-const DEFAULT_CATEGORIES: readonly ProjectCategory[] = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu', 'Imagenes'];
+const DEFAULT_CATEGORIES: readonly ProjectCategory[] = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu', 'Imagenes', 'Producciones'];
 
 /**
  * Obtiene el directorio base configurado por el usuario.

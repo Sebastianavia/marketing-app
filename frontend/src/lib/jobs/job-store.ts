@@ -37,6 +37,9 @@ export interface RenderJob {
   /** Si pertenece a un video por escenas. */
   sceneProjectId?: string;
   sceneId?: string;
+  /** Si pertenece a una producción del Director (el MP4 va a su carpeta, no a una tarjeta suelta). */
+  productionId?: string;
+  productionSceneId?: string;
   status: JobStatus;
   /** Texto para mostrar en pantalla mientras se procesa. */
   phase: string;

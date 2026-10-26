@@ -9,6 +9,7 @@ import { CloudinaryCleanWidget } from '@/components/storage/CloudinaryCleanWidge
 import { TodaySpend } from '@/components/layout/TodaySpend';
 import { OrchestratorPicker } from '@/components/layout/OrchestratorPicker';
 import { VideoCatalogAlert } from '@/components/layout/VideoCatalogAlert';
+import { DirectorApprovals } from '@/components/layout/DirectorApprovals';
 
 interface TitleBarProps {
   activeToolTitle?: string;
@@ -94,6 +95,7 @@ export function TitleBar({ activeToolTitle, onNavigateHome, onOpenCosts }: Title
 
       {/* Acciones */}
       <div className="no-drag flex items-center gap-1.5">
+        <DirectorApprovals />
         <VideoCatalogAlert />
         <OrchestratorPicker />
         <TodaySpend onClick={onOpenCosts} />

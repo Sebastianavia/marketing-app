@@ -1,0 +1,20 @@
+{
+  "enabledMcpjsonServers": [
+    "context-mode",
+    "lulo-studio"
+  ],
+  "permissions": {
+    "deny": [
+      "Bash(*/api/productions/*/approve*)",
+      "Bash(*/api/productions/*/reject*)",
+      "Bash(*api/productions*approve*)",
+      "Bash(*api/productions*reject*)",
+      "PowerShell(*/api/productions/*/approve*)",
+      "PowerShell(*/api/productions/*/reject*)",
+      "PowerShell(*api/productions*approve*)",
+      "PowerShell(*api/productions*reject*)",
+      "WebFetch(domain:localhost)",
+      "WebFetch(domain:127.0.0.1)"
+    ]
+  }
+}

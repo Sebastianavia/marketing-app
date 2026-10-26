@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { elevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
-import { saveGenerated } from '@/lib/storage/generated-library';
-import { recordUsage } from '@/lib/usage/usage-store';
-import { ttsCost } from '@/config/cost-rates';
+import { synthesizeSpeech } from '@/lib/generation/voice';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -18,38 +15,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ejecuta síntesis forzando el SDK oficial, el modelo y los parámetros de voz configurados
-    const result = await elevenLabsService.generateAudio(
+    // Síntesis con el SDK oficial, guardado en la biblioteca y registro en Costos (lib/generation/voice.ts)
+    const { result, effectiveModel, filePath, characters } = await synthesizeSpeech({
       text,
       voiceId,
       language,
       modelId,
-      voiceSettings
-    );
-
-    const effectiveModel = result.modelId || modelId || 'desconocido';
-    const id = crypto.randomUUID();
-
-    // Todo lo generado se guarda en la biblioteca, aunque no se pulse "Guardar proyecto"
-    let filePath: string | undefined;
-    try {
-      filePath = await saveGenerated('audio', Buffer.from(result.buffer), 'mp3', id);
-    } catch (saveErr) {
-      console.warn('[TTS] No se pudo guardar el MP3 en la biblioteca:', saveErr);
-    }
-
-    const characters = result.charactersBilled ?? text.trim().length;
-    await recordUsage({
-      tool: String(tool),
-      kind: 'audio',
-      provider: 'elevenlabs',
-      model: effectiveModel,
-      description: `Locución ${language.toUpperCase()}${voiceName ? ` · ${voiceName}` : ''} · "${text.trim().slice(0, 60)}${characters > 60 ? '…' : ''}"`,
-      units: characters,
-      unit: 'caracteres',
-      costUSD: ttsCost(effectiveModel, characters),
-      estimated: true,
-      filePath,
+      voiceSettings,
+      tool,
+      voiceName,
     });
 
     // Retornar stream de audio MP3 binario directamente con headers informativos

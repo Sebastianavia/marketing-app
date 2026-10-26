@@ -52,16 +52,25 @@ async function readOrCreateToken() {
 
 class AppOfflineError extends Error {}
 
-async function callApp(pathname, init = {}) {
+/** Las herramientas que generan (imágenes, voz) pueden tardar; el resto responde al instante. */
+const TOOL_TIMEOUT_MS = 5 * 60_000;
+const LIST_TIMEOUT_MS = 60_000;
+
+async function callApp(pathname, init = {}, timeoutMs = LIST_TIMEOUT_MS) {
   const token = await readOrCreateToken();
   let res;
   try {
     res = await fetch(`${APP_URL}${pathname}`, {
       ...init,
       headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token, ...init.headers },
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
-  } catch {
+  } catch (err) {
+    if (err?.name === 'TimeoutError') {
+      throw new Error(
+        `Lulo Studio no respondió en ${Math.round(timeoutMs / 1000)} s. La tarea puede seguir en la app: revisa con ver_produccion antes de repetirla (no la lances dos veces).`,
+      );
+    }
     throw new AppOfflineError(OFFLINE_MESSAGE);
   }
   const data = await res.json().catch(() => ({}));
@@ -121,7 +130,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { result } = await callApp(`/api/director/tools/${encodeURIComponent(name)}`, {
       method: 'POST',
       body: JSON.stringify(args ?? {}),
-    });
+    }, TOOL_TIMEOUT_MS);
     if (!online) {
       online = true;
       await server.sendToolListChanged();
