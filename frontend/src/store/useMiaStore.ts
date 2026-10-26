@@ -48,7 +48,7 @@ export const useAssistantStore = create<AssistantStoreState>((set) => ({
   isOpen: false,
   activeTool: null,
   selectedSkillId: 'auto',
-  selectedModel: 'gemini-2.5-flash',
+  selectedModel: 'orchestrator',
   customApiKey: '',
   injectedData: null,
   messages: [

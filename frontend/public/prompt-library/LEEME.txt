@@ -1,0 +1,5 @@
+Imágenes de ejemplo de la Biblioteca de prompts.
+
+Guarda aquí tu imagen con el mismo nombre que el id de la tarjeta
+(se muestra debajo del recuadro vacío), en .webp, .jpg o .png.
+Ejemplo: ropa-nueva.webp, angulo-perfil.jpg, hoja-identidad.png

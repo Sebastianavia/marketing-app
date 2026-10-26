@@ -64,7 +64,7 @@ export const UGC_VIDEO_MODELS: UgcVideoModel[] = [
   // OPENROUTER MODELS
   // ==========================================
   {
-    id: 'bytedance/seedance-1.5-pro',
+    id: 'bytedance/seedance-1-5-pro',
     name: 'Seedance 1.5 Pro (ByteDance)',
     provider: 'openrouter',
     providerLabel: 'OpenRouter',

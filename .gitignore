@@ -35,6 +35,7 @@ backend/.env
 # Local Storage and temporary media uploads
 storage-config.json
 frontend/storage-config.json
+frontend/.ugc-studio/
 public/uploads/
 frontend/public/uploads/
 
@@ -47,3 +48,11 @@ yarn-error.log*
 # OS Files
 .DS_Store
 Thumbs.db
+.backup-rediseno-ui/
+.backup-rediseno-*/
+
+# Zip del logo (duplica brand/lulo-studio-logo/)
+brand/lulo-studio-logo.zip
+
+# Proyectos guardados localmente: en Mac la ruta Windows del storage-config ("C:\\...") se crea dentro de frontend/
+frontend/C:*/

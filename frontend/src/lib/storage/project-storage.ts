@@ -3,12 +3,15 @@ import fsSync from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 
-const CONFIG_FILE_PATH = path.join(process.cwd(), 'storage-config.json');
+import { getSettings, updateSettings } from '@/lib/data/settings';
+
+import type { ProjectCategory } from '@/config/project-categories';
+export type { ProjectCategory };
 
 export interface ProjectMetadata {
   id: string;
   name: string;
-  category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu';
+  category: ProjectCategory;
   createdAt: string;
   updatedAt: string;
   path: string;
@@ -19,6 +22,8 @@ export interface ProjectMetadata {
   // Imagen / Retrato
   imageUrl?: string;
   imagePath?: string;
+  /** Varias imágenes (Creación de imágenes). */
+  imagePaths?: string[];
   avatarId?: string;
   avatarName?: string;
   // Configuración de Audio
@@ -50,6 +55,12 @@ export interface ProjectMetadata {
     audio: boolean;
     video: boolean;
   };
+  // UGC Studio multi-agente: storyboard completo, referencias y ajustes para rehidratar
+  ugcStudio?: {
+    storyboard: unknown;
+    references: unknown[];
+    settings: unknown;
+  };
 }
 
 export interface SaveProjectPayload extends Partial<ProjectMetadata> {
@@ -59,26 +70,27 @@ export interface SaveProjectPayload extends Partial<ProjectMetadata> {
   audioFileName?: string;
 }
 
-const DEFAULT_CATEGORIES = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu'] as const;
+const DEFAULT_CATEGORIES: readonly ProjectCategory[] = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu', 'Imagenes'];
 
 /**
  * Obtiene el directorio base configurado por el usuario.
  * Si no está configurado, usa por defecto D:\LuloStudio_Projects (o C:\LuloStudio_Projects si D: no existe).
  */
 export async function getStorageBasePath(): Promise<string> {
+  // La ruta vive en la carpeta de datos del usuario (fuera de la app), así sobrevive a actualizaciones.
   try {
-    if (fsSync.existsSync(CONFIG_FILE_PATH)) {
-      const data = await fs.readFile(CONFIG_FILE_PATH, 'utf-8');
-      const parsed = JSON.parse(data);
-      if (parsed.basePath && typeof parsed.basePath === 'string') {
-        return parsed.basePath;
+    const { basePath } = await getSettings();
+    if (basePath && typeof basePath === 'string') {
+      if (!fsSync.existsSync(basePath)) {
+        await fs.mkdir(basePath, { recursive: true });
       }
+      return basePath;
     }
   } catch (err) {
-    console.error('Error leyendo storage-config.json:', err);
+    console.error('Error leyendo la configuración de almacenamiento:', err);
   }
 
-  // Fallback inteligente: probar D: primero (solicitud del usuario), luego C:
+  // Valor por defecto: D:\LuloStudio_Projects, o C:\LuloStudio_Projects si no existe D:
   let defaultPath = 'D:\\LuloStudio_Projects';
   try {
     if (!fsSync.existsSync('D:\\')) {
@@ -88,15 +100,13 @@ export async function getStorageBasePath(): Promise<string> {
     defaultPath = 'C:\\LuloStudio_Projects';
   }
 
-  // Asegurar que exista
   try {
     if (!fsSync.existsSync(defaultPath)) {
       await fs.mkdir(defaultPath, { recursive: true });
     }
-    // Guardar en config
-    await fs.writeFile(CONFIG_FILE_PATH, JSON.stringify({ basePath: defaultPath }, null, 2));
-  } catch (e) {
-    defaultPath = path.join(process.cwd(), '..', 'LuloStudio_Projects');
+    await updateSettings({ basePath: defaultPath });
+  } catch {
+    defaultPath = path.join(/*turbopackIgnore: true*/ process.cwd(), '..', 'LuloStudio_Projects');
     if (!fsSync.existsSync(defaultPath)) {
       await fs.mkdir(defaultPath, { recursive: true });
     }
@@ -124,8 +134,8 @@ export async function setStorageBasePath(newPath: string): Promise<string> {
     }
   }
 
-  // Guardar configuración
-  await fs.writeFile(CONFIG_FILE_PATH, JSON.stringify({ basePath: sanitizedPath }, null, 2));
+  // Guardar configuración en la carpeta de datos del usuario
+  await updateSettings({ basePath: sanitizedPath });
   return sanitizedPath;
 }
 
@@ -155,7 +165,7 @@ export async function checkProjectExists(category: string, projectName: string):
  * [Directorio Base] / [Categoría] / [Nombre_Proyecto] / project-metadata.json, metadata.json, script.txt, etc.
  */
 export async function saveProject(
-  category: 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu',
+  category: ProjectCategory,
   projectName: string,
   data: SaveProjectPayload
 ): Promise<{ success: boolean; project: ProjectMetadata }> {
@@ -225,6 +235,7 @@ export async function saveProject(
     prompt: data.prompt,
     imageUrl: data.imageUrl,
     imagePath: resolvedImagePath,
+    imagePaths: data.imagePaths,
     avatarId: data.avatarId,
     avatarName: data.avatarName,
     audioMode: data.audioMode || 'generar',
@@ -242,8 +253,9 @@ export async function saveProject(
     videoDurationReal: data.videoDurationReal,
     modelUsed: data.modelUsed,
     costPerSecondVerified: data.costPerSecondVerified,
+    ugcStudio: data.ugcStudio,
     mediaAvailable: {
-      image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath))),
+      image: !!(data.imageUrl || (resolvedImagePath && fsSync.existsSync(resolvedImagePath)) || data.imagePaths?.length),
       audio: !!(data.audioMode === 'generar' || data.audioUrl || (resolvedAudioPath && fsSync.existsSync(resolvedAudioPath))),
       video: !!(data.videoUrl || (data.videoPath && fsSync.existsSync(data.videoPath))),
     },
@@ -403,6 +415,7 @@ export async function getProjectByPath(projectDir: string): Promise<ProjectMetad
     prompt: metadata.prompt,
     imageUrl: metadata.imageUrl,
     imagePath: metadata.imagePath,
+    imagePaths: metadata.imagePaths?.filter((f) => fsSync.existsSync(/*turbopackIgnore: true*/ f)),
     avatarId: metadata.avatarId,
     avatarName: metadata.avatarName,
     audioMode: metadata.audioMode || 'generar',
@@ -420,6 +433,7 @@ export async function getProjectByPath(projectDir: string): Promise<ProjectMetad
     videoDurationReal: metadata.videoDurationReal,
     modelUsed: metadata.modelUsed,
     costPerSecondVerified: metadata.costPerSecondVerified,
+    ugcStudio: metadata.ugcStudio,
     mediaAvailable: {
       image: hasImage,
       audio: hasAudio,

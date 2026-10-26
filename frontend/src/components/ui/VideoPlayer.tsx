@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { Play, Pause, RotateCcw, Download, Smartphone, Monitor } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Download, Monitor, Pause, Play, RotateCcw, Smartphone } from 'lucide-react';
 
 interface VideoPlayerProps {
   videoUrl?: string;
@@ -10,31 +10,32 @@ interface VideoPlayerProps {
   title?: string;
 }
 
-export function VideoPlayer({
-  videoUrl,
-  posterUrl,
-  aspectRatio = '9:16',
-  title = 'Previsualización',
-}: VideoPlayerProps) {
+/**
+ * Lienzo de previsualización. El escenario del video es siempre oscuro
+ * (como en un editor profesional) para que el contenido sea el protagonista.
+ */
+export function VideoPlayer({ videoUrl, posterUrl, aspectRatio = '9:16', title = 'Vista previa' }: VideoPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAspect, setCurrentAspect] = useState<'9:16' | '16:9'>(aspectRatio);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const togglePlay = () => {
-    if (!videoRef.current) return;
+    const v = videoRef.current;
+    if (!v) return;
     if (isPlaying) {
-      videoRef.current.pause();
+      v.pause();
       setIsPlaying(false);
     } else {
-      videoRef.current.play();
+      v.play();
       setIsPlaying(true);
     }
   };
 
   const handleRestart = () => {
-    if (!videoRef.current) return;
-    videoRef.current.currentTime = 0;
-    videoRef.current.play();
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = 0;
+    v.play();
     setIsPlaying(true);
   };
 
@@ -48,124 +49,103 @@ export function VideoPlayer({
     document.body.removeChild(a);
   };
 
-  return (
-    <div className="relative flex flex-col items-center justify-between h-full w-full rounded-xl border border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-[#070707] p-5 overflow-hidden shadow-xs transition-colors duration-200">
-      {/* Top Bar: Title & Aspect Switcher */}
-      <div className="flex w-full items-center justify-between pb-3 border-b border-slate-200/80 dark:border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <span className={`h-1.5 w-1.5 rounded-full ${videoUrl ? 'bg-emerald-500' : 'bg-slate-400 dark:bg-zinc-600'}`} />
-          <span className="text-xs font-medium text-slate-800 dark:text-zinc-300 tracking-tight">{title}</span>
-        </div>
+  const aspectButton = (value: '9:16' | '16:9', Icon: typeof Smartphone) => (
+    <button
+      type="button"
+      onClick={() => setCurrentAspect(value)}
+      aria-pressed={currentAspect === value}
+      className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] tabular-nums transition-colors ${
+        currentAspect === value ? 'bg-surface text-fg shadow-sm' : 'text-fg-subtle hover:text-fg'
+      }`}
+    >
+      <Icon className="h-3 w-3" />
+      {value}
+    </button>
+  );
 
-        {/* Aspect Ratio Segmented Control */}
-        <div className="flex items-center gap-0.5 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-950 p-0.5">
-          <button
-            type="button"
-            onClick={() => setCurrentAspect('9:16')}
-            className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] transition-colors ${
-              currentAspect === '9:16'
-                ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 font-semibold'
-                : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
-            }`}
-          >
-            <Smartphone className="h-2.5 w-2.5" />
-            9:16
-          </button>
-          <button
-            type="button"
-            onClick={() => setCurrentAspect('16:9')}
-            className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px] transition-colors ${
-              currentAspect === '16:9'
-                ? 'bg-white text-slate-900 shadow-xs dark:bg-zinc-800 dark:text-zinc-100 font-semibold'
-                : 'text-slate-500 hover:text-slate-900 dark:text-zinc-500 dark:hover:text-zinc-300'
-            }`}
-          >
-            <Monitor className="h-2.5 w-2.5" />
-            16:9
-          </button>
+  return (
+    <div className="surface-card flex h-full min-h-[420px] w-full flex-col overflow-hidden">
+      {/* Barra superior */}
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${videoUrl ? 'bg-emerald-500' : 'bg-fg-subtle/50'}`} />
+          <span className="truncate text-[13px] font-medium text-fg">{title}</span>
+        </div>
+        <div className="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
+          {aspectButton('9:16', Smartphone)}
+          {aspectButton('16:9', Monitor)}
         </div>
       </div>
 
-      {/* Video Viewport */}
-      <div className="flex-1 flex items-center justify-center w-full py-4 overflow-hidden">
+      {/* Escenario */}
+      <div className="flex flex-1 items-center justify-center bg-surface-2/50 p-6">
         <div
-          className={`relative rounded-lg overflow-hidden border border-slate-200/80 dark:border-white/[0.08] bg-slate-50 dark:bg-black transition-all ${
-            currentAspect === '9:16'
-              ? 'w-full max-w-[260px] aspect-[9/16]'
-              : 'w-full max-w-[480px] aspect-[16/9]'
+          className={`relative overflow-hidden rounded-xl bg-[#0d0d0f] shadow-[0_24px_60px_-24px_rgb(0_0_0/0.55)] ring-1 ring-black/5 transition-all duration-300 dark:ring-white/5 ${
+            currentAspect === '9:16' ? 'aspect-[9/16] w-full max-w-[300px]' : 'aspect-video w-full max-w-[640px]'
           }`}
         >
           {videoUrl ? (
-            <video
-              ref={videoRef}
-              src={videoUrl}
-              poster={posterUrl}
-              className="h-full w-full object-cover cursor-pointer"
-              onEnded={() => setIsPlaying(false)}
-              onClick={togglePlay}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full w-full p-6 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 dark:border-white/[0.06] bg-slate-100 dark:bg-zinc-900/40 text-slate-400 dark:text-zinc-600 mb-2.5">
-                <Play className="h-4 w-4 ml-0.5" />
-              </div>
-              <p className="text-xs font-medium text-slate-700 dark:text-zinc-400">Sin video generado</p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-600 mt-1 max-w-[180px]">
-                Ajusta los parámetros y presiona Generar Video.
-              </p>
-            </div>
-          )}
-
-          {/* Quick Play overlay */}
-          {videoUrl && (
-            <button
-              onClick={togglePlay}
-              className={`absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity ${
-                isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-              }`}
-            >
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-lg cursor-pointer">
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-              </div>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Footer Controls */}
-      <div className="flex w-full items-center justify-between pt-3 border-t border-slate-200/80 dark:border-white/[0.06]">
-        <div className="flex items-center gap-1.5">
-          {videoUrl && (
             <>
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                poster={posterUrl}
+                className="h-full w-full cursor-pointer object-cover"
+                onEnded={() => setIsPlaying(false)}
+                onClick={togglePlay}
+              />
               <button
                 type="button"
                 onClick={togglePlay}
-                className="flex h-7 w-7 items-center justify-center rounded border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors"
+                aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+                className={`absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity ${
+                  isPlaying ? 'opacity-0 hover:opacity-100' : 'opacity-100'
+                }`}
               >
-                {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-              </button>
-              <button
-                type="button"
-                onClick={handleRestart}
-                className="flex h-7 w-7 items-center justify-center rounded border border-slate-200/80 dark:border-white/[0.08] bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors"
-              >
-                <RotateCcw className="h-3 w-3" />
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/95 text-black shadow-lg">
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
+                </span>
               </button>
             </>
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center">
+              <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 text-white/40">
+                <Play className="ml-0.5 h-4 w-4" />
+              </span>
+              <p className="text-[13px] font-medium text-white/70">Tu video aparecerá aquí</p>
+              <p className="mt-1 max-w-[200px] text-[12px] text-white/40">Completa los pasos y pulsa Generar.</p>
+            </div>
           )}
         </div>
+      </div>
 
-        {videoUrl && (
-          <button
-            type="button"
-            onClick={handleDownload}
-            className="flex items-center gap-1.5 rounded-md bg-slate-900 text-white dark:bg-white dark:text-black hover:bg-slate-800 dark:hover:bg-zinc-200 px-3 py-1 text-xs font-medium transition-colors shadow-2xs"
-          >
-            <Download className="h-3 w-3" />
+      {/* Controles */}
+      {videoUrl && (
+        <div className="flex items-center justify-between border-t border-line px-4 py-3">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={togglePlay}
+              aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+            >
+              {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={handleRestart}
+              aria-label="Reiniciar"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <button type="button" onClick={handleDownload} className="btn-secondary h-8 px-3 text-[13px]">
+            <Download className="h-3.5 w-3.5" />
             Descargar
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,26 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { Sun, Moon } from 'lucide-react';
 import { useThemeStore } from '@/store/useThemeStore';
+
+const noopSubscribe = () => () => {};
+
+// Colores de fondo de cada tema (deben coincidir con --bg en globals.css)
+const THEME_BG = { dark: '#0a0a0b', light: '#f5f5f2' } as const;
+
+// Momentos de la animación de la mancha (ms)
+const SWITCH_AT = 660;
+const CLEANUP_AT = 1180;
+
+interface Stain {
+  key: number;
+  color: string;
+  x: number;
+  y: number;
+  size: number;
+}
 
 interface ThemeToggleProps {
   className?: string;
@@ -12,46 +30,108 @@ export function ThemeToggle({ className = '' }: ThemeToggleProps) {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const initTheme = useThemeStore((s) => s.initTheme);
-  const [mounted, setMounted] = useState(false);
+  // true en el cliente, false durante SSR (evita desajustes de hidratación)
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  const [stain, setStain] = useState<Stain | null>(null);
+  const timers = useRef<number[]>([]);
 
   useEffect(() => {
     initTheme();
-    setMounted(true);
   }, [initTheme]);
 
-  // Evitar desajuste de renderizado inicial en SSR
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach((t) => window.clearTimeout(t));
+  }, []);
+
   const isDark = mounted ? theme === 'dark' : true;
+  const label = isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro';
+
+  // El cambio de tema es el mismo de siempre (toggleTheme); la mancha solo lo
+  // tapa mientras ocurre.
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (stain) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      toggleTheme();
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX || rect.left + rect.width / 2;
+    const y = e.clientY || rect.top + rect.height / 2;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const far = Math.max(Math.hypot(x, y), Math.hypot(w - x, y), Math.hypot(x, h - y), Math.hypot(w - x, h - y));
+    const next = isDark ? 'light' : 'dark';
+
+    setStain({ key: Date.now(), color: THEME_BG[next], x, y, size: Math.ceil(far * 2 * 1.3) });
+    timers.current.push(
+      window.setTimeout(() => toggleTheme(), SWITCH_AT),
+      window.setTimeout(() => setStain(null), CLEANUP_AT)
+    );
+  };
 
   return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      className={`group relative flex h-7 items-center gap-1.5 rounded-md border border-slate-200/80 dark:border-white/[0.08] bg-white/80 dark:bg-zinc-900/70 px-2 py-0.5 text-slate-700 dark:text-zinc-300 shadow-sm transition-all hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-white/20 active:scale-95 ${className}`}
-      title={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-      aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
-    >
-      <div className="relative flex h-3.5 w-3.5 items-center justify-center">
-        {/* Sol para modo claro */}
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        className={`relative flex h-9 w-9 items-center justify-center rounded-[10px] border border-line-strong bg-surface-2 text-fg transition-colors hover:border-accent active:scale-95 ${className}`}
+        title={label}
+        aria-label={label}
+      >
         <Sun
-          className={`h-3.5 w-3.5 text-amber-500 transition-all duration-300 ${
-            isDark
-              ? 'scale-0 rotate-90 opacity-0 absolute'
-              : 'scale-100 rotate-0 opacity-100'
+          className={`absolute h-4 w-4 transition-all duration-300 ${
+            isDark ? 'rotate-90 scale-0 opacity-0' : 'rotate-0 scale-100 opacity-100'
           }`}
         />
-        {/* Luna para modo oscuro */}
         <Moon
-          className={`h-3.5 w-3.5 text-indigo-400 transition-all duration-300 ${
-            isDark
-              ? 'scale-100 rotate-0 opacity-100'
-              : 'scale-0 -rotate-90 opacity-0 absolute'
+          className={`absolute h-4 w-4 transition-all duration-300 ${
+            isDark ? 'rotate-0 scale-100 opacity-100' : '-rotate-90 scale-0 opacity-0'
           }`}
         />
-      </div>
+      </button>
 
-      <span className="font-mono text-[10px] tracking-tight text-slate-600 dark:text-zinc-400 group-hover:text-slate-900 dark:group-hover:text-zinc-200 hidden sm:inline">
-        {isDark ? 'Oscuro' : 'Claro'}
-      </span>
-    </button>
+      {stain &&
+        createPortal(
+          <div key={stain.key} aria-hidden>
+            {/* Dos manchas pequeñas que se unen a la principal */}
+            <span
+              className="theme-lobe"
+              style={{
+                left: stain.x - stain.size * 0.16 - (stain.size * 0.22) / 2,
+                top: stain.y + stain.size * 0.06 - (stain.size * 0.22) / 2,
+                width: stain.size * 0.22,
+                height: stain.size * 0.22,
+                background: stain.color,
+                animationDelay: '40ms',
+              }}
+            />
+            <span
+              className="theme-lobe"
+              style={{
+                left: stain.x - stain.size * 0.04 - (stain.size * 0.14) / 2,
+                top: stain.y + stain.size * 0.15 - (stain.size * 0.14) / 2,
+                width: stain.size * 0.14,
+                height: stain.size * 0.14,
+                background: stain.color,
+                animationDelay: '110ms',
+              }}
+            />
+            <span
+              className="theme-blob"
+              style={{
+                left: stain.x - stain.size / 2,
+                top: stain.y - stain.size / 2,
+                width: stain.size,
+                height: stain.size,
+                background: stain.color,
+              }}
+            />
+          </div>,
+          document.body
+        )}
+    </>
   );
 }

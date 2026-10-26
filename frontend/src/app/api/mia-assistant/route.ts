@@ -4,6 +4,9 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { resolveAssistantSystemPrompt } from '@/lib/ai/mia-skills';
 import { getGeminiKeyPool, maskApiKey } from '@/lib/ai/gemini-pool';
+import { orchestrateTextStream, orchestratorErrorResponse } from '@/lib/ai/orchestrator';
+import { llmCost } from '@/config/llm-models';
+import { recordUsage } from '@/lib/usage/usage-store';
 
 export const maxDuration = 45;
 
@@ -13,8 +16,9 @@ export async function POST(req: NextRequest) {
       messages,
       activeTool,
       activeSkillId,
-      selectedModel = 'gemini-2.5-flash',
+      selectedModel = 'orchestrator',
       customApiKey,
+      orchestrator,
     } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
@@ -26,6 +30,21 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = resolveAssistantSystemPrompt(activeTool, activeSkillId);
 
+    // "Según selector IA": lo decide el orquestador (Gratis / Claude), igual que el resto de la app
+    if (selectedModel === 'orchestrator') {
+      try {
+        return await orchestrateTextStream({
+          tool: activeTool ? String(activeTool) : 'mia',
+          description: 'Mia (asistente)',
+          mode: orchestrator,
+          system: systemPrompt,
+          messages: messages.map((m: { role: 'user' | 'assistant'; content: string }) => ({ role: m.role, content: String(m.content) })),
+        });
+      } catch (err) {
+        return orchestratorErrorResponse(err);
+      }
+    }
+
     // =========================================================================
     // 1. POOL DE LLAVES GEMINI CON FAILOVER AUTOMÁTICO (Multi-Key Rotation)
     // =========================================================================
@@ -35,6 +54,14 @@ export async function POST(req: NextRequest) {
       selectedModel.includes('gemini');
 
     const geminiKeys = getGeminiKeyPool(customApiKey);
+
+    // Un modelo de Gemini elegido sin claves NO se manda a OpenRouter (sería de pago sin avisar)
+    if (isGeminiModel && geminiKeys.length === 0) {
+      return new Response(
+        JSON.stringify({ error: 'No hay claves de Gemini (GEMINI_API_KEYS en .env.local). Elige un modelo de Claude o añade una clave en el icono 🔑.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (geminiKeys.length > 0 && isGeminiModel) {
       let cleanGeminiModel = selectedModel.replace('google/', '');
@@ -159,52 +186,38 @@ export async function POST(req: NextRequest) {
         : `google/${selectedModel}`;
 
       const result = streamText({
-        model: client(modelId),
+        model: client.chat(modelId),
         system: systemPrompt,
         messages: messages.map((m: any) => ({
           role: m.role,
           content: m.content,
         })),
         temperature: 0.7,
+        onFinish: async ({ totalUsage }) => {
+          const inT = totalUsage?.inputTokens ?? 0;
+          const outT = totalUsage?.outputTokens ?? 0;
+          await recordUsage({
+            tool: activeTool ? String(activeTool) : 'mia',
+            kind: 'script',
+            provider: 'openrouter',
+            model: modelId,
+            description: 'Mia (asistente)',
+            units: inT + outT || 1,
+            unit: inT + outT ? 'tokens' : 'respuesta',
+            costUSD: llmCost(modelId, inT, outT),
+            estimated: inT + outT === 0,
+          });
+        },
       });
 
       return result.toTextStreamResponse();
     }
 
-    // =========================================================================
-    // 3. FALLBACK INTELIGENTE LOCAL (Si no se ha ingresado ninguna API Key)
-    // =========================================================================
-    const lastUserMsg = messages[messages.length - 1]?.content || '';
-    let mockReply = '';
-
-    if (activeTool === 'avatar-studio') {
-      mockReply = `[Gemini Asistente]: Aquí tienes tu guion optimizado para síntesis de voz con HeyGen:\n\n"¿Sabías que el 80% de las marcas pierden ventas por videos genéricos? [pause] Con avatares fotorrealistas de última generación, puedes crear anuncios de alto impacto en minutos. Empieza hoy y escala tu conversión."\n\nPresiona el botón de abajo para inyectar este guion directamente a tu herramienta.`;
-    } else if (activeTool === 'ugc-generator') {
-      mockReply = `[Gemini Asistente - UGC Viral Script]:\n\n[GANCHO 0-3s]: "Si vendes online en 2026, esto te interesa..."\n[DOLOR 3-10s]: "Grabar con creadores tradicionales toma semanas y miles de dólares."\n[SOLUCIÓN 10-22s]: "Nuestra suite genera el guion persuasivo y renderiza la pieza vertical en segundos."\n[CTA 22-30s]: "Haz clic en el enlace para probar el pipeline ahora mismo."`;
-    } else if (activeTool === 'text-to-video') {
-      mockReply = `[Gemini Asistente - Prompt Cinemático]:\n\n"Hyper-realistic 4K commercial shot of a sleek product floating in zero gravity, anamorphic 35mm lens, volumetric dark anthracite rim lighting, subtle slow-motion smoke particles at 120fps, cinematic color grading in teal and deep carbon."`;
-    } else {
-      mockReply = `[Gemini Asistente Local]: ¡Hola! He recibido tu consulta: "${lastUserMsg}".\n\n💡 Configura tu pool de llaves: Haz clic en el icono 🔑 arriba para pegar una o varias claves de Gemini (separadas por comas). Si una clave se agota por límite de cuota, el sistema pasará a la siguiente automáticamente.`;
-    }
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        const words = mockReply.split(' ');
-        for (let i = 0; i < words.length; i++) {
-          controller.enqueue(encoder.encode(words[i] + ' '));
-          await new Promise((r) => setTimeout(r, 20));
-        }
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Transfer-Encoding': 'chunked',
-      },
-    });
+    // Sin claves no se inventan respuestas: se explica qué falta
+    return new Response(
+      JSON.stringify({ error: 'Mia necesita GEMINI_API_KEYS (gratis) u OPENROUTER_API_KEY en .env.local.' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error: any) {
     return new Response(
       JSON.stringify({ error: error.message || 'Error en el Asistente' }),

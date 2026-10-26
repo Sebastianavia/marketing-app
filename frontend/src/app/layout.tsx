@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+});
+
+// Tipografía de títulos (ancho variable para los titulares expandidos)
+const archivo = Archivo({
+  variable: "--font-archivo",
+  subsets: ["latin"],
+  axes: ["wdth"],
 });
 
 const geistMono = Geist_Mono({
@@ -13,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lulo Studio Desktop",
+  title: "Lulo Studio",
   description: "Suite Autónoma de Creación Audiovisual para Video Marketing",
 };
 
@@ -26,7 +33,7 @@ export default function RootLayout({
     <html
       lang="es"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-screen w-screen overflow-hidden antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${archivo.variable} h-screen w-screen overflow-hidden antialiased`}
     >
       <head>
         <script
@@ -35,7 +42,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="h-screen w-screen overflow-hidden bg-slate-50 dark:bg-black text-slate-900 dark:text-zinc-100 flex flex-col font-sans select-none transition-colors duration-200">
+      <body className="h-dvh w-screen overflow-hidden bg-bg text-fg flex flex-col font-sans">
         {children}
       </body>
     </html>
