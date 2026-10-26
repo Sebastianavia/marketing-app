@@ -251,7 +251,28 @@ export function AvatarWorkspace() {
 
   // Estimación de costo basada en longitud del guion y tarifa verificada
   const wordCount = scriptText.trim().split(/\s+/).filter(Boolean).length;
-  const estimatedSeconds = Math.max(5, Math.ceil(wordCount / 2.3));
+  // Con audio local la duración real sale del archivo, no del guion (que puede estar vacío)
+  const [localAudioSeconds, setLocalAudioSeconds] = useState<number | null>(null);
+  useEffect(() => {
+    if (!localAudioFile) return;
+    const url = URL.createObjectURL(localAudioFile);
+    const probe = new Audio();
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = () => {
+      setLocalAudioSeconds(Number.isFinite(probe.duration) ? probe.duration : null);
+      URL.revokeObjectURL(url);
+    };
+    probe.onerror = () => {
+      setLocalAudioSeconds(null);
+      URL.revokeObjectURL(url);
+    };
+    probe.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [localAudioFile]);
+  const usingLocalAudioLength = audioMode === 'local' && !!localAudioFile && !!localAudioSeconds;
+  const estimatedSeconds = usingLocalAudioLength
+    ? Math.max(1, Math.ceil(localAudioSeconds!))
+    : Math.max(5, Math.ceil(wordCount / 2.3));
   const currentRate = usePricingStore((s) => s.getRatePerSecond('heygen/avatar-iv'));
   const estimatedCostUSD = Number((estimatedSeconds * currentRate).toFixed(2));
 
@@ -1021,7 +1042,11 @@ export function AvatarWorkspace() {
             />
 
             <div className="flex justify-between text-[11px] text-fg-subtle tabular-nums">
-              <span>Aprox. ~{Math.round(scriptText.split(/\s+/).filter(Boolean).length / 2.5)}s de locución</span>
+              <span>
+                {usingLocalAudioLength
+                  ? `Audio local: ${Math.round(localAudioSeconds!)}s · ≈ $${estimatedCostUSD.toFixed(2)}`
+                  : `Aprox. ~${Math.round(scriptText.split(/\s+/).filter(Boolean).length / 2.5)}s de locución`}
+              </span>
               <span>{scriptText.length} caracteres</span>
             </div>
           </div>
@@ -1236,7 +1261,7 @@ export function AvatarWorkspace() {
                 <input
                   ref={audioInputRef}
                   type="file"
-                  accept="audio/mpeg,audio/mp3,audio/wav"
+                  accept=".mp3,.mpeg,.mpga,.wav,audio/mpeg,audio/mp3,audio/wav"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
