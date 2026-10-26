@@ -148,6 +148,7 @@ Plan completo: https://claude.ai/code/artifact/5321e959-43c0-467d-8114-330e35a19
 
 ## Pendiente del plan (al 2026-10-12)
 
+- **Login con Google (2026-10-26): solo fachada.** `components/auth/LoginScreen.tsx` se muestra antes de la app (`page.tsx` según `useAuthStore.status`). "Continuar con Google" espera 1,3 s y abre una sesión local (`localStorage` `lulo_session`); "Cerrar sesión" está al final de la barra lateral. Para conectarlo de verdad, reemplazar solo `authenticateWithGoogle` en `store/useAuthStore.ts`.
 - Generador UGC: usar de verdad el modelo elegido (hoy aún va por `useUgcPipeline` → HeyGen directo).
 - Guion a video y Clonación y reemplazo: siguen simulados.
 - Cliente MCP de Buzzy (falta URL y clave).

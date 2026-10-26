@@ -49,6 +49,10 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 .backup-rediseno-ui/
+.backup-rediseno-*/
+
+# Zip del logo (duplica brand/lulo-studio-logo/)
+brand/lulo-studio-logo.zip
 
 # Proyectos guardados localmente: en Mac la ruta Windows del storage-config ("C:\\...") se crea dentro de frontend/
 frontend/C:*/

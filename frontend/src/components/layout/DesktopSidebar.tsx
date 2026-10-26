@@ -1,7 +1,9 @@
 'use client';
 
 import React from 'react';
+import { LogOut } from 'lucide-react';
 import { HOME_ICON, NAV_ORDER, TOOLS, type ToolId } from '@/config/tools.config';
+import { useAuthStore } from '@/store/useAuthStore';
 
 interface DesktopSidebarProps {
   activeTool: ToolId | null;
@@ -50,6 +52,7 @@ function NavButton({ label, shortcut, icon: Icon, active, preview, onClick }: Na
 export function DesktopSidebar({ activeTool, onSelectTool }: DesktopSidebarProps) {
   const projects = TOOLS.projects;
   const costs = TOOLS.costs;
+  const signOut = useAuthStore((s) => s.signOut);
 
   return (
     <aside className="no-drag z-30 hidden h-full w-16 shrink-0 flex-col items-center justify-between border-r border-line bg-bg py-3 sm:flex">
@@ -93,6 +96,8 @@ export function DesktopSidebar({ activeTool, onSelectTool }: DesktopSidebarProps
           active={activeTool === 'costs'}
           onClick={() => onSelectTool('costs')}
         />
+        <div className="my-1 h-px w-6 bg-line" />
+        <NavButton label="Cerrar sesión" icon={LogOut} active={false} onClick={signOut} />
       </div>
     </aside>
   );

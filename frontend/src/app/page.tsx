@@ -20,10 +20,14 @@ import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useProjectHydrationStore } from '@/store/useProjectHydrationStore';
+import { useAuthStore } from '@/store/useAuthStore';
+import { LoginScreen } from '@/components/auth/LoginScreen';
 import { TOOLS, getToolByShortcut, normalizeToolId, type ToolId } from '@/config/tools.config';
 
 export default function Home() {
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
+  const authStatus = useAuthStore((s) => s.status);
+  const initAuth = useAuthStore((s) => s.init);
   const setMiaActiveTool = useMiaStore((s) => s.setActiveTool);
 
   useEffect(() => {
@@ -54,7 +58,20 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Sesión guardada en este equipo (el login con Google aún es una fachada)
+  useEffect(() => {
+    initAuth();
+  }, [initAuth]);
+
   const tool = activeTool ? TOOLS[activeTool] : null;
+
+  if (authStatus === 'loading') {
+    return <div className="h-dvh w-screen bg-bg" />;
+  }
+
+  if (authStatus === 'signed-out') {
+    return <LoginScreen />;
+  }
 
   return (
     <div className="flex h-dvh w-screen flex-col overflow-hidden bg-bg text-fg">

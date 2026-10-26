@@ -507,3 +507,45 @@ input[type="range"].slider-minimal::-moz-range-thumb {
     transform: none;
   }
 }
+
+/* -----------------------------------------------------------------------------
+   Pantalla de entrada (login)
+   ----------------------------------------------------------------------------- */
+
+@keyframes login-col-up { from { transform: translateY(0); } to { transform: translateY(-50%); } }
+@keyframes login-col-down { from { transform: translateY(-50%); } to { transform: translateY(0); } }
+@keyframes login-spin { to { transform: rotate(360deg); } }
+@keyframes login-spin-back { to { transform: rotate(-360deg); } }
+@keyframes login-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes login-pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+
+.login-col-up { animation: login-col-up 38s linear infinite; }
+.login-col-down { animation: login-col-down 44s linear infinite; }
+.login-spin { animation: login-spin 26s linear infinite; }
+.login-spin-back { animation: login-spin-back 26s linear infinite; }
+.login-spinner { animation: login-spin 0.8s linear infinite; }
+.login-rise { animation: login-rise 0.7s var(--ease-out-soft) both; }
+.login-pop { animation: login-pop 0.45s var(--ease-out-soft) both; }
+
+.login-gbtn {
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.login-gbtn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 40px -18px color-mix(in srgb, var(--brand) 60%, transparent);
+}
+
+.login-gbtn:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-col-up,
+  .login-col-down,
+  .login-spin,
+  .login-spin-back,
+  .login-rise {
+    animation: none;
+  }
+}
