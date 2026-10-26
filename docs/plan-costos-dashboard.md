@@ -22,6 +22,16 @@ Responder de un vistazo: ¿cómo voy este mes? ¿en qué se va el dinero? ¿cuá
 
 Colores: un color fijo por herramienta en todos los bloques; claro/oscuro; seguir la skill de gráficos (dataviz). Dólares con 2 decimales (4 para centavos).
 
+## Al implementar
+Usar la skill `dashboard-designer` (`.claude/skills/dashboard-designer/SKILL.md`) para jerarquía, comparaciones y checklist, y `frontend-design` para el aspecto. De `dashboard-designer` aplicar:
+- Títulos que dicen la conclusión ("Vas 12 % por debajo de septiembre"), no solo la etiqueta.
+- Cada número con comparación: Hoy vs límite, Mes vs mes anterior, Cierre estimado vs mes anterior (o presupuesto mensual si se decide), Costo por video vs mes anterior.
+- Máx. 4–5 colores; rojo solo para alertas reales (pasarse del límite); gris para contexto.
+- Pie de página con "actualizado a las HH:MM" y de dónde salen los datos.
+- En móvil/ventana angosta: apilar y mostrar primero las 4 tarjetas.
+- Prueba de 5 segundos: alguien ve la pantalla 5 s y debe poder decir cómo va el gasto.
+- NO usar su guía de herramientas BI ni su paleta hex: se usan los tokens de color de la app.
+
 ## Fases (ambas $0)
 1. Tarjetas nuevas + gráfico por día + "En qué se va". Prueba: con datos reales de octubre, totales iguales a los actuales y al CSV.
 2. Videos más caros + Gratis y sin cobrar + búsqueda/filtros + clic en día. Prueba: la producción "Prueba Santiago" ≈ $0.20 coincide.

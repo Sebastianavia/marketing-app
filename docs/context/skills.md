@@ -10,6 +10,7 @@ Para actualizar: volver a copiar la carpeta desde el repo/commit indicado.
 | Tarea | Skills |
 |---|---|
 | Diseñar o rediseñar UI (prompt 01, dashboard, focus mode) | `frontend-design` → `high-end-visual-design` → `redesign-existing-projects` |
+| Diseñar un dashboard de datos (KPIs, jerarquía, comparaciones; p. ej. la vista Costos, `docs/plan-costos-dashboard.md`) | `dashboard-designer` (qué mostrar y dónde) → `frontend-design` (cómo se ve). Ignorar su guía de herramientas BI (Tableau, Power BI…) y su paleta hex: el dashboard es dentro de la app y usa sus tokens de color |
 | Micro-interacciones, hover, transiciones Dashboard ↔ Focus Mode | `emil-design-eng`, `vercel-react-view-transitions`, revisar con `review-animations` |
 | Escribir/refactorizar componentes React/Next (p. ej. partir `AvatarWorkspace`) | `vercel-react-best-practices`, `vercel-composition-patterns`, `codebase-design` |
 | Auditar UI/UX y accesibilidad | `web-design-guidelines` |
