@@ -3,6 +3,13 @@
     "context-mode": {
       "command": "npx",
       "args": ["-y", "context-mode"]
+    },
+    "lulo-studio": {
+      "command": "node",
+      "args": ["frontend/mcp/lulo-mcp.mjs"],
+      "env": {
+        "LULO_APP_URL": "http://localhost:3000"
+      }
     }
   }
 }
