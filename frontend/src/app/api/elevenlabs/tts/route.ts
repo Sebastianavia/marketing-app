@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { synthesizeSpeech } from '@/lib/generation/voice';
+import { DailyLimitError } from '@/lib/usage/usage-store';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -42,6 +43,10 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: any) {
+    // Mismo formato que /api/render-jobs: la vista muestra el mensaje con lo gastado y el límite
+    if (error instanceof DailyLimitError) {
+      return NextResponse.json({ error: error.message, code: 'daily_limit' }, { status: 402 });
+    }
     console.error('[API ElevenLabs TTS Error]:', error);
     const status = error.httpStatus || error.status || 500;
     return NextResponse.json(

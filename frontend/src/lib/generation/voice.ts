@@ -1,7 +1,8 @@
-import { elevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
+import { elevenLabsService, resolveElevenModelId } from '@/services/elevenlabs/elevenlabs.service';
 import type { ElevenLabsVoiceSettings } from '@/types/elevenlabs.types';
 import { saveGenerated } from '@/lib/storage/generated-library';
-import { recordUsage } from '@/lib/usage/usage-store';
+import { assertWithinDailyLimit, recordUsage } from '@/lib/usage/usage-store';
+import { getSettings } from '@/lib/data/settings';
 import { ttsCost } from '@/config/cost-rates';
 
 /**
@@ -35,10 +36,20 @@ async function saveToLibrary(buffer: Buffer, id: string): Promise<string | undef
   }
 }
 
-/** Voz con el SDK de ElevenLabs. Lanza ElevenLabsTTSError (con httpStatus y code) si falla. */
+/** Lanza DailyLimitError si la locución superaría el límite diario (costo de catálogo por caracteres). */
+async function assertVoiceWithinDailyLimit(text: string, modelId: string | undefined) {
+  const settings = await getSettings();
+  await assertWithinDailyLimit(ttsCost(resolveElevenModelId(modelId), text.trim().length), settings.dailyLimitUSD);
+}
+
+/**
+ * Voz con el SDK de ElevenLabs. Lanza DailyLimitError si superaría el límite diario
+ * y ElevenLabsTTSError (con httpStatus y code) si falla la síntesis.
+ */
 export async function synthesizeSpeech(req: SpeechRequest) {
   const language = req.language ?? 'es';
   const tool = req.tool ?? 'voice-studio';
+  await assertVoiceWithinDailyLimit(req.text, req.modelId);
   const result = await elevenLabsService.generateAudio(req.text, req.voiceId, language, req.modelId, req.voiceSettings);
 
   const effectiveModel = result.modelId || req.modelId || 'desconocido';
@@ -69,6 +80,7 @@ export async function synthesizeSpeech(req: SpeechRequest) {
  */
 export async function synthesizeSpeechWithTimestamps(req: SpeechRequest & { voiceId: string; modelId: string }) {
   const language = req.language ?? 'es';
+  await assertVoiceWithinDailyLimit(req.text, req.modelId);
   const result = await elevenLabsService.generateWithTimestamps(req.text, req.voiceId, req.modelId, req.voiceSettings ?? {});
   const filePath = await saveToLibrary(result.buffer, crypto.randomUUID());
   const characters = result.charactersBilled;

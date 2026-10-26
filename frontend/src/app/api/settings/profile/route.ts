@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPersonName, getSettings, updateSettings } from '@/lib/data/settings';
 import { errorMessage } from '@/lib/errors';
 import { DEFAULT_ORCHESTRATOR, isOrchestratorMode, type OrchestratorMode } from '@/config/llm-models';
+import { assertAppUiRequest, ForbiddenError } from '@/lib/director/local-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,19 @@ export async function GET() {
   });
 }
 
+/**
+ * Cambia nombre, límite diario u orquestador. Solo desde la ventana de la app (igual que aprobar gastos):
+ * el límite diario y el modo de IA deciden cuánto se puede gastar, así que el Director no debe tocarlos.
+ */
 export async function PUT(req: NextRequest) {
+  try {
+    assertAppUiRequest(req);
+  } catch (err) {
+    if (err instanceof ForbiddenError) {
+      return NextResponse.json({ error: 'Los ajustes solo se cambian desde la ventana de Lulo Studio.' }, { status: 403 });
+    }
+    throw err;
+  }
   try {
     const body = await req.json();
     const patch: { personName?: string; dailyLimitUSD?: number; orchestrator?: OrchestratorMode } = {};

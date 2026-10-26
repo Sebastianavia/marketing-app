@@ -14,7 +14,34 @@
       "PowerShell(*api/productions*approve*)",
       "PowerShell(*api/productions*reject*)",
       "WebFetch(domain:localhost)",
-      "WebFetch(domain:127.0.0.1)"
+      "WebFetch(domain:127.0.0.1)",
+
+      "mcp__claude-in-chrome",
+      "mcp__Claude_Browser",
+      "mcp__remote-devices",
+      "mcp__computer-use",
+
+      "Edit(//D:/LuloStudio_Projects/Producciones/**)",
+      "Edit(//d/LuloStudio_Projects/Producciones/**)",
+      "Edit(~/AppData/Roaming/LuloStudio/**)",
+      "Edit(/frontend/src/lib/director/local-guard.ts)",
+      "Edit(/frontend/src/app/api/productions/**)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "Bash(*.claude*settings*)",
+      "PowerShell(*.claude*settings*)",
+      "Bash(*produccion.json*)",
+      "Bash(*Producciones*)",
+      "Bash(*LuloStudio/*)",
+      "Bash(*APPDATA*LuloStudio*)",
+      "Bash(*AppData*LuloStudio*)",
+      "Bash(*appdata*LuloStudio*)",
+      "PowerShell(*produccion.json*)",
+      "PowerShell(*Producciones*)",
+      "PowerShell(*LuloStudio/*)",
+      "PowerShell(*APPDATA*LuloStudio*)",
+      "PowerShell(*AppData*LuloStudio*)",
+      "PowerShell(*appdata*LuloStudio*)"
     ]
   }
 }
