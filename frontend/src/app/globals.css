@@ -591,6 +591,12 @@ input[type="range"].slider-minimal::-moz-range-thumb {
   stroke-dasharray: 4 4;
   opacity: 0.6;
 }
+/* Referencia → escena que la usa (paso 2) */
+.lulo-flow .react-flow__edge.lulo-edge-ref path {
+  stroke: var(--accent);
+  stroke-dasharray: 2 4;
+  opacity: 0.55;
+}
 .lulo-flow .react-flow__node:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

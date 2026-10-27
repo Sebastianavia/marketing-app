@@ -38,6 +38,48 @@ export const PromptsSchema = z.object({
 
 export const OnePromptSchema = z.object({ prompt: z.string().describe('Prompt de video en inglés') });
 
+/** Transcripción de la locución propia (Gemini con audio). */
+export const TranscriptSchema = z.object({
+  frases: z.array(
+    z.object({
+      texto: z.string().describe('Lo que se dice, exacto'),
+      inicio: z.number().describe('Segundo en que empieza'),
+      fin: z.number().describe('Segundo en que termina'),
+    })
+  ),
+});
+
+/** Guion repartido sobre las frases de la locución. */
+export const AlignedScriptSchema = z.object({
+  titulo: z.string().describe('Título corto del video (máximo 60 caracteres)'),
+  escenas: z
+    .array(
+      z.object({
+        desde: z.number().describe('Primera frase de la escena (empieza en 1)'),
+        hasta: z.number().describe('Última frase de la escena (incluida)'),
+        tipo: z.enum(['avatar', 'broll']),
+        queSeVe: z.string().describe('Qué se ve: una toma concreta y filmable'),
+      })
+    )
+    .min(1)
+    .max(40),
+});
+
+const TagKindEnum =z.enum(['personaje', 'lugar', 'producto', 'estilo', 'voz', 'musica']);
+
+/** Propuesta de etiquetas a partir de las fotos (visión). */
+export const TagProposalSchema = z.object({
+  grupos: z.array(
+    z.object({
+      fotos: z.array(z.number()).describe('Números de las fotos de este grupo (empiezan en 1)'),
+      tipo: z.enum(['personaje', 'lugar', 'producto', 'estilo']),
+      nombre: z.string().describe('Nombre corto en español (personaje: un nombre propio)'),
+      descripcion: z.string().describe('Descripción visual breve EN INGLÉS, 10 a 30 palabras'),
+      existente: z.string().optional().describe('Si es una etiqueta ya existente: su mención sin @'),
+    })
+  ),
+});
+
 // ---------- Lo que manda la interfaz ----------
 
 const Aspect = z.enum(['9:16', '16:9', '1:1']);
@@ -70,6 +112,7 @@ const SceneEdit = z.object({
 });
 
 const Stage = z.enum(['idea', 'preguntas', 'ajustes', 'guion', 'prompts']);
+const RefId = z.string().min(1).max(40);
 
 /** Acciones sobre una producción en modo Director. `orchestrator` lo añade postOrchestrated al aceptar Claude. */
 export const ActionBody = z.discriminatedUnion('accion', [
@@ -78,13 +121,46 @@ export const ActionBody = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('responder_preguntas'), respuestas: z.record(z.string(), z.string().max(500)) }),
   z.object({ accion: z.literal('saltar_preguntas') }),
   z.object({ accion: z.literal('guardar_ajustes'), ajustes: SettingsBody }),
-  z.object({ accion: z.literal('generar_guion') }),
+  z.object({ accion: z.literal('generar_guion'), indicacion: z.string().max(1000).optional() }),
   z.object({ accion: z.literal('rehacer_escena'), escenaId: z.string().max(20), indicacion: z.string().max(1000).default('') }),
   z.object({ accion: z.literal('editar_escena'), escenaId: z.string().max(20), cambios: SceneEdit }),
   z.object({ accion: z.literal('generar_prompts'), soloFaltantes: z.boolean().default(false) }),
   z.object({ accion: z.literal('rehacer_prompt'), escenaId: z.string().max(20), indicacion: z.string().max(1000).default('') }),
   z.object({ accion: z.literal('editar_prompt'), escenaId: z.string().max(20), texto: z.string().min(1).max(4000) }),
   z.object({ accion: z.literal('aprobar'), etapa: Stage }),
+  // Referencias y etiquetas (paso 2). Subir archivos va por /api/director-mode/[id]/referencias (multipart).
+  z.object({ accion: z.literal('proponer_etiquetas'), refIds: z.array(RefId).max(40).optional() }),
+  z.object({
+    accion: z.literal('guardar_etiqueta'),
+    etiquetaId: RefId.optional(),
+    tipo: TagKindEnum,
+    nombre: z.string().trim().min(1, 'Ponle un nombre a la etiqueta.').max(60),
+    descripcion: z.string().max(600).default(''),
+    avatarId: z.string().max(100).nullable().default(null),
+    /** Fotos que pasan a esta etiqueta. */
+    refIds: z.array(RefId).max(40).optional(),
+  }),
+  z.object({ accion: z.literal('borrar_etiqueta'), etiquetaId: RefId }),
+  z.object({ accion: z.literal('unir_etiquetas'), desde: RefId, hacia: RefId }),
+  z.object({
+    accion: z.literal('mover_referencia'),
+    refId: RefId,
+    /** null = sin etiqueta; ausente = no cambia. */
+    etiquetaId: RefId.nullable().optional(),
+    /** null = todo el proyecto; ausente = no cambia. */
+    escenaId: z.string().max(20).nullable().optional(),
+  }),
+  z.object({ accion: z.literal('borrar_referencia'), refId: RefId }),
+  // Video desde mi audio (paso 2)
+  z.object({ accion: z.literal('usar_locucion'), refId: RefId, usarComoVoz: z.boolean().default(true) }),
+  z.object({ accion: z.literal('quitar_locucion') }),
+  z.object({
+    accion: z.literal('transcribir_locucion'),
+    motor: z.enum(['gemini', 'elevenlabs']),
+    /** ElevenLabs es de pago: la interfaz manda el precio que mostró (si cambió → 409). */
+    costoVisto: z.number().min(0).optional(),
+  }),
+  z.object({ accion: z.literal('editar_transcripcion'), frases: z.array(z.string().max(1000)).max(400) }),
 ]);
 
 export type ActionInput = z.infer<typeof ActionBody>;

@@ -2,12 +2,15 @@
 
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { FileText, Lock, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { AudioLines, FileText, Lock, Paperclip, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { VOICE_MODES, getBrollModel } from '@/config/broll-models';
 import { getDirectorSkill } from '@/config/director-skills';
 import { formatTime } from '@/lib/director-mode/durations';
+import { sceneRefs, sceneTags, tagKindLabel, tagRefs } from '@/lib/director-mode/mentions';
+import type { DirectorState } from '@/lib/director-mode/types';
 import type { DirectorNode, NodeTone } from './build-graph';
 import { TYPE_LABEL } from '../ScriptSceneCard';
+import { MentionText, RefThumb, TagChip } from '../refs/ref-common';
 
 /** Un solo tipo de nodo ("director") que se dibuja según `data.kind`. Colores con los tokens de la app. */
 
@@ -120,6 +123,7 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
           <p className="mt-1.5 text-[10.5px] leading-snug text-fg-subtle">
             {a.formato} · {a.duracionSeg} s · {VOICE_MODES.find((v) => v.id === a.modoVoz)?.label} · {getBrollModel(a.modeloBroll).name}
             {a.avatarNombre ? ` · «${a.avatarNombre}»` : ''}
+            {d.locucion?.usarComoVoz ? ' · voz: tu locución' : ''}
           </p>
         </Shell>
       );
@@ -144,7 +148,7 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
             <Status tone={data.tone} />
           </div>
           <p className={`mt-1.5 text-[11px] leading-snug text-fg-muted ${clamp}`} style={{ WebkitLineClamp: 2 }}>
-            {s.queSeVe || '—'}
+            {s.queSeVe ? <MentionText text={s.queSeVe} tags={data.d.etiquetas} /> : '—'}
           </p>
           {s.dialogo && (
             <p className={`mt-1 text-[11.5px] leading-snug text-fg ${clamp}`} style={{ WebkitLineClamp: 2 }}>
@@ -156,6 +160,12 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
               Pediste {s.duracionPedidaSeg} s → {s.duracionSeg} s por el modelo
             </p>
           )}
+          {s.audio && (
+            <p className="mt-1 text-[10px] text-fg-subtle" title="Inicio, fin y diálogo los manda tu locución">
+              🎙️ Sigue tu audio · clip de {s.clipSeg} s{s.clipSeg && s.clipSeg > s.duracionSeg + 0.05 ? `, se recorta a ${s.duracionSeg.toFixed(1)} s` : ''}
+            </p>
+          )}
+          <SceneRefsLine d={data.d} sceneId={s.id} />
         </Shell>
       );
     }
@@ -180,6 +190,57 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
         </Shell>
       );
     }
+    case 'etiqueta': {
+      const t = data.tag;
+      const own = tagRefs(data.d, t.id);
+      const k = tagKindLabel(t.tipo);
+      return (
+        <Shell selected={selected} tone={data.tone} width={230} dashed={!t.confirmada && !selected}>
+          <Header title={`${k.icono} ${k.label}`} right={<Status tone={data.tone} label={t.confirmada ? 'Confirmada' : 'Propuesta'} />} />
+          <div className="mt-1.5">
+            <TagChip tag={t} />
+            {t.nombre !== t.mencion && <span className="ml-1.5 text-[11px] text-fg-muted">{t.nombre}</span>}
+          </div>
+          {own.length > 0 && (
+            <div className="mt-1.5 flex gap-1">
+              {own.slice(0, 4).map((r) => (
+                <RefThumb key={r.id} productionId={data.pid} r={r} size={34} />
+              ))}
+              {own.length > 4 && <span className="self-center text-[10px] text-fg-subtle">+{own.length - 4}</span>}
+            </div>
+          )}
+          {t.avatarNombre && <p className="mt-1 truncate text-[10.5px] text-fg-subtle">Avatar «{t.avatarNombre}»</p>}
+          {!own.length && !t.avatarNombre && <p className="mt-1 text-[10.5px] text-fg-subtle">Sin archivos</p>}
+        </Shell>
+      );
+    }
+    case 'locucion': {
+      const loc = data.d.locucion!;
+      const t = loc.transcripcion;
+      return (
+        <Shell selected={selected} tone={data.tone} width={230}>
+          <Header icon={<AudioLines className="h-3.5 w-3.5 text-fg-subtle" />} title="Tu locución" right={<Status tone={data.tone} label={t ? 'Transcrita' : 'Sin transcribir'} />} />
+          <p className="mt-1.5 text-[11px] text-fg-muted">
+            {Math.round(loc.duracionSeg)} s{t ? ` · ${t.frases.length} frases · ${t.motor === 'gemini' ? 'Gemini (aprox.)' : 'ElevenLabs'}` : ''}
+          </p>
+          <p className="mt-1 text-[10.5px] text-fg-subtle">{loc.usarComoVoz ? 'Es la voz del video ($0 en ElevenLabs)' : 'Solo como referencia'}</p>
+        </Shell>
+      );
+    }
+    case 'sueltas': {
+      const loose = (data.d.referencias ?? []).filter((r) => !r.etiquetaId && !r.escenaId && r.id !== data.d.locucion?.refId);
+      return (
+        <Shell selected={selected} tone={data.tone} width={230}>
+          <Header icon={<Paperclip className="h-3.5 w-3.5 text-fg-subtle" />} title="Sin etiqueta" right={<span className="text-[10.5px] text-fg-subtle">{loose.length}</span>} />
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {loose.slice(0, 6).map((r) => (
+              <RefThumb key={r.id} productionId={data.pid} r={r} size={30} />
+            ))}
+          </div>
+          <p className="mt-1 text-[10.5px] text-fg-subtle">Toca para etiquetarlas</p>
+        </Shell>
+      );
+    }
     case 'futuro':
       return (
         <Shell selected={false} tone="future" width={data.compacto ? 150 : 200} dashed>
@@ -188,6 +249,29 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
         </Shell>
       );
   }
+}
+
+/** Etiquetas que usa la escena y cuántas referencias son solo suyas. */
+function SceneRefsLine({ d, sceneId }: { d: DirectorState; sceneId: string }) {
+  const s = d.guion?.escenas.find((x) => x.id === sceneId);
+  if (!s) return null;
+  const tags = sceneTags(d, s);
+  const own = sceneRefs(d, sceneId).length;
+  if (!tags.length && !own) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+      {tags.slice(0, 4).map((t) => (
+        <TagChip key={t.id} tag={t} />
+      ))}
+      {tags.length > 4 && <span className="text-[10px] text-fg-subtle">+{tags.length - 4}</span>}
+      {own > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-[10.5px] text-fg-subtle" title="Referencias solo para esta escena">
+          <Paperclip className="h-3 w-3" />
+          {own}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export const nodeTypes = { director: memo(DirectorNodeView) };

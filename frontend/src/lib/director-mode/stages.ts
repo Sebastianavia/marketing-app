@@ -1,3 +1,4 @@
+import { tagSignature } from './mentions';
 import type { ActiveStageId, DirectorScene, DirectorState, StageId, StageStatus } from './types';
 
 /**
@@ -100,9 +101,13 @@ export function previousApproved(d: DirectorState, id: ActiveStageId): boolean {
   return ACTIVE_ORDER.slice(0, ACTIVE_ORDER.indexOf(id)).every((s) => d.etapas[s].estado === 'aprobada');
 }
 
-/** El prompt de la escena se escribió para una versión anterior de la escena (o no existe). */
-export function promptIsStale(s: DirectorScene): boolean {
-  return !s.prompt || s.prompt.deVersion !== s.version;
+/**
+ * El prompt de la escena no existe, se escribió para una versión anterior de la escena
+ * o (si se pasa el borrador) alguna de sus etiquetas cambió desde entonces.
+ */
+export function promptIsStale(s: DirectorScene, d?: Pick<DirectorState, 'etiquetas' | 'referencias'>): boolean {
+  if (!s.prompt || s.prompt.deVersion !== s.version) return true;
+  return d ? (s.prompt.deEtiquetas ?? '') !== tagSignature(d, s) : false;
 }
 
 /** Guarda lo anterior antes de cambiarlo (máximo 30 entradas). */

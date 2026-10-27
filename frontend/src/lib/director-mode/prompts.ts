@@ -1,7 +1,8 @@
 import { VOICE_MODES } from '@/config/broll-models';
 import { getDirectorSkill } from '@/config/director-skills';
 import { durationRules } from './durations';
-import type { DirectorScene, DirectorState } from './types';
+import { TAG_KINDS, sceneTags } from './mentions';
+import type { DirectorScene, DirectorState, DirectorTag } from './types';
 
 /**
  * Instrucciones del modo Director y bloques fijos que se pegan en los prompts de video.
@@ -65,8 +66,8 @@ function material(d: DirectorState, hasPdf: boolean): string {
   const kind = e.tipo === 'guion' ? 'GUION DE LA PERSONA' : e.tipo === 'idea' ? 'IDEA' : 'INDICACIONES SOBRE EL PDF';
   const parts: string[] = [];
   if (e.texto.trim()) parts.push(`${kind}:\n${e.texto.trim()}`);
-  if (hasPdf) parts.push('MATERIAL: el PDF adjunto.');
-  return parts.join('\n\n') || 'MATERIAL: el PDF adjunto.';
+  if (hasPdf) parts.push('MATERIAL: los PDF adjuntos.');
+  return parts.join('\n\n') || 'MATERIAL: los PDF adjuntos.';
 }
 
 function answers(d: DirectorState): string {
@@ -93,6 +94,52 @@ TIPO DE VIDEO: ${s.nombre}. ${text}
 `;
 }
 
+/** Etiquetas visuales (las de voz y música no salen en imagen). */
+function visualTags(d: DirectorState): DirectorTag[] {
+  return (d.etiquetas ?? []).filter((t) => t.tipo !== 'voz' && t.tipo !== 'musica');
+}
+
+function tagLine(t: DirectorTag): string {
+  const kind = TAG_KINDS.find((k) => k.id === t.tipo)?.label.toLowerCase() ?? t.tipo;
+  return `- @${t.mencion} (${kind}${t.nombre !== t.mencion ? `, «${t.nombre}»` : ''}): ${t.descripcion.trim() || 'sin descripción'}`;
+}
+
+/** Referencias del proyecto (etiquetas con fotos) para cada etapa; vacío si no hay. */
+function tagsBlock(d: DirectorState, part: 'preguntas' | 'guion' | 'prompts'): string {
+  const tags = visualTags(d);
+  if (!tags.length) return '';
+  const list = tags.map(tagLine).join('\n');
+  if (part === 'guion') {
+    return `
+REFERENCIAS DEL PROYECTO (personajes, lugares, productos y estilo, con fotos):
+${list}
+- Cuando en una escena aparezca algo de esta lista, nómbralo en "queSeVe" con su @ exacto (p. ej. «@${tags[0].mencion} …»).
+- No inventes @ nuevos y nunca pongas @ en el diálogo.
+`;
+  }
+  if (part === 'prompts') {
+    return `
+REFERENCIAS DEL PROYECTO (el sistema usará sus fotos para mantener el mismo aspecto en todas las escenas):
+${list}
+- En el prompt (en inglés) NO escribas '@': describe a cada persona, lugar o producto con su descripción, igual en todas las escenas.
+- Las de tipo estilo solo marcan el look (color, luz, encuadre), nunca el contenido.
+`;
+  }
+  return `
+REFERENCIAS QUE SUBIÓ LA PERSONA:
+${list}
+`;
+}
+
+/** Qué etiquetas usa cada escena (las que nombra con @ y las subidas solo para ella). */
+function sceneTagsText(d: DirectorState, scenes: DirectorScene[]): string {
+  const lines = scenes
+    .map((s) => ({ s, tags: sceneTags(d, s).filter((t) => t.tipo !== 'voz' && t.tipo !== 'musica') }))
+    .filter((x) => x.tags.length)
+    .map((x) => `- Escena ${x.s.orden}: ${x.tags.map((t) => `@${t.mencion}`).join(', ')}`);
+  return lines.length ? `\nREFERENCIAS POR ESCENA:\n${lines.join('\n')}\n` : '';
+}
+
 // ---------- Etapa 2: preguntas ----------
 
 export function questionsPrompt(d: DirectorState, hasPdf: boolean) {
@@ -102,7 +149,7 @@ export function questionsPrompt(d: DirectorState, hasPdf: boolean) {
 - Solo decisiones que cambian el video: enfoque o ángulo, tono, a quién le habla, gancho de apertura, llamado a la acción.
 - No preguntes por formato, duración, voz ni presupuesto (se eligen en otro paso).
 - Opciones concretas, de 2 a 8 palabras, basadas en el material.
-${skillBlock(d, 'preguntas')}
+${skillBlock(d, 'preguntas')}${tagsBlock(d, 'preguntas')}
 ${material(d, hasPdf)}`,
   };
 }
@@ -129,15 +176,15 @@ ${typeRule}
 - No uses etiquetas entre corchetes.`;
 }
 
-export function scriptPrompt(d: DirectorState, hasPdf: boolean) {
+export function scriptPrompt(d: DirectorState, hasPdf: boolean, indicacion = '') {
   const keep = d.entrada.tipo === 'guion' && d.entrada.mantenerPalabras;
   const task = keep
     ? `Divide el GUION DE LA PERSONA en escenas consecutivas. Usa el texto EXACTO: no cambies, quites ni añadas palabras (solo puntuación y mayúsculas). La unión de todos los diálogos, en orden, debe ser el guion completo.`
     : `Escribe el guion por escenas de un video de unos ${d.ajustes.duracionSeg} segundos (aprox. ${Math.round(d.ajustes.duracionSeg * 15)} caracteres de diálogo en total), basado SOLO en el material.`;
   return {
     system: ROLE,
-    prompt: `${task}
-${skillBlock(d, 'guion')}
+    prompt: `${task}${indicacion.trim() ? `\n- Pedido de la persona para este guion: ${indicacion.trim()}` : ''}
+${skillBlock(d, 'guion')}${tagsBlock(d, 'guion')}
 ${settingsText(d)}
 ${answers(d)}
 
@@ -153,15 +200,21 @@ function scriptSummary(scenes: DirectorScene[]): string {
     .join('\n');
 }
 
-export function redoScenePrompt(d: DirectorState, scene: DirectorScene, indicacion: string, hasPdf: boolean) {
+export function redoScenePrompt(d: DirectorState, scene: DirectorScene, indicacion: string, hasPdf: boolean, aligned = false) {
   const keep = d.entrada.tipo === 'guion' && d.entrada.mantenerPalabras;
   return {
     system: ROLE,
     prompt: `Reescribe SOLO la escena ${scene.orden} de este guion. Las demás escenas no cambian: la nueva debe encajar entre la anterior y la siguiente.
-${keep ? `- El diálogo debe tener EXACTAMENTE las mismas palabras que ahora: "${scene.dialogo}". Solo puedes cambiar "queSeVe", la duración y la puntuación.` : ''}
+${
+  aligned
+    ? `- La escena sigue la locución de la persona: el diálogo ("${scene.dialogo}") y la duración (${scene.duracionSeg} s) NO cambian. Cambia solo "queSeVe" (y el tipo si hace falta); devuelve el mismo diálogo y la misma duración.`
+    : keep
+    ? `- El diálogo debe tener EXACTAMENTE las mismas palabras que ahora: "${scene.dialogo}". Solo puedes cambiar "queSeVe", la duración y la puntuación.`
+    : ''
+}
 ${indicacion.trim() ? `- Pedido de la persona: ${indicacion.trim()}` : '- Propón una versión distinta y mejor que la actual.'}
 ${d.ajustes.modoVoz === 'avatar' ? '' : "- El tipo debe ser 'broll'."}
-${skillBlock(d, 'guion')}
+${skillBlock(d, 'guion')}${tagsBlock(d, 'guion')}${sceneTagsText(d, [scene])}
 ${settingsText(d)}
 ${answers(d)}
 
@@ -188,7 +241,7 @@ export function promptsPrompt(d: DirectorState, scenes: DirectorScene[]) {
     prompt: `Escribe el prompt de video de cada escena indicada.
 
 ${PROMPT_RULES}
-${skillBlock(d, 'prompts')}
+${skillBlock(d, 'prompts')}${tagsBlock(d, 'prompts')}${sceneTagsText(d, scenes)}
 ${settingsText(d)}
 
 GUION COMPLETO (para mantener la continuidad):
@@ -206,10 +259,66 @@ ${indicacion.trim() ? `Pedido de la persona: ${indicacion.trim()}` : 'Propón un
 ${scene.prompt ? `Prompt actual: ${scene.prompt.texto}` : ''}
 
 ${PROMPT_RULES}
-${skillBlock(d, 'prompts')}
+${skillBlock(d, 'prompts')}${tagsBlock(d, 'prompts')}${sceneTagsText(d, [scene])}
 ${settingsText(d)}
 
 GUION COMPLETO:
 ${scriptSummary(d.guion?.escenas ?? [])}`,
+  };
+}
+
+// ---------- Locución propia: transcribir y repartir en escenas ----------
+
+export function transcriptionPrompt(totalSeg: number) {
+  return {
+    system: 'Eres un transcriptor profesional. Devuelves solo lo que pide el formato.',
+    prompt: `Transcribe EXACTAMENTE lo que se dice en este audio (dura ${totalSeg.toFixed(1)} s), en su idioma, sin resumir, corregir ni traducir.
+Divide la transcripción en frases cortas, de unos 2 a 6 segundos cada una, cortando en pausas naturales.
+Para cada frase da "inicio" y "fin" en SEGUNDOS desde el comienzo del audio (con decimales), lo más precisos que puedas.
+Las frases van en orden, no se solapan y no pasan de ${totalSeg.toFixed(1)} s. No incluyas ruidos ni música.`,
+  };
+}
+
+export function alignedScriptPrompt(d: DirectorState, frases: Array<{ texto: string; inicio: number; fin: number }>, maxBrollSeg: number, indicacion = '', hasPdf = false) {
+  const lista = frases.map((f, i) => `${i + 1}. [${f.inicio.toFixed(1)}–${f.fin.toFixed(1)} s] ${f.texto}`).join('\n');
+  const mode = d.ajustes.modoVoz;
+  const typeRule =
+    mode === 'avatar'
+      ? `- tipo 'avatar' = la persona habla a cámara con este audio (HeyGen); 'broll' = toma de apoyo. La primera y la última escena son 'avatar'.`
+      : `- TODAS las escenas son 'broll': nadie habla a cámara; el audio suena encima.`;
+  return {
+    system: ROLE,
+    prompt: `La persona grabó su locución. Reparte sus frases en escenas de video: cada escena toma frases CONSECUTIVAS (desde, hasta, ambos incluidos) y dice qué se ve mientras suenan.${indicacion.trim() ? `\n- Pedido de la persona: ${indicacion.trim()}` : ''}
+${skillBlock(d, 'guion')}${tagsBlock(d, 'guion')}
+REGLAS:
+- Cubre TODAS las frases, en orden, sin huecos ni repeticiones: la primera escena empieza en la frase 1 y la última termina en la frase ${frases.length}.
+- Cada toma de apoyo ('broll') debe durar como máximo ${maxBrollSeg} s (suma de sus frases). Cambia de escena cuando cambia la idea.
+${typeRule}
+- queSeVe: una sola toma concreta y filmable (sujeto, acción, lugar, plano) que ilustra lo que se dice. Sin texto en pantalla.
+- Cada escena empieza ya en su propio lugar (no repitas el mismo encuadre de arranque).
+${answers(d)}
+
+FRASES DE LA LOCUCIÓN:
+${lista}
+
+${material(d, hasPdf)}`,
+  };
+}
+
+// ---------- Referencias: proponer etiquetas (visión) ----------
+
+export function tagProposalPrompt(d: DirectorState, n: number) {
+  const existing = visualTags(d);
+  const context = d.entrada.texto.trim().slice(0, 600);
+  return {
+    system: ROLE,
+    prompt: `Te paso ${n} ${n === 1 ? 'foto' : 'fotos'} numeradas del 1 al ${n}, en el orden en que van adjuntas. La persona las subió como referencia para su video.
+Agrúpalas: las fotos de una misma persona, lugar o producto van juntas en un grupo.
+- tipo: personaje (una persona), lugar (un sitio o fondo), producto (un objeto o marca que se muestra), estilo (una imagen que solo sirve por su look: color, luz, encuadre).
+- nombre: corto, en español. Personaje: un nombre propio sencillo si no se sabe cuál es (p. ej. «Valentina»). Lugar: «Cocina», «Spa». Producto: su nombre si se lee.
+- descripcion: en inglés, 10 a 30 palabras, solo lo visible y estable (edad aproximada, pelo, ropa, rasgos; materiales y luz del lugar; forma y color del producto). Sin juicios.
+- Cada foto va en un solo grupo.
+${existing.length ? `\nETIQUETAS QUE YA EXISTEN (si una foto es de una de ellas, pon su mención sin @ en "existente"):\n${existing.map(tagLine).join('\n')}\n` : ''}
+${context ? `CONTEXTO DEL VIDEO: ${context}` : ''}`,
   };
 }

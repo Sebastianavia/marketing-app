@@ -495,7 +495,9 @@ export function ScriptStage({ d, busy, act }: { d: DirectorState; busy: string |
     return (
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[12px] text-fg-muted">
-          {d.entrada.tipo === 'guion' && d.entrada.mantenerPalabras
+          {d.locucion?.usarComoVoz && d.locucion.transcripcion
+            ? 'La IA reparte las escenas sobre tu locución: el audio manda los tiempos y el diálogo.'
+            : d.entrada.tipo === 'guion' && d.entrada.mantenerPalabras
             ? 'La IA divide tu guion en escenas sin cambiar tus palabras.'
             : 'La IA escribe el guion por escenas con tus respuestas y ajustes.'}
         </p>
@@ -515,6 +517,7 @@ export function ScriptStage({ d, busy, act }: { d: DirectorState; busy: string |
           key={`${s.id}-${d.guion!.generacion}-${s.version}-${s.duracionSeg}`}
           scene={s}
           ajustes={d.ajustes}
+          ctx={d}
           showPromptState={hasPrompts}
           disabled={!!busy}
           redoing={busy === `rehacer_escena:${s.id}`}
@@ -551,7 +554,7 @@ export function PromptsStage({ d, busy, act }: { d: DirectorState; busy: string 
   const st = d.etapas.prompts;
   const cost = costLabel(d);
   const escenas = d.guion?.escenas ?? [];
-  const stale = escenas.filter(promptIsStale);
+  const stale = escenas.filter((s) => promptIsStale(s, d));
   const anyPrompt = escenas.some((s) => s.prompt);
   const generating = busy === 'generar_prompts';
 
@@ -628,7 +631,7 @@ export function PromptRow({ d, sceneId, busy, act, cost }: { d: DirectorState; s
   const [text, setText] = useState(s.prompt?.texto ?? '');
   const [askRedo, setAskRedo] = useState(false);
   const [indicacion, setIndicacion] = useState('');
-  const stale = promptIsStale(s);
+  const stale = promptIsStale(s, d);
   const redoKey = `rehacer_prompt:${s.id}`;
 
   const redo = () => {

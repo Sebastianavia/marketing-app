@@ -1,11 +1,13 @@
 import type { Edge, Node } from '@xyflow/react';
+import { sceneTags } from '@/lib/director-mode/mentions';
 import { promptIsStale } from '@/lib/director-mode/stages';
-import type { DirectorScene, DirectorState, StageStatus } from '@/lib/director-mode/types';
+import type { DirectorScene, DirectorState, DirectorTag, StageStatus } from '@/lib/director-mode/types';
 
 /**
  * produccion.json (campo director) → nodos y aristas del lienzo. Función pura:
  * no guarda nada; las posiciones movidas a mano viven en el navegador (DirectorCanvas).
  *
+ *   [Etiquetas] ┄→ [Escena N que las usa]
  *   [Idea] → [Dirección] → [Escena N] → [Prompt N] ┄ [Imagen N] ┄ [Clip N] ┄ [Video final]
  */
 
@@ -17,6 +19,9 @@ export type DirectorNodeData =
   | { kind: 'escena'; tone: NodeTone; d: DirectorState; scene: DirectorScene }
   | { kind: 'prompt'; tone: NodeTone; d: DirectorState; scene: DirectorScene }
   | { kind: 'guion-pendiente'; tone: NodeTone; d: DirectorState }
+  | { kind: 'etiqueta'; tone: NodeTone; d: DirectorState; tag: DirectorTag; pid: string }
+  | { kind: 'sueltas'; tone: NodeTone; d: DirectorState; pid: string }
+  | { kind: 'locucion'; tone: NodeTone; d: DirectorState; pid: string }
   | { kind: 'futuro'; tone: 'future'; titulo: string; fase: number; compacto?: boolean };
 
 export type DirectorNode = Node<DirectorNodeData, 'director'>;
@@ -26,6 +31,9 @@ export const nodeId = {
   idea: 'idea',
   direccion: 'direccion',
   guionPendiente: 'guion-pendiente',
+  etiqueta: (id: string) => `etiqueta:${id}`,
+  sueltas: 'sueltas',
+  locucion: 'locucion',
   escena: (id: string) => `escena:${id}`,
   prompt: (id: string) => `prompt:${id}`,
   imagen: (id: string) => `imagen:${id}`,
@@ -63,10 +71,12 @@ function worst(...tones: NodeTone[]): NodeTone {
 }
 
 // Columnas (x) y alto de fila (y)
-const X = { idea: 0, direccion: 300, escena: 620, prompt: 980, imagen: 1340, clip: 1540, final: 1760 };
+const X = { ref: -330, idea: 0, direccion: 300, escena: 620, prompt: 980, imagen: 1340, clip: 1540, final: 1760 };
 const ROW = 190;
+const REF_ROW = 150;
 
-export function buildGraph(d: DirectorState): { nodes: DirectorNode[]; edges: Edge[] } {
+/** `pid` = id de la producción (para las miniaturas de las referencias). */
+export function buildGraph(d: DirectorState, pid = ''): { nodes: DirectorNode[]; edges: Edge[] } {
   const scenes = d.guion?.escenas ?? [];
   const rows = Math.max(1, scenes.length);
   const midY = ((rows - 1) * ROW) / 2;
@@ -81,15 +91,33 @@ export function buildGraph(d: DirectorState): { nodes: DirectorNode[]; edges: Ed
       // Los nodos futuros no se eligen ni se arrastran
       ...(data.kind === 'futuro' ? { selectable: false, focusable: false } : {}),
     });
-  const link = (source: string, target: string, future = false) =>
+  const link = (source: string, target: string, future = false, cls?: string) =>
     edges.push({
       id: `${source}->${target}`,
       source,
       target,
       type: 'smoothstep',
-      className: future ? 'lulo-edge-future' : 'lulo-edge',
+      className: cls ?? (future ? 'lulo-edge-future' : 'lulo-edge'),
       animated: false,
     });
+
+  // Columna de referencias: una etiqueta por nodo, más "Sin etiqueta" si hay archivos sueltos
+  const tags = d.etiquetas ?? [];
+  const loose = (d.referencias ?? []).filter((r) => !r.etiquetaId && !r.escenaId && r.id !== d.locucion?.refId);
+  const refCount = (d.locucion ? 1 : 0) + tags.length + (loose.length ? 1 : 0);
+  const refTop = midY - ((refCount - 1) * REF_ROW) / 2;
+  let refRow = 0;
+  if (d.locucion) {
+    add(nodeId.locucion, X.ref, refTop + refRow++ * REF_ROW, { kind: 'locucion', tone: d.locucion.transcripcion ? 'ok' : 'pending', d, pid });
+    link(nodeId.locucion, nodeId.direccion, false, 'lulo-edge-ref');
+  }
+  tags.forEach((t) =>
+    add(nodeId.etiqueta(t.id), X.ref, refTop + refRow++ * REF_ROW, { kind: 'etiqueta', tone: t.confirmada ? 'ok' : 'review', d, tag: t, pid })
+  );
+  if (loose.length) {
+    add(nodeId.sueltas, X.ref, refTop + refRow * REF_ROW, { kind: 'sueltas', tone: 'pending', d, pid });
+    link(nodeId.sueltas, nodeId.idea, false, 'lulo-edge-ref');
+  }
 
   add(nodeId.idea, X.idea, midY, { kind: 'idea', tone: stageTone(d.etapas.idea.estado), d });
   add(nodeId.direccion, X.direccion, midY, {
@@ -100,6 +128,7 @@ export function buildGraph(d: DirectorState): { nodes: DirectorNode[]; edges: Ed
   link(nodeId.idea, nodeId.direccion);
 
   if (!scenes.length) {
+    for (const t of tags) link(nodeId.etiqueta(t.id), nodeId.idea, false, 'lulo-edge-ref');
     add(nodeId.guionPendiente, X.escena, midY, { kind: 'guion-pendiente', tone: stageTone(d.etapas.guion.estado), d });
     link(nodeId.direccion, nodeId.guionPendiente);
     add(nodeId.final, X.final, midY, { kind: 'futuro', tone: 'future', titulo: 'Video final', fase: 4 });
@@ -113,6 +142,7 @@ export function buildGraph(d: DirectorState): { nodes: DirectorNode[]; edges: Ed
     const y = i * ROW;
     add(nodeId.escena(s.id), X.escena, y, { kind: 'escena', tone: guionTone, d, scene: s });
     link(nodeId.direccion, nodeId.escena(s.id));
+    for (const t of sceneTags(d, s)) link(nodeId.etiqueta(t.id), nodeId.escena(s.id), false, 'lulo-edge-ref');
 
     // Sin prompt: bloqueado o pendiente (en ámbar si los demás ya existen). Con prompt viejo: desactualizado.
     const promptTone: NodeTone = !s.prompt
@@ -121,7 +151,7 @@ export function buildGraph(d: DirectorState): { nodes: DirectorNode[]; edges: Ed
         : promptsStarted
         ? 'stale'
         : 'pending'
-      : promptIsStale(s)
+      : promptIsStale(s, d)
       ? 'stale'
       : stageTone(d.etapas.prompts.estado);
     add(nodeId.prompt(s.id), X.prompt, y, { kind: 'prompt', tone: promptTone, d, scene: s });

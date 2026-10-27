@@ -24,6 +24,7 @@ export const KIND_LABEL: Record<UsageEvent['kind'], string> = {
   script: 'Guion',
   image: 'Imagen',
   voice_clone: 'Clonación',
+  transcription: 'Transcripción',
 };
 
 export const PROVIDER_LABEL: Record<string, string> = {

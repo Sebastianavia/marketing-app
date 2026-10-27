@@ -10,7 +10,7 @@ import { getPersonName } from '@/lib/data/settings';
  * actualización de la app o un corte de luz no borra lo ya registrado.
  */
 
-export type UsageKind = 'video' | 'audio' | 'script' | 'image' | 'voice_clone';
+export type UsageKind = 'video' | 'audio' | 'script' | 'image' | 'voice_clone' | 'transcription';
 
 export interface UsageEvent {
   id: string;

@@ -11,6 +11,14 @@ export interface ChatMessage {
   /** Nodo enfocado cuando se escribió (p. ej. 'escena:e2'). */
   nodo?: string;
   error?: boolean;
+  /** Cambio propuesto por el chat libre que espera un clic (Hacerlo / No). */
+  propuesta?: {
+    body: Record<string, unknown> & { accion: string };
+    resumen: string;
+    boton: string;
+    costo: string;
+    estado: 'pendiente' | 'hecha' | 'descartada';
+  };
 }
 
 const MAX = 100;

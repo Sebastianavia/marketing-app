@@ -65,7 +65,7 @@ interface Props {
 function CanvasInner({ productionId, d, selectedId, onSelect }: Props) {
   const theme = useThemeStore((s) => s.theme);
   const { fitView } = useReactFlow();
-  const graph = useMemo(() => buildGraph(d), [d]);
+  const graph = useMemo(() => buildGraph(d, productionId), [d, productionId]);
   const [nodes, setNodes] = useState<DirectorNode[]>(() => place(graph.nodes, [], readPositions(productionId)));
   const [prevGraph, setPrevGraph] = useState(graph);
 

@@ -32,6 +32,10 @@ export function DirectorStudio() {
   const [newOpen, setNewOpen] = useState(false);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [focusFor, setFocusFor] = useState<string | null>(null);
+  /** Archivos de + Ref que esperan al chat (de la caja de inicio o soltados en el lienzo). */
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  const [pendingVoiceover, setPendingVoiceover] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   // El enfoque es de un borrador: al cambiar de borrador se quita
   if (production && focusFor !== production.id) {
@@ -78,8 +82,15 @@ export function DirectorStudio() {
         <StartBox
           busy={busy === 'crear'}
           drafts={drafts}
-          onStart={async (entrada) => {
-            if (await dm.create(entrada)) setNewOpen(false);
+          onStart={async (entrada, refs, locucion) => {
+            if (!(await dm.create(entrada))) return;
+            setNewOpen(false);
+            // El chat (en el lienzo) los guarda en la carpeta de la producción y propone etiquetas
+            if (refs.length) {
+              chooseView('lienzo');
+              setPendingVoiceover(locucion ?? null);
+              setPendingFiles(refs);
+            }
           }}
           onOpen={(id) => {
             setNewOpen(false);
@@ -160,10 +171,45 @@ export function DirectorStudio() {
       {view === 'lienzo' ? (
         <div className="grid h-[calc(100vh-290px)] min-h-[560px] grid-rows-[1fr_minmax(0,1fr)] gap-3 lg:grid-cols-[360px_1fr] lg:grid-rows-1">
           <aside className="order-2 min-h-0 overflow-hidden rounded-xl border border-line bg-surface lg:order-1" aria-label="Chat del Director">
-            <DirectorChat key={production.id} dm={dm} production={production} focusId={focusId} onClearFocus={() => setFocusId(null)} />
+            <DirectorChat
+              key={production.id}
+              dm={dm}
+              production={production}
+              focusId={focusId}
+              onClearFocus={() => setFocusId(null)}
+              onFocus={setFocusId}
+              pendingFiles={pendingFiles}
+              pendingVoiceover={pendingVoiceover}
+              onPendingTaken={() => {
+                setPendingFiles(null);
+                setPendingVoiceover(null);
+              }}
+            />
           </aside>
-          <section className="relative order-1 min-h-0 overflow-hidden rounded-xl border border-line lg:order-2" aria-label="Lienzo">
+          <section
+            className={`relative order-1 min-h-0 overflow-hidden rounded-xl border lg:order-2 ${dragging ? 'border-accent ring-2 ring-accent/30' : 'border-line'}`}
+            aria-label="Lienzo"
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes('Files')) return;
+              e.preventDefault();
+              if (!dragging) setDragging(true);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as globalThis.Node | null)) setDragging(false);
+            }}
+            onDrop={(e) => {
+              if (!e.dataTransfer.files.length) return;
+              e.preventDefault();
+              setDragging(false);
+              setPendingFiles(Array.from(e.dataTransfer.files));
+            }}
+          >
             <DirectorCanvas productionId={production.id} d={d} selectedId={focusId} onSelect={setFocusId} />
+            {dragging && (
+              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-bg/60 text-[13px] text-fg">
+                Suelta para añadir referencias {focusId?.startsWith('escena:') || focusId?.startsWith('prompt:') ? 'a la escena elegida' : focusId?.startsWith('etiqueta:') ? 'a la etiqueta elegida' : 'a todo el proyecto'}
+              </div>
+            )}
           </section>
         </div>
       ) : (

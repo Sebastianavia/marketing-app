@@ -35,6 +35,22 @@ export const SCRIPT_COST_ESTIMATES: Record<string, number> = {
   default: 0.02,
 };
 
+/**
+ * Voz a texto (ElevenLabs Speech to Text, API directa): USD por HORA de audio.
+ * Fuente: elevenlabs.io/pricing/api (consultado el 27 oct 2026): Scribe v2 por lotes $0.22/h en todos los planes,
+ * sin mínimo indicado. Lo usa "video desde mi audio" del modo Director.
+ */
+export const STT_RATES_PER_HOUR: Record<string, number> = {
+  scribe_v2: 0.22,
+};
+
+export const DEFAULT_STT_MODEL = 'scribe_v2';
+
+export function sttCost(seconds: number, model: string = DEFAULT_STT_MODEL): number {
+  const rate = STT_RATES_PER_HOUR[model] ?? STT_RATES_PER_HOUR[DEFAULT_STT_MODEL];
+  return (Math.max(0, seconds) / 3600) * rate;
+}
+
 export function videoRate(model: string, withAudio = false): number {
   if (withAudio) {
     const b = BROLL_MODELS.find((m) => m.id === model);
