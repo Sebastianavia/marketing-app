@@ -8,7 +8,7 @@ import { DashboardHome } from '@/components/dashboard/DashboardHome';
 import { AvatarStudioView } from '@/components/tools/AvatarStudioView';
 import { UgcGeneratorView } from '@/components/tools/UgcGeneratorView';
 import { DeepSwapView } from '@/components/tools/DeepSwapView';
-import { TextToVideoView } from '@/components/tools/TextToVideoView';
+import { TextToVideoModes } from '@/components/tools/TextToVideoModes';
 import { VoiceStudioView } from '@/components/tools/VoiceStudioView';
 import { ImageStudioView } from '@/components/tools/ImageStudioView';
 import { AvatarsView } from '@/components/tools/AvatarsView';
@@ -121,7 +121,7 @@ export default function Home() {
 
               {activeTool === 'avatar-studio' && <AvatarStudioView />}
               {activeTool === 'deep-swap' && <DeepSwapView />}
-              {activeTool === 'text-to-video' && <TextToVideoView />}
+              {activeTool === 'text-to-video' && <TextToVideoModes />}
               {activeTool === 'voice-studio' && <VoiceStudioView />}
               {activeTool === 'image-studio' && <ImageStudioView />}
               {activeTool === 'avatars' && <AvatarsView />}

@@ -29,6 +29,8 @@ export const TTS_RATES_PER_1K_CHARS: Record<string, number> = {
 /** Guiones con LLM: costo aproximado por guion. Gemini usa la cuota gratuita del pool. */
 export const SCRIPT_COST_ESTIMATES: Record<string, number> = {
   'gemini-2.5-flash': 0,
+  'gemini-3.6-flash': 0,
+  'gemini-3.8-flash': 0,
   // Los guiones por OpenRouter se calculan con tokens reales (config/llm-models.ts)
   default: 0.02,
 };

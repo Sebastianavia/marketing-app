@@ -45,7 +45,7 @@ Los 9 síntomas a revisar: cámara lenta falsa · luz de contorno/bloom · piel 
 - Grounding con Google Search no disponible gratis en 3.x (no hace falta aquí).
 
 ## Fases
-1. Línea de etapas y tarjetas, solo texto ($0): idea → preguntas → ajustes → guion → prompts; estados en `produccion.json`. Prueba: guion de 30 s sin gastar; rehacer escena 2 sin tocar las demás.
+1. Línea de etapas y tarjetas, solo texto ($0): idea → preguntas → ajustes → guion → prompts; estados en `produccion.json`. Prueba: guion de 30 s sin gastar; rehacer escena 2 sin tocar las demás. **Hecha en código (2026-10-27)**, probada con IA simulada; falta la prueba con Gemini real. Añadido: la duración de cada escena se ajusta a las que admite el modelo de video previsto (HeyGen libre) y la interfaz muestra a cuánto se ajusta.
 2. Chat del Director ($0): cinco movimientos. Prueba: "no quiero imágenes iniciales", "ya tengo el guion", "hazlo todo hasta los prompts".
 3. Elenco, fondos, imágenes iniciales (centavos) + bloque de realismo. Prueba: 3 escenas con Santiago, que se parezca en las tres.
 4. Clips, revisión automática, video final (dinero real). Prueba: ~15 s con presupuesto $2.
@@ -56,3 +56,21 @@ Los 9 síntomas a revisar: cámara lenta falsa · luz de contorno/bloom · piel 
 - Música: carpeta propia libre de derechos vs servicio.
 - Biblioteca de estilos (6–10 imágenes) vs solo subir.
 - ¿Usar Buzzy por su conector como motor para lo que nuestros modelos no logran (pagando créditos)?
+
+## Versión 2: lienzo y agente, como Buzzy (pedido 27 oct 2026)
+La Fase 1 (etapas en tarjetas) funciona; el usuario quiere la experiencia de Buzzy: caja de inicio + chat del agente a la izquierda + LIENZO a la derecha. El motor (etapas, Gemini gratis, aprobaciones, produccion.json) NO cambia; cambia la interfaz y cómo se le habla. Lienzo con `@xyflow/react` (ya está en package.json).
+
+1. Caja de inicio: cuadro grande para idea/guion, botón "+ Ref" para subir varias fotos o un PDF a la vez, selector de SKILL (Película corta, Anuncio UGC, Video con presentador, Explicativo sin rostro; plantillas basadas en los skills de Buzzy ai-story, ugc-ads, faceless-reels: preguntas, forma del guion y modelos por defecto) y botones rápidos debajo.
+2. Referencias en grupos: el usuario sube fotos sueltas y el agente las agrupa en personas (con nombre), lugares, productos y estilo (Gemini con visión; confirmar nivel gratis). Se puede mover fotos entre grupos, renombrar y enlazar un grupo a un avatar guardado. Cada grupo es un nodo del lienzo y alimenta las escenas donde aparece.
+3. Lienzo: nodos referencias → escenas → imagen inicial → clip → video final, con aristas de "qué se usó para qué"; cada nodo con estado, modelo y costo; zoom/arrastre. La vista de tarjetas actual queda como "Vista lista".
+4. Editar desde el lienzo: al tocar un nodo el chat queda enfocado en él ("hazla de noche", "cámbiala a la playa"); se rehace solo esa pieza y lo dependiente queda desactualizado; si cuesta, muestra precio y pide aprobación. Menciones con @ (@Santiago, @Cocina).
+5. Chat del agente a la izquierda: narra lo que hace, preguntas con opciones para tocar, pausas de aprobación (es la Fase 2 del plan, unida al lienzo).
+
+Orden: (1) lienzo con lo existente + chat enfocado en nodos + caja de inicio con skills ($0) — **hecho 2026-10-27** (skill guardada en `director.skill`; fotos de + Ref aún no se guardan); (2) referencias en grupos ($0 salvo Haiku); (3) imágenes iniciales y clips como nodos (Fases 3 y 4).
+
+### Añadidos pedidos tras probar el paso 1 (27 oct 2026)
+- Chat libre: escribir SIN seleccionar nodo para preguntar sobre el proyecto/resolver dudas/pedir ayuda; responde con el contexto de la producción (idea, PDF, guion, ajustes, referencias). Si la petición es un cambio, explica qué hará y lo ejecuta con las acciones existentes del motor (con aprobación si cuesta).
+- Referencias en cualquier lugar: con escena seleccionada → la referencia queda para esa escena; sin selección → para todo el proyecto. Tipos: imágenes, audios, PDF.
+- Etiquetas: al subir, el usuario indica qué es: personaje (con nombre), lugar, producto, estilo, voz, música. El agente propone (Gemini visión) y el usuario corrige. Se referencian con @ en guion/escenas ("@Valentina en @Spa"); cada escena usa las fotos de sus @ para mantener el mismo personaje. Personajes enlazables a avatares guardados.
+- Video desde tu audio: el usuario sube la locución; FFmpeg mide la duración ($0); transcripción con tiempos por frase (Gemini gratis aproximado — confirmar nivel gratis — o ElevenLabs Speech to Text preciso, de pago; hay skill elevenlabs-speech-to-text en .agents/skills); el guion se reparte en escenas alineadas al audio (inicio/fin de cada escena = frases del audio) y en modo voz en off se usa ese audio en vez de generar voz con ElevenLabs.
+- Las referencias y el audio se guardan dentro de la carpeta de la producción y se registran en produccion.json (campo director, añadido opcional).

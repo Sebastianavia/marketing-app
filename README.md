@@ -75,3 +75,8 @@ app- marketing/
 Tu asistente en Antigravity cuenta con dos skills persistentes cargadas en este workspace:
 - **`vercel-ai-sdk`**: Ubicada en [.agents/skills/vercel-ai-sdk/SKILL.md](file:///d:/github/app-%20marketing/.agents/skills/vercel-ai-sdk/SKILL.md). Proporciona recetas y directrices para streaming, interfaces generativas y tool-calling con OpenRouter.
 - **`crewai-marketing`**: Ubicada en [.agents/skills/crewai-marketing/SKILL.md](file:///d:/github/app-%20marketing/.agents/skills/crewai-marketing/SKILL.md). Proporciona la definición de roles de agentes (Director de Campaña, Copywriter de Gancho, QA) y el conector a la API de HeyGen.
+
+
+
+cd frontend
+npm run dev

@@ -16,6 +16,7 @@ export interface LlmModelSpec {
 
 export const LLM_MODELS: LlmModelSpec[] = [
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini', inputPerM: 0, outputPerM: 0, badge: 'Gratis' },
+  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', provider: 'gemini', inputPerM: 0, outputPerM: 0, badge: 'Gratis' },
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', provider: 'gemini', inputPerM: 0, outputPerM: 0, badge: 'Gratis' },
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini', inputPerM: 0, outputPerM: 0, badge: 'Tu Gemini' },
   { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', provider: 'openrouter', inputPerM: 0.1, outputPerM: 0.5, badge: 'Económico' },
@@ -33,6 +34,12 @@ export function llmCost(modelId: string, inputTokens = 0, outputTokens = 0): num
   return (inputTokens * m.inputPerM + outputTokens * m.outputPerM) / 1_000_000;
 }
 
+/**
+ * Modelo del modo gratis del orquestador (guiones, modo Director, Mia…).
+ * Para probar otro con nivel gratis basta cambiar esta línea: 'gemini-3.6-flash' o 'gemini-3.8-flash'.
+ */
+export const FREE_GEMINI_MODEL = 'gemini-2.5-flash';
+
 /** Quién maneja el "cerebro" de la app (guiones, escenas, dar emoción…). */
 export type OrchestratorMode = 'free' | 'claude-cheap' | 'claude-quality';
 
@@ -49,7 +56,7 @@ export const ORCHESTRATOR_OPTIONS: OrchestratorOption[] = [
     mode: 'free',
     label: 'Gratis · Gemini',
     short: 'Gratis',
-    model: 'gemini-2.5-flash',
+    model: FREE_GEMINI_MODEL,
     description: 'Tus claves de Gemini (free tier). $0. Google puede usar los datos para mejorar sus productos.',
   },
   {

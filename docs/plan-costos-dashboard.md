@@ -36,6 +36,9 @@ Usar la skill `dashboard-designer` (`.claude/skills/dashboard-designer/SKILL.md`
 1. Tarjetas nuevas + gráfico por día + "En qué se va". Prueba: con datos reales de octubre, totales iguales a los actuales y al CSV.
 2. Videos más caros + Gratis y sin cobrar + búsqueda/filtros + clic en día. Prueba: la producción "Prueba Santiago" ≈ $0.20 coincide.
 
+## Estado
+Fases 1 y 2 hechas en código (2026-10-27). Verificado con copia del registro de octubre: total $27.2307 igual en la vista anterior, la nueva (por herramienta, proveedor, modelo y por día) y la columna `costo_usd` del CSV; "Prueba Santiago" = $0.2047 (imagen 0.018 + voz 0.0017 + video 0.185). Pendiente: revisar en pantalla (claro/oscuro, ventana angosta).
+
 ## Decisiones pendientes
 - Cuándo hacerlo.
 - Equipo: cada PC ve solo su gasto; ¿resumen del equipo importando CSV de los demás?

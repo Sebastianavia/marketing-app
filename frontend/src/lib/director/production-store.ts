@@ -4,6 +4,7 @@ import path from 'path';
 import { ensureDataDir, readJson, writeJsonAtomic } from '@/lib/data/data-dir';
 import { getStorageBasePath, sanitizeProjectName } from '@/lib/storage/project-storage';
 import type { SceneType } from './estimate';
+import type { DirectorState } from '@/lib/director-mode/types';
 
 /**
  * Producciones del Director. Cada una vive en
@@ -18,6 +19,8 @@ import type { SceneType } from './estimate';
 export type SceneStatus = 'pendiente' | 'aprobada' | 'generando' | 'lista' | 'fallida' | 'rechazada';
 
 export type ProductionStatus =
+  /** Sin escenas de pago todavía (modo Director de Guion a video, solo texto). */
+  | 'borrador'
   | 'esperando_aprobacion'
   | 'aprobada'
   | 'en_curso'
@@ -119,6 +122,8 @@ export interface Production {
   aprobaciones: ProductionApproval[];
   creada: string;
   actualizada: string;
+  /** Etapas del modo Director de Guion a video (opcional: las del agente no lo tienen). */
+  director?: DirectorState;
 }
 
 export class ProductionError extends Error {
@@ -198,6 +203,8 @@ export async function listProductions(): Promise<Production[]> {
 
 /** Estado general derivado de sus escenas y aprobaciones. */
 export function deriveStatus(p: Production): ProductionStatus {
+  // Sin escenas: `every` sobre una lista vacía daría 'rechazada'
+  if (!p.escenas.length) return 'borrador';
   const states = p.escenas.map((s) => s.estado);
   if (states.every((s) => s === 'rechazada')) return 'rechazada';
   if (states.some((s) => s === 'generando')) return 'en_curso';
@@ -225,7 +232,9 @@ async function writeProjectCard(p: Production) {
     updatedAt: p.actualizada,
     path: p.carpeta,
     title: p.nombre,
-    prompt: p.escenas.map((s) => `${s.orden}. ${s.spec.titulo || s.spec.tipo}`).join('\n'),
+    prompt: p.escenas.length
+      ? p.escenas.map((s) => `${s.orden}. ${s.spec.titulo || s.spec.tipo}`).join('\n')
+      : (p.director?.guion?.escenas ?? []).map((s) => `${s.orden}. ${s.dialogo || s.queSeVe}`).join('\n') || undefined,
     ratio: p.formato,
     videoPath: clips.length ? clips[clips.length - 1].ruta : undefined,
     imagePaths: images.length ? images : undefined,
