@@ -25,6 +25,9 @@ export const REF_TYPES: Record<string, { medio: RefMedia; mime: string }> = {
   '.png': { medio: 'imagen', mime: 'image/png' },
   '.webp': { medio: 'imagen', mime: 'image/webp' },
   '.mp3': { medio: 'audio', mime: 'audio/mpeg' },
+  // Algunos navegadores guardan los MP3 como «archivo.mp3.mpeg»: es el mismo formato
+  '.mpeg': { medio: 'audio', mime: 'audio/mpeg' },
+  '.mpga': { medio: 'audio', mime: 'audio/mpeg' },
   '.wav': { medio: 'audio', mime: 'audio/wav' },
   '.m4a': { medio: 'audio', mime: 'audio/mp4' },
   '.aac': { medio: 'audio', mime: 'audio/aac' },
@@ -83,7 +86,7 @@ export async function writeRefFiles(carpeta: string, files: IncomingRef[]): Prom
   try {
     for (const f of files) {
       const t = refType(f.name)!;
-      const ext = path.extname(f.name).toLowerCase().replace('.jpeg', '.jpg');
+      const ext = path.extname(f.name).toLowerCase().replace('.jpeg', '.jpg').replace(/^\.(mpeg|mpga)$/, '.mp3');
       const name = nextFree(dir, PREFIX[t.medio], ext);
       const abs = path.join(/*turbopackIgnore: true*/ dir, name);
       await fs.writeFile(abs, f.bytes);

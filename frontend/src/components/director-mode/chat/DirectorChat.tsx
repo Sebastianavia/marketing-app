@@ -301,7 +301,7 @@ export function DirectorChat({ dm, production, focusId, onClearFocus, onFocus, p
           ref={fileInput}
           type="file"
           multiple
-          accept="image/jpeg,image/png,image/webp,audio/*,application/pdf"
+          accept="image/jpeg,image/png,image/webp,audio/*,application/pdf,.mp3,.mpeg,.mpga,.wav,.m4a,.aac,.ogg,.flac"
           className="hidden"
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);

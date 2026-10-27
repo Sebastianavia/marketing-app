@@ -37,6 +37,9 @@ function looksLikeScript(t: string) {
   return words > 25 && sentences >= 2;
 }
 
+/** Windows reporta los «.mp3.mpeg» como video/mpeg: también se reconoce el audio por extensión. */
+const isAudioFile = (f: File) => f.type.startsWith('audio/') || /\.(mp3|mpeg|mpga|wav|m4a|aac|ogg|flac)$/i.test(f.name);
+
 export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
   const [skillId, setSkillId] = useState<DirectorSkillId>(DEFAULT_SKILL);
   const [texto, setTexto] = useState('');
@@ -46,7 +49,7 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
   const [refs, setRefs] = useState<PendingRef[]>([]);
   /** Nombre del audio que es la locución del video (null = ninguno). */
   const [voiceChoice, setVoiceChoice] = useState<string | null>(null);
-  const audios = refs.filter((r) => r.file.type.startsWith('audio/'));
+  const audios = refs.filter((r) => isAudioFile(r.file));
   // Si se quitó el audio elegido, no queda elegido
   const voiceFile = voiceChoice && audios.some((r) => r.file.name === voiceChoice) ? voiceChoice : null;
   const [note, setNote] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
     setNote(null);
     const list = Array.from(files);
     const pdfs = list.filter((f) => f.type === 'application/pdf');
-    const media = list.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type) || f.type.startsWith('audio/'));
+    const media = list.filter((f) => /^image\/(jpeg|png|webp)$/.test(f.type) || isAudioFile(f));
     const extra: File[] = [...media];
     if (pdfs.length) {
       // El primer PDF (si aún no hay) es el material de la idea; los demás van como referencias
@@ -162,7 +165,7 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
                         <img src={r.url} alt={r.file.name} className="h-12 w-12 rounded-md border border-line object-cover" />
                       ) : (
                         <span className="flex h-12 w-12 items-center justify-center rounded-md border border-line bg-surface-2 text-fg-subtle">
-                          {r.file.type.startsWith('audio/') ? <Music2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                          {isAudioFile(r.file) ? <Music2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
                         </span>
                       )}
                       <button
@@ -182,7 +185,7 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-2 text-[12px] text-fg-muted">
-          <input ref={fileInput} type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp,audio/*" className="hidden" onChange={(e) => {
+          <input ref={fileInput} type="file" multiple accept="application/pdf,image/jpeg,image/png,image/webp,audio/*,.mp3,.mpeg,.mpga,.wav,.m4a,.aac,.ogg,.flac" className="hidden" onChange={(e) => {
             void addRefs(e.target.files);
             e.target.value = '';
           }} />
