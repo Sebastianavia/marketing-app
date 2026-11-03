@@ -16,6 +16,7 @@ import { useNavStore } from '@/store/useNavStore';
 import { BuzzyView } from '@/components/tools/BuzzyView';
 import { PromptLibraryView } from '@/components/tools/PromptLibraryView';
 import { CostsView } from '@/components/costs/CostsView';
+import { VideoEditorView } from '@/components/editor/VideoEditorView';
 import { ProjectsLibraryView } from '@/components/storage/ProjectsLibraryView';
 import { MiaTerminal } from '@/components/mia/MiaTerminal';
 import { useMiaStore } from '@/store/useMiaStore';
@@ -127,6 +128,7 @@ export default function Home() {
               {activeTool === 'avatars' && <AvatarsView />}
               {activeTool === 'buzzy' && <BuzzyView />}
               {activeTool === 'prompt-library' && <PromptLibraryView />}
+              {activeTool === 'video-editor' && <VideoEditorView />}
               {activeTool === 'costs' && <CostsView />}
               {activeTool === 'projects' && (
                 <ProjectsLibraryView

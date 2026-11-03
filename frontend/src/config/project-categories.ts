@@ -3,7 +3,7 @@
  * con lo ya guardado; en pantalla se muestran con el nombre de la herramienta.
  * (Creación de avatar no es un proyecto: sus avatares viven en la carpeta Avatares.)
  */
-export type ProjectCategory = 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu' | 'Imagenes' | 'Producciones';
+export type ProjectCategory = 'HeyGen' | 'UGC' | 'TextToVideo' | 'Genjutsu' | 'Imagenes' | 'Producciones' | 'Ediciones';
 
 export const PROJECT_CATEGORIES: Array<{ id: ProjectCategory; label: string; tool: string }> = [
   { id: 'HeyGen', label: 'Avatar Studio', tool: 'avatar-studio' },
@@ -12,6 +12,7 @@ export const PROJECT_CATEGORIES: Array<{ id: ProjectCategory; label: string; too
   { id: 'TextToVideo', label: 'Guion a video', tool: 'text-to-video' },
   { id: 'Imagenes', label: 'Creación de imágenes', tool: 'image-studio' },
   { id: 'Producciones', label: 'Producciones del Director', tool: 'projects' },
+  { id: 'Ediciones', label: 'Edición de video', tool: 'video-editor' },
 ];
 
 export function projectCategoryLabel(id: string): string {

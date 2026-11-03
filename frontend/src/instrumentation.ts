@@ -8,8 +8,10 @@ export async function register() {
     const { ensureDataDir } = await import('@/lib/data/data-dir');
     const { startRunner } = await import('@/lib/jobs/runner');
     const { startSceneRunner } = await import('@/lib/scenes/scene-runner');
+    const { startEditRunner } = await import('@/lib/editor/edit-runner');
     await ensureDataDir();
     startRunner();
     startSceneRunner();
+    startEditRunner();
   }
 }

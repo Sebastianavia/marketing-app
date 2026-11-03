@@ -9,6 +9,7 @@ import {
   Sparkles,
   Receipt,
   ImagePlus,
+  Scissors,
   Contact,
   BookOpenText,
   type LucideIcon,
@@ -23,6 +24,7 @@ export type ToolId =
   | 'deep-swap'
   | 'ugc-generator'
   | 'text-to-video'
+  | 'video-editor'
   | 'voice-studio'
   | 'image-studio'
   | 'avatars'
@@ -86,6 +88,15 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     icon: Clapperboard,
     engines: 'ElevenLabs · HeyGen Avatar IV · Veo / Kling / Hailuo · FFmpeg',
     shortcut: '4',
+  },
+  'video-editor': {
+    id: 'video-editor',
+    title: 'Edición de video',
+    formula: 'Video en bruto → reel editado',
+    description:
+      'Sube un video hablando a cámara: la IA quita pausas, errores y repeticiones, pone subtítulos con tu perfil y te lo devuelve listo para publicar.',
+    icon: Scissors,
+    engines: 'ElevenLabs Scribe · IA del selector · FFmpeg',
   },
   'voice-studio': {
     id: 'voice-studio',
@@ -167,6 +178,7 @@ export const NAV_ORDER: ToolId[] = [
   'deep-swap',
   'ugc-generator',
   'text-to-video',
+  'video-editor',
   'image-studio',
   'avatars',
   'voice-studio',

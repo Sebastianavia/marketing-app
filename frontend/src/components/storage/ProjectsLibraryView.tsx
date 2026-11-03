@@ -102,8 +102,8 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
   };
 
   const handleLoadInTool = async (project: ProjectMetadata) => {
-    // Las imágenes y las producciones no se "cargan" en una herramienta: se abren en su carpeta
-    if (project.category === 'Imagenes' || project.category === 'Producciones') {
+    // Las imágenes, las producciones y las ediciones no se "cargan" en una herramienta: se abren en su carpeta
+    if (project.category === 'Imagenes' || project.category === 'Producciones' || project.category === 'Ediciones') {
       handleOpenFolder(project.path);
       return;
     }
@@ -140,6 +140,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
       case 'Imagenes':
         return 'border-sky-500/30 text-sky-500 bg-sky-500/10';
       case 'Producciones':
+      case 'Ediciones':
         return 'border-brand/30 text-accent bg-brand/10';
       default:
         return 'border-line-strong text-fg-muted bg-surface-2';
@@ -363,7 +364,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
                     onClick={() => handleLoadInTool(p)}
                     className="flex items-center gap-1 rounded bg-fg text-bg px-2.5 py-1 font-semibold text-[11px] hover:bg-fg/85 transition-colors shadow-2xs cursor-pointer"
                   >
-                    <span>{p.category === 'Imagenes' || p.category === 'Producciones' ? 'Abrir' : 'Cargar'}</span>
+                    <span>{p.category === 'Imagenes' || p.category === 'Producciones' || p.category === 'Ediciones' ? 'Abrir' : 'Cargar'}</span>
                     <ArrowRight className="h-3 w-3" />
                   </button>
                 </div>
