@@ -214,6 +214,52 @@ export async function createProduction(input: NewProductionInput) {
   return { production: p, approval, suposiciones };
 }
 
+/**
+ * Modo Director: pone (o reemplaza) las escenas de pago de una producción que ya existe y pide
+ * aprobación del plan completo. Solo si todavía no hay nada generado ni gastado: después, los
+ * cambios van escena a escena con changeScene.
+ */
+export async function proposeScenes(productionId: string, specs: SceneSpec[], motivo: string) {
+  return updateProduction(productionId, async (p) => {
+    if (p.escenas.some((s) => s.estado === 'generando' || s.gastoUSD > 0 || currentFiles(s).length > 0)) {
+      throw new ProductionError('Esta producción ya tiene escenas generadas: cambia o rehaz escenas sueltas en vez de preparar todo otra vez.', 409);
+    }
+    if (!specs.length) throw new ProductionError('No hay escenas que generar.');
+    const suposiciones: string[] = [];
+    const escenas: ProductionScene[] = [];
+    for (const [i, spec] of specs.entries()) {
+      await validateSpec(spec, i + 1, specs);
+      const e = estimateScene(spec, i + 1);
+      suposiciones.push(...e.suposiciones);
+      escenas.push({
+        id: `e${i + 1}`,
+        orden: i + 1,
+        spec,
+        estimadoUSD: e.costoUSD,
+        detalle: e.detalle,
+        estado: 'pendiente',
+        aprobadaUSD: null,
+        aprobacionId: null,
+        version: 1,
+        gastoUSD: 0,
+        reintentoUsado: false,
+        falloConCobro: false,
+        archivos: [],
+      });
+    }
+    // Una solicitud anterior sin resolver deja de valer: el plan es otro
+    for (const a of p.aprobaciones) {
+      if (a.estado === 'pendiente') {
+        a.estado = 'rechazada';
+        a.resuelta = new Date().toISOString();
+      }
+    }
+    p.escenas = escenas;
+    const approval = requestApproval(p, escenas.map((x) => x.id), motivo);
+    return { approval, suposiciones };
+  });
+}
+
 /** Cambia la spec de una escena (o la rehace): archiva sus archivos y vuelve a pedir aprobación. */
 export async function changeScene(productionId: string, sceneId: string, changes: Partial<SceneSpec>, redo: boolean) {
   return updateProduction(productionId, async (p) => {

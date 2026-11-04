@@ -236,7 +236,12 @@ async function writeProjectCard(p: Production) {
       ? p.escenas.map((s) => `${s.orden}. ${s.spec.titulo || s.spec.tipo}`).join('\n')
       : (p.director?.guion?.escenas ?? []).map((s) => `${s.orden}. ${s.dialogo || s.queSeVe}`).join('\n') || undefined,
     ratio: p.formato,
-    videoPath: clips.length ? clips[clips.length - 1].ruta : undefined,
+    // El video final montado (modo Director) manda; si no, el último clip
+    videoPath: p.director?.produccion?.final
+      ? path.join(/*turbopackIgnore: true*/ p.carpeta, p.director.produccion.final.archivo)
+      : clips.length
+        ? clips[clips.length - 1].ruta
+        : undefined,
     imagePaths: images.length ? images : undefined,
     status: clips.length || images.length ? 'rendered' : 'draft',
     finalCostUSD: productionSpent(p),

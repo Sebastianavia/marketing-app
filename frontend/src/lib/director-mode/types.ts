@@ -179,6 +179,18 @@ export interface DirectorVoiceover {
   };
 }
 
+/** Fase de generación: de guion + prompts aprobados a escenas de pago (Production.escenas) y video final. */
+export interface DirectorGeneration {
+  /** Escenas de pago que salen de cada escena del guion (ids de Production.escenas). */
+  mapa: Array<{ escenaId: string; clip: string; voz?: string }>;
+  /** Voz en off: escena de pago con la locución completa. */
+  vozGeneral?: string;
+  /** Modo de voz con que se preparó (si cambia, hay que volver a preparar). */
+  modoVoz: DirectorSettings['modoVoz'];
+  preparada: string;
+  final?: { archivo: string; duracionSeg: number; creado: string; version: number; edicionId?: string };
+}
+
 export interface DirectorState {
   version: 1;
   /** Plantilla elegida en la caja de inicio (config/director-skills.ts). Sin ella: sin plantilla. */
@@ -196,4 +208,6 @@ export interface DirectorState {
   locucion?: DirectorVoiceover;
   /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */
   claude?: ClaudeChatState;
+  /** Generación (escenas de pago y video final). */
+  produccion?: DirectorGeneration;
 }

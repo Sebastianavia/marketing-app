@@ -5,6 +5,7 @@ import { ProductionError } from '@/lib/director/production-store';
 import { errorMessage } from '@/lib/errors';
 import { getDirectorProduction, runDirectorAction } from './engine';
 import { ActionBody } from './schemas';
+import { assembleFinal, generationStatus, prepareGeneration, runGeneration } from './generation';
 import type { Production } from '@/lib/director/production-store';
 
 /**
@@ -151,7 +152,47 @@ function unstringify(input: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion];
+const prepararProduccion = tool({
+  name: 'preparar_produccion',
+  description:
+    'Con los prompts aprobados, convierte el guion en escenas de pago (voz de ElevenLabs, tomas de apoyo con el modelo de los ajustes, avatar HeyGen según el modo de voz) con su costo, y PIDE APROBACIÓN a la persona en la app. No gasta. Devuelve el costo por escena y el total. Si ya hay algo generado, no se puede volver a preparar.',
+  schema: z.object({}),
+  run: (id) => prepareGeneration(id),
+});
+
+const generar = tool({
+  name: 'generar',
+  description:
+    'Genera SOLO las escenas que la persona ya aprobó en la app (voces primero y luego clips, que tardan unos minutos en segundo plano). Si algo espera aprobación, lo dice. Usa estado_produccion para seguir el avance.',
+  schema: z.object({}),
+  run: (id) => runGeneration(id),
+});
+
+const estadoProduccion = tool({
+  name: 'estado_produccion',
+  description: 'Estado de las escenas de pago (pendiente de aprobación, aprobada, generando, lista, fallida), gasto, presupuesto y video final.',
+  schema: z.object({
+    esperarSeg: z.number().int().min(0).max(600).default(0).describe('Esperar hasta N segundos a que terminen las escenas en curso'),
+  }),
+  run: async (id, { esperarSeg }) => {
+    const until = Date.now() + esperarSeg * 1000;
+    for (;;) {
+      const st = await generationStatus(id);
+      if (!st.escenas.some((e) => e.estado === 'generando') || Date.now() >= until) return st;
+      await new Promise((r) => setTimeout(r, 10_000));
+    }
+  },
+});
+
+const montarVideo = tool({
+  name: 'montar_video',
+  description:
+    'Con todas las escenas listas, monta el video final con FFmpeg ($0): voz en off continua o el audio de cada clip, fundidos y formato del proyecto. Lo guarda como final-vN.mp4 en la carpeta (lo puedes mirar con FFmpeg/Read) y aparece en Proyectos. Con pulirConClaude (por defecto) pasa al editor de video para pulirlo para redes.',
+  schema: z.object({ pulirConClaude: z.boolean().default(true) }),
+  run: (id, { pulirConClaude }) => assembleFinal(id, { pulirConClaude }),
+});
+
+export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo];
 
 export function directorAgentToolsManifest() {
   return DIRECTOR_AGENT_TOOLS.map((t) => ({
