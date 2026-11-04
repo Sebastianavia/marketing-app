@@ -178,13 +178,12 @@ export function AgentActivityPanel() {
         </ul>
       </div>
       <div className="border-t border-slate-200 dark:border-white/[0.06] pt-3">
-        {claudeMode ? (
-          <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-            El equipo trabaja con Claude (tu suscripción, selector IA). Cada storyboard son unas 14 llamadas: gasta bastante cupo de tu plan.
+        {claudeMode && (
+          <p className="mb-2 text-[11px] text-slate-500 dark:text-zinc-400">
+            El equipo trabaja con Gemini (gratis). Claude (tu suscripción) revisa el storyboard, manda a corregir, decide en el chat y edita el video final.
           </p>
-        ) : (
-          <QuotaMeters refreshKey={doneCount} />
         )}
+        <QuotaMeters refreshKey={doneCount} />
       </div>
     </div>
   );

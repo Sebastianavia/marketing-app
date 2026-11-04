@@ -16,6 +16,29 @@ import { cloudinaryStorageService } from '@/services/storage/cloudinary.service'
 import { getProject, saveProject, sanitizeProjectName } from '@/lib/storage/project-storage';
 import { sanitizeSettings, Storyboard, StudioSettings, UGC_VIDEO_MODEL, UgcReference } from '@/types/ugc-studio.types';
 import { errorMessage } from '@/lib/errors';
+import { resolveMode } from '@/lib/ai/orchestrator';
+import { createEdit } from '@/lib/editor/actions';
+import { listProfiles } from '@/lib/editor/profile-store';
+
+/**
+ * Modo "Claude · mi suscripción": el video montado pasa a Edición de video y Claude lo mejora
+ * a su criterio (transcribe ≈ $0,004/min y luego Claude trabaja con la suscripción). Nunca hace fallar el montaje.
+ */
+async function sendToClaudeEditor(sb: Storyboard, videoPath: string, name: string) {
+  if ((await resolveMode()) !== 'claude-subscription') return null;
+  try {
+    const perfil = (await listProfiles())[0];
+    if (!perfil) return { error: 'No hay perfiles de edición.' };
+    const pedido = `Este es un anuncio UGC ya montado (escenas generadas con IA y unidas). Revísalo y mejóralo a tu criterio para que quede listo para publicar: ritmo, subtítulos dinámicos, gancho al inicio, color y cierre con el CTA. No cortes frases del diálogo salvo errores evidentes ni cambies el sentido. Concepto: ${sb.concept}. Tono: ${sb.tone}. Gancho: ${sb.hook}. CTA: ${sb.cta}.`;
+    const edit = await createEdit(
+      { titulo: `${name} · Claude`, pedido: pedido.slice(0, 2000), perfilId: perfil.id, revisarAntes: false, rutaLocal: videoPath },
+      null
+    );
+    return { id: edit.id, titulo: edit.titulo };
+  } catch (err) {
+    return { error: errorMessage(err, 'No se pudo pasar el video al editor.') };
+  }
+}
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -120,7 +143,8 @@ export async function POST(req: NextRequest) {
     await fs.copyFile(output, videoPath);
     const saved = await saveProject('UGC', name, { ...projectData, id: project.id, createdAt: project.createdAt, videoPath });
 
-    return NextResponse.json({ videoUrl: uploaded.publicUrl, project: saved.project, trimmedSeconds: trims });
+    const edicionClaude = await sendToClaudeEditor(body.storyboard, videoPath, name);
+    return NextResponse.json({ videoUrl: uploaded.publicUrl, project: saved.project, trimmedSeconds: trims, edicionClaude });
   } catch (error) {
     console.error('[UGC Studio Assemble]:', error);
     return NextResponse.json({ error: errorMessage(error, 'Error al ensamblar el video final.') }, { status: 500 });

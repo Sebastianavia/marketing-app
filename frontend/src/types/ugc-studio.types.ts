@@ -238,6 +238,8 @@ export interface Storyboard {
   production?: { language: UgcLanguage; visualStyle: UgcVisualStyle };
   scenes: StoryboardScene[];
   supervision: SupervisorReview[];
+  /** Revisión final de Claude (modo "Claude · mi suscripción"): aprobó o mandó a rehacer escenas. */
+  claudeReview?: { aprobado: boolean; resumen: string; rondas: number; pedidos: string[] };
   seed: number;
   createdAt: string;
 }

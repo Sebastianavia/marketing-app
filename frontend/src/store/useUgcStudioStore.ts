@@ -383,6 +383,15 @@ export const useUgcStudioStore = create<UgcStudioState>()(
                 hadRenders ? ' Los clips del storyboard anterior ya no forman parte de este.' : ''
               } Pídeme cambios o dime "renderiza todo" cuando te guste.`
             );
+            // Modo Claude: Claude revisó lo que hizo el equipo de Gemini
+            const rv = sb.claudeReview;
+            if (rv) {
+              say(
+                `Claude · jefe de producción${rv.rondas ? ` (${rv.rondas} revisión${rv.rondas === 1 ? '' : 'es'})` : ''}: ${rv.aprobado ? '✅ aprobado. ' : ''}${rv.resumen}${
+                  rv.pedidos.length ? `\n\nMandó a corregir:\n- ${rv.pedidos.join('\n- ')}` : ''
+                }`
+              );
+            }
           }
         } catch (err) {
           if (!isAbortError(err)) set({ error: errorMessage(err) });
@@ -1364,6 +1373,11 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             if (!res.ok) throw new Error(data.error);
             set({ finalVideoUrl: data.videoUrl, savedProjectPath: data.project?.path ?? null });
             say(`Video final listo y guardado como "${data.project?.name ?? storyboard.title}".`);
+            if (data.edicionClaude?.id) {
+              say(`Claude está editando el video final a su criterio (ritmo, subtítulos, color y cierre). Lo verás en Edición de video → Mis ediciones → "${data.edicionClaude.titulo}".`);
+            } else if (data.edicionClaude?.error) {
+              say(`Claude no pudo editar el video final: ${data.edicionClaude.error}`);
+            }
           } catch (err) {
             set({ error: errorMessage(err) });
           } finally {

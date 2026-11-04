@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { ModelMessage, UserContent } from 'ai';
 import { geminiRouter } from '@/lib/ai/gemini/gemini-router';
 import { orchestrateObject, resolveMode } from '@/lib/ai/orchestrator';
@@ -64,13 +65,15 @@ async function runAgent<T>(
   content: UserContent,
   emit: Emit,
   signal?: AbortSignal,
-  label?: string
+  label?: string,
+  /** true = con "Claude · mi suscripción" este agente lo hace Claude (el resto del equipo sigue en Gemini). */
+  claude = false
 ): Promise<T> {
   const agentId = label ? `${agent.id}:${label}` : agent.id;
   emit({ type: 'agent_start', agentId, agentName: label ? `${agent.name} (${label})` : agent.name });
   try {
-    // Con "Claude · mi suscripción" en el selector IA, todo el equipo (y el chat) lo hace Claude
-    if ((await resolveMode()) === 'claude-subscription') {
+    // Con "Claude · mi suscripción": el equipo lo hace Gemini (gratis) y Claude decide en el chat y revisa
+    if (claude && (await resolveMode()) === 'claude-subscription') {
       const { prompt, files } = contentToPrompt(content);
       const { object } = await orchestrateObject({
         tool: 'ugc-generator',
@@ -413,7 +416,7 @@ export async function generateStoryboard(
   // ---------------------------------------------------------------------------
   scenes = await finalizeScenes(scenes, references, bible, strategy, brief, production, emit, signal);
 
-  return {
+  const storyboard: Storyboard = {
     id: `sb_${Date.now().toString(36)}`,
     title: plan.title,
     concept: plan.concept,
@@ -430,6 +433,121 @@ export async function generateStoryboard(
     seed: Math.floor(Math.random() * 2_000_000_000),
     createdAt: new Date().toISOString(),
   };
+  return claudeProductionReview(storyboard, references, settings, images, emit, signal);
+}
+
+// -----------------------------------------------------------------------------
+// Claude · jefe de producción (modo "Claude · mi suscripción")
+// -----------------------------------------------------------------------------
+
+const ProductionReviewSchema = z.object({
+  aprobado: z.boolean().describe('true si el storyboard está listo para renderizar tal como está'),
+  resumen: z.string().describe('2–4 frases en español para la persona: qué te pareció y qué pediste cambiar'),
+  cambios: z
+    .array(
+      z.object({
+        escena: z.number().int().describe('Número (index) de la escena a corregir'),
+        instrucciones: z.string().describe('Qué debe cambiar el equipo en esa escena, concreto y accionable'),
+      })
+    )
+    .max(4)
+    .describe('Vacío si está aprobado'),
+});
+
+const REVIEW_SYSTEM = `Eres el jefe de producción de un estudio de anuncios UGC. Un equipo de agentes (estratega, director creativo, guionista, fotografía, audio, supervisores, ingeniero de prompts) armó el storyboard. Tú lo revisas como lo haría un director exigente antes de gastar dinero en renderizar: ¿el gancho detiene el scroll en 2 s?, ¿el producto se ve y se usa de forma creíble y fiel a las fotos?, ¿el diálogo suena natural y cabe en la duración?, ¿hay continuidad (persona, ropa, lugar, luz)?, ¿el CTA es claro?, ¿los prompts de video describen lo que el modelo puede generar (sin texto en pantalla, sin manos imposibles)?
+Aprueba si está bien; no pidas cambios por gusto. Si algo falla, pide como máximo 4 cambios concretos por escena, que el equipo pueda ejecutar sin preguntar.`;
+
+/**
+ * Claude revisa el storyboard completo (con las fotos de referencia) y, si hace falta, manda a
+ * Gemini rehacer escenas con instrucciones; luego vuelve a revisar (máx. 2 rondas). Solo en modo Claude.
+ */
+async function claudeProductionReview(
+  storyboard: Storyboard,
+  references: UgcReference[],
+  settings: StudioSettings,
+  images: Array<{ data: Uint8Array; mediaType: string }>,
+  emit: Emit,
+  signal?: AbortSignal
+): Promise<Storyboard> {
+  if ((await resolveMode()) !== 'claude-subscription') return storyboard;
+  const MAX_ROUNDS = 2;
+  let current = storyboard;
+  const pedidos: string[] = [];
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    const agentId = `claude_jefe_produccion:${round}`;
+    emit({ type: 'agent_start', agentId, agentName: `Claude · jefe de producción (revisión ${round})` });
+    let review: z.infer<typeof ProductionReviewSchema>;
+    try {
+      const content: UserContent = [
+        {
+          type: 'text',
+          text: `${storyboardProduction(current, settings.aspectRatio)}\n\nBRIEF:\n${current.brief ?? ''}\n\nSTORYBOARD:\n${json({
+            titulo: current.title,
+            concepto: current.concept,
+            gancho: current.hook,
+            cta: current.cta,
+            tono: current.tone,
+            personajes: current.bible,
+            escenas: current.scenes.map((s) => ({
+              escena: s.index,
+              duracion: s.durationSeconds,
+              dialogo: s.dialogue,
+              visual: s.visual,
+              prompt: s.videoPrompt,
+            })),
+          })}${pedidos.length ? `\n\nEN LA REVISIÓN ANTERIOR PEDISTE:\n- ${pedidos.join('\n- ')}\nComprueba que se hizo.` : ''}\n\nFOTOS DE REFERENCIA:`,
+        },
+        ...references.flatMap((r, i) =>
+          images[i] ? [{ type: 'text' as const, text: `Foto ${r.id} (${r.role}):` }, { type: 'file' as const, data: images[i].data, mediaType: images[i].mediaType }] : []
+        ),
+      ];
+      const { prompt, files } = contentToPrompt(content);
+      ({ object: review } = await orchestrateObject({
+        tool: 'ugc-generator',
+        description: `UGC Studio · Claude jefe de producción (revisión ${round})`,
+        system: REVIEW_SYSTEM,
+        prompt,
+        files,
+        schema: ProductionReviewSchema,
+        temperature: 0.3,
+        mode: 'claude-subscription',
+      }));
+      emit({ type: 'agent_done', agentId });
+    } catch (err) {
+      // Si Claude no está disponible (sin cupo, sin sesión), el storyboard de Gemini sigue sirviendo
+      emit({ type: 'agent_error', agentId, detail: errorMessage(err, 'Claude no pudo revisar') });
+      return { ...current, claudeReview: { aprobado: false, resumen: `Claude no pudo revisar el storyboard: ${errorMessage(err, 'sin detalle')}`, rondas: round - 1, pedidos } };
+    }
+
+    const cambios = review.cambios.filter((c) => current.scenes.some((s) => s.index === c.escena));
+    if (review.aprobado || cambios.length === 0) {
+      return { ...current, claudeReview: { aprobado: true, resumen: review.resumen, rondas: round, pedidos } };
+    }
+    // Manda a Gemini rehacer cada escena con sus instrucciones (una a una: cada revisión ve la anterior)
+    for (const c of cambios) {
+      if (signal?.aborted) break;
+      const scene = current.scenes.find((s) => s.index === c.escena)!;
+      pedidos.push(`Escena ${c.escena}: ${c.instrucciones}`);
+      try {
+        current = await reviseScene({ storyboard: current, references, settings, sceneId: scene.id, feedback: c.instrucciones }, emit, signal);
+      } catch (err) {
+        emit({ type: 'agent_error', agentId: `revision:${c.escena}`, detail: errorMessage(err, 'No se pudo rehacer la escena') });
+      }
+    }
+    // Última ronda: los cambios pedidos se aplican igual, sin otra revisión
+    if (round === MAX_ROUNDS) {
+      return {
+        ...current,
+        claudeReview: {
+          aprobado: false,
+          resumen: `${review.resumen} (Estos últimos ajustes ya se aplicaron; revísalos antes de renderizar.)`,
+          rondas: round,
+          pedidos,
+        },
+      };
+    }
+  }
+  return current;
 }
 
 /** La escena que abre cada cadena "continua" lleva las referencias de toda la cadena (ver chainReferenceIds). */
@@ -776,7 +894,9 @@ export async function planAgentActions(req: AgentRequest, emit: Emit, signal?: A
       history || '(ninguna)'
     }\n\nMENSAJE NUEVO DEL USUARIO:\n${req.message}`,
     emit,
-    signal
+    signal,
+    undefined,
+    true
   );
   const sceneCount = req.storyboard?.scenes.length ?? 0;
   const actions: AgentAction[] = plan.actions.map((a) => {
