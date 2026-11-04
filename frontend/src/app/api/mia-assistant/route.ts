@@ -32,12 +32,13 @@ export async function POST(req: NextRequest) {
     const systemPrompt = resolveAssistantSystemPrompt(activeTool, activeSkillId);
 
     // "Según selector IA": lo decide el orquestador (Gratis / Claude), igual que el resto de la app
-    if (selectedModel === 'orchestrator') {
+    // "Claude (mi suscripción)": Claude Code de este PC, aunque el selector global diga otra cosa
+    if (selectedModel === 'orchestrator' || selectedModel === 'claude-subscription') {
       try {
         return await orchestrateTextStream({
           tool: activeTool ? String(activeTool) : 'mia',
           description: 'Mia (asistente)',
-          mode: orchestrator,
+          mode: selectedModel === 'claude-subscription' ? 'claude-subscription' : orchestrator,
           system: systemPrompt,
           messages: messages.map((m: { role: 'user' | 'assistant'; content: string }) => ({ role: m.role, content: String(m.content) })),
         });

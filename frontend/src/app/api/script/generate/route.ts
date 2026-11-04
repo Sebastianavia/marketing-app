@@ -33,7 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       script: text.trim().replace(/^["']|["']$/g, ''),
       model: meta.model,
-      provider: meta.mode === 'free' ? 'Gemini (gratis)' : 'Claude vía OpenRouter',
+      provider:
+        meta.mode === 'free'
+          ? 'Gemini (gratis)'
+          : meta.mode === 'claude-subscription'
+            ? 'Claude (tu suscripción)'
+            : 'Claude vía OpenRouter',
       orchestrator: meta.mode,
       costUSD: meta.costUSD,
     });

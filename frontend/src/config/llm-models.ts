@@ -41,7 +41,13 @@ export function llmCost(modelId: string, inputTokens = 0, outputTokens = 0): num
 export const FREE_GEMINI_MODEL = 'gemini-2.5-flash';
 
 /** Quién maneja el "cerebro" de la app (guiones, escenas, dar emoción…). */
-export type OrchestratorMode = 'free' | 'claude-cheap' | 'claude-quality';
+export type OrchestratorMode = 'free' | 'claude-subscription' | 'claude-cheap' | 'claude-quality';
+
+/**
+ * Modelo que usa Claude Code con la suscripción (alias del CLI: 'sonnet', 'opus', 'haiku').
+ * Se puede cambiar con CLAUDE_CODE_MODEL en .env.local.
+ */
+export const CLAUDE_SUBSCRIPTION_MODEL = 'sonnet';
 
 export interface OrchestratorOption {
   mode: OrchestratorMode;
@@ -58,6 +64,13 @@ export const ORCHESTRATOR_OPTIONS: OrchestratorOption[] = [
     short: 'Gratis',
     model: FREE_GEMINI_MODEL,
     description: 'Tus claves de Gemini (free tier). $0. Google puede usar los datos para mejorar sus productos.',
+  },
+  {
+    mode: 'claude-subscription',
+    label: 'Claude · mi suscripción',
+    short: 'Claude Pro',
+    model: `claude-code:${CLAUDE_SUBSCRIPTION_MODEL}`,
+    description: 'Claude Code de este PC con tu plan Pro/Max. $0 extra: usa tu cupo (ventana de 5 h y semanal).',
   },
   {
     mode: 'claude-cheap',
@@ -78,7 +91,7 @@ export const ORCHESTRATOR_OPTIONS: OrchestratorOption[] = [
 export const DEFAULT_ORCHESTRATOR: OrchestratorMode = 'free';
 
 export function isOrchestratorMode(v: unknown): v is OrchestratorMode {
-  return v === 'free' || v === 'claude-cheap' || v === 'claude-quality';
+  return v === 'free' || v === 'claude-subscription' || v === 'claude-cheap' || v === 'claude-quality';
 }
 
 export function getOrchestratorOption(mode: OrchestratorMode): OrchestratorOption {

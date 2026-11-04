@@ -1,12 +1,14 @@
 import { generateObject, generateText, streamText, type ModelMessage } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { openrouter } from '@/lib/ai/openrouter';
 import { getGeminiKeyPool, maskApiKey } from '@/lib/ai/gemini-pool';
 import { getSettings } from '@/lib/data/settings';
 import { recordUsage } from '@/lib/usage/usage-store';
 import { errorMessage } from '@/lib/errors';
+import { ClaudeCodeError, runClaudeCode, type ClaudeCodeResult } from '@/lib/ai/claude-code/bridge';
 import {
+  CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_ORCHESTRATOR,
   getOrchestratorOption,
   isOrchestratorMode,
@@ -17,16 +19,81 @@ import {
 /**
  * Orquestador: un solo punto para todo el texto que genera la app.
  * - 'free'  → pool de claves de Gemini (free tier), rota si una falla.
- * - 'claude-*' → Claude vía OpenRouter, con costo real por tokens.
- * Si el modo gratis se queda sin cuota NO salta a Claude solo:
+ * - 'claude-subscription' → Claude Code de este PC con la suscripción de la persona ($0 extra).
+ * - 'claude-cheap' / 'claude-quality' → Claude vía OpenRouter, con costo real por tokens.
+ * Si un modo sin costo (Gemini gratis o la suscripción) no está disponible NO salta a pago solo:
  * lanza FreeQuotaError y la interfaz pregunta antes de gastar.
  */
 
 export class FreeQuotaError extends Error {
   readonly code = 'free_exhausted';
-  constructor(detail: string) {
-    super(`Gemini gratis no respondió con ninguna de tus claves (${detail}). Puedes esperar o usar Claude.`);
+  constructor(detail: string, message?: string) {
+    super(message ?? `Gemini gratis no respondió con ninguna de tus claves (${detail}). Puedes esperar o usar Claude.`);
   }
+}
+
+/** Modelo de Claude Code: CLAUDE_CODE_MODEL en .env.local o el predeterminado. */
+function subscriptionModel(): string {
+  return process.env.CLAUDE_CODE_MODEL?.trim() || CLAUDE_SUBSCRIPTION_MODEL;
+}
+
+/**
+ * Llama a Claude Code con la suscripción. Si no está instalado, sin sesión o sin cupo,
+ * lanza FreeQuotaError (mismo flujo que Gemini agotado: la interfaz pregunta antes de pagar).
+ */
+async function callSubscription(req: Parameters<typeof runClaudeCode>[0]): Promise<ClaudeCodeResult> {
+  try {
+    return await runClaudeCode({ ...req, model: subscriptionModel() });
+  } catch (err) {
+    if (err instanceof ClaudeCodeError && err.reason !== 'failed') {
+      throw new FreeQuotaError(err.reason, `${err.message} Puedes esperar o usar Claude vía OpenRouter (de pago).`);
+    }
+    throw err;
+  }
+}
+
+async function recordSubscription(call: { tool: string; description: string }, r: ClaudeCodeResult) {
+  const tokens = r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens;
+  await recordUsage({
+    tool: call.tool,
+    kind: 'script',
+    provider: 'claude-code',
+    model: r.model,
+    description: `${call.description} · suscripción (≈ $${r.equivalentCostUSD.toFixed(4)} por API)`,
+    units: tokens || 1,
+    unit: tokens ? 'tokens' : 'texto',
+    costUSD: 0,
+    estimated: false,
+  });
+}
+
+function subscriptionMeta(r: ClaudeCodeResult): OrchestratorMeta {
+  return {
+    mode: 'claude-subscription',
+    model: r.model,
+    provider: 'claude-code',
+    inputTokens: r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens,
+    outputTokens: r.usage.outputTokens,
+    costUSD: 0,
+  };
+}
+
+/** Une el historial del chat en un solo prompt (cada llamada al CLI es independiente). */
+function messagesToPrompt(messages: ModelMessage[]): string {
+  const textOf = (m: ModelMessage): string => {
+    if (typeof m.content === 'string') return m.content;
+    if (!Array.isArray(m.content)) return '';
+    return m.content
+      .map((part) => (part && typeof part === 'object' && 'text' in part && typeof part.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join('\n');
+  };
+  const turns = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
+  if (turns.length === 1) return textOf(turns[0]);
+  const transcript = turns
+    .map((m) => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${textOf(m)}`)
+    .join('\n\n');
+  return `Conversación hasta ahora:\n\n${transcript}\n\nResponde como Asistente al último mensaje del Usuario. Escribe solo tu respuesta, sin el prefijo "Asistente:".`;
 }
 
 export interface OrchestratorCall {
@@ -68,7 +135,7 @@ function promptOrMessages(call: OrchestratorCall) {
 export interface OrchestratorMeta {
   mode: OrchestratorMode;
   model: string;
-  provider: 'gemini' | 'openrouter';
+  provider: 'gemini' | 'openrouter' | 'claude-code';
   inputTokens: number;
   outputTokens: number;
   costUSD: number;
@@ -150,6 +217,11 @@ async function run<T>(call: OrchestratorCall, runner: Runner<T>): Promise<{ valu
 }
 
 export async function orchestrateText(call: OrchestratorCall) {
+  if ((await resolveMode(call.mode, call.confidential)) === 'claude-subscription') {
+    const r = await callSubscription({ system: call.system, prompt: call.prompt, files: call.files });
+    await recordSubscription(call, r);
+    return { text: r.text, meta: subscriptionMeta(r) };
+  }
   const { value, meta } = await run<string>(call, async (model) => {
     const r = await generateText({ model, system: call.system, ...promptOrMessages(call), temperature: call.temperature ?? 0.7 });
     return { value: r.text, inputTokens: r.usage?.inputTokens, outputTokens: r.usage?.outputTokens };
@@ -158,6 +230,19 @@ export async function orchestrateText(call: OrchestratorCall) {
 }
 
 export async function orchestrateObject<S extends z.ZodType>(call: OrchestratorCall & { schema: S }) {
+  if ((await resolveMode(call.mode, call.confidential)) === 'claude-subscription') {
+    const r = await callSubscription({
+      system: call.system,
+      prompt: call.prompt,
+      files: call.files,
+      jsonSchema: claudeJsonSchema(call.schema),
+    });
+    await recordSubscription(call, r);
+    // Claude Code valida contra el JSON Schema; zod aplica además lo que el schema no expresa (defaults, refine)
+    const parsed = call.schema.safeParse(r.structured ?? safeJson(r.text));
+    if (!parsed.success) throw new Error(`Claude devolvió una respuesta con formato inválido: ${parsed.error.message.slice(0, 300)}`);
+    return { object: parsed.data as z.infer<S>, meta: subscriptionMeta(r) };
+  }
   const { value, meta } = await run<z.infer<S>>(call, async (model) => {
     const r = await generateObject({
       model,
@@ -186,6 +271,8 @@ export async function orchestrateTextStream(call: {
 }): Promise<Response> {
   const mode = await resolveMode(call.mode, call.confidential);
   const option = getOrchestratorOption(mode);
+
+  if (mode === 'claude-subscription') return subscriptionStream(call);
 
   const record = async (inputTokens = 0, outputTokens = 0) => {
     const tokens = inputTokens + outputTokens;
@@ -267,4 +354,81 @@ export function orchestratorErrorResponse(err: unknown) {
     return Response.json({ error: err.message, code: err.code }, { status: 409 });
   }
   return Response.json({ error: errorMessage(err, 'No se pudo generar el texto.') }, { status: 500 });
+}
+
+/** JSON Schema para --json-schema: Claude Code valida con draft-07 y no reconoce el $schema de 2020-12. */
+function claudeJsonSchema(schema: z.ZodType): object {
+  const json = z.toJSONSchema(schema, { io: 'input', target: 'draft-7' }) as Record<string, unknown>;
+  delete json.$schema;
+  return json;
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Streaming con Claude Code. Espera al primer fragmento antes de responder: si el CLI falla
+ * antes (sin instalar, sin sesión, sin cupo) se lanza el error y la ruta responde 409/500 como siempre.
+ */
+async function subscriptionStream(call: {
+  tool: string;
+  description: string;
+  system?: string;
+  messages: ModelMessage[];
+}): Promise<Response> {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const pending: string[] = [];
+  let sent = false;
+  let onFirst: () => void = () => {};
+  const first = new Promise<void>((resolve) => (onFirst = resolve));
+
+  const push = (text: string) => {
+    sent = true;
+    if (controller) controller.enqueue(encoder.encode(text));
+    else pending.push(text);
+  };
+
+  const run = callSubscription({
+    system: call.system,
+    prompt: messagesToPrompt(call.messages),
+    onText: (delta) => {
+      push(delta);
+      onFirst();
+    },
+  });
+
+  run.catch(() => {}); // el error se maneja abajo; evita un aviso de promesa sin capturar
+  // Lo que llegue antes: el primer texto (se responde ya) o un error (se lanza sin haber respondido)
+  await Promise.race([first, run]);
+
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+      for (const t of pending.splice(0)) c.enqueue(encoder.encode(t));
+      run
+        .then(async (r) => {
+          if (!sent && r.text) c.enqueue(encoder.encode(r.text)); // respuesta sin fragmentos parciales
+          c.close();
+          await recordSubscription(call, r);
+        })
+        .catch((err) => {
+          c.enqueue(encoder.encode(`\n\n[Error: ${errorMessage(err, 'Claude Code no pudo terminar la respuesta.')}]`));
+          c.close();
+        });
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Orchestrator': 'claude-subscription',
+      'X-Model-Used': `claude-code:${subscriptionModel()}`,
+    },
+  });
 }

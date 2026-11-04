@@ -34,6 +34,7 @@ interface DroppedLocalFile {
 // Gemini usa tu pool gratis; el resto va por OpenRouter (de pago). Ver config/llm-models.ts
 const AVAILABLE_MODELS = [
   { id: 'orchestrator', name: 'Según selector IA', badge: 'Auto' },
+  { id: 'claude-subscription', name: 'Claude (mi suscripción)', badge: 'Pro' },
   ...LLM_MODELS.map((m) => ({ id: m.id, name: m.name, badge: m.badge })),
 ];
 
