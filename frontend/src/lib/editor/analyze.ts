@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import { z } from 'zod';
-import { orchestrateObject, FreeQuotaError } from '@/lib/ai/orchestrator';
+import { orchestrateObject, FreeQuotaError, resolveMode } from '@/lib/ai/orchestrator';
+import { startClaudeFirstPass } from './claude-agent';
 import { transcribeWithElevenLabs } from '@/lib/generation/transcribe';
 import { errorMessage } from '@/lib/errors';
 import { extractAudio, ffmpeg } from './media';
@@ -166,6 +167,26 @@ export async function runAnalysis(id: string): Promise<void> {
       ({ edit: p } = await updateEdit(id, (x) => {
         x.frases = buildPhrases(x.transcripcion!.palabras);
       }));
+    }
+
+    // Con "Claude · mi suscripción", Claude (el que ve el video y usa herramientas) hace la edición
+    // completa desde el principio: se le pasa el pedido como primer mensaje del chat.
+    if (!p.sinIA && (await resolveMode(p.modoIA || undefined)) === 'claude-subscription') {
+      // Primero se registra el turno de Claude y luego se libera la edición: así, cuando la
+      // pantalla vea "por revisar", el chat ya encuentra a Claude trabajando.
+      let started = true;
+      await startClaudeFirstPass(id).catch(async (err) => {
+        started = false;
+        await updateEdit(id, (x) => logActivity(x, `Claude no pudo empezar (${errorMessage(err)}). Escríbele en el chat o renderiza a mano.`));
+      });
+      await updateEdit(id, (x) => {
+        x.estado = 'por_revisar';
+        x.tarea = undefined;
+        x.error = undefined;
+        x.indicacion = undefined;
+        if (started) logActivity(x, 'Claude toma la edición: mira el video, decide los cortes y arma el borrador.');
+      });
+      return;
     }
 
     // 2. Propuesta de la IA

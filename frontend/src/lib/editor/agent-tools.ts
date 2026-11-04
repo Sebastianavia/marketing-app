@@ -167,6 +167,19 @@ const cambiarGuion = tool({
   },
 });
 
+const planearGraficos = tool({
+  name: 'planear_graficos',
+  description:
+    'Crea (o rehace) el plan de gráficos animados (tarjetas, números, listas, texto detrás de la persona) según el guion actual y el perfil. Devuelve los gráficos con su id; después puedes editarlos o quitarlos con cambiar_guion.',
+  schema: z.object({}),
+  run: async (editId) => {
+    const edit = await runAction(editId, { accion: 'proponer_graficos' }).catch((err) => {
+      throw new AgentToolError(errorMessage(err), err instanceof EditError ? err.status : 400);
+    });
+    return { ok: true, graficos: edit.graficos ?? [] };
+  },
+});
+
 const renderizar = tool({
   name: 'renderizar',
   description:
@@ -235,7 +248,7 @@ const publicarBorrador = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verEdicion, cambiarPerfil, cambiarGuion, renderizar, esperarRender, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verEdicion, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

@@ -330,6 +330,7 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: ver_edicion': 'Mirando la edición',
   'lulo: cambiar_perfil': 'Cambiando el estilo',
   'lulo: cambiar_guion': 'Ajustando el guion',
+  'lulo: planear_graficos': 'Planeando los gráficos',
   'lulo: renderizar': 'Armando el video con el motor',
   'lulo: esperar_render': 'Esperando el render',
   'lulo: publicar_borrador': 'Publicando la nueva versión',

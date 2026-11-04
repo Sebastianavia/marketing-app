@@ -266,7 +266,33 @@ function allowedTools(dirs: { tools: string; fuentes: string; modelos: string },
 // Enviar un mensaje
 // ---------------------------------------------------------------------------
 
-export async function sendToClaude(editId: string, mensaje: string, appUrl: string): Promise<{ turnoId: string }> {
+/** URL de la app para el servidor MCP cuando no hay una petición de la que sacarla (runner). */
+export function defaultAppUrl(): string {
+  return `http://localhost:${process.env.PORT || '3000'}`;
+}
+
+/**
+ * Primer pase con Claude (modo "Claude · mi suscripción"): tras transcribir, Claude hace la
+ * edición completa a partir del pedido. Con "Enséñame el guion antes" deja todo listo sin renderizar.
+ */
+export async function startClaudeFirstPass(editId: string): Promise<void> {
+  const p = await getEdit(editId);
+  const pedido = p.pedido?.trim() || 'Haz un reel con este video: quita pausas y errores y déjalo listo para redes.';
+  const final = p.revisarAntes
+    ? 'La persona marcó "Enséñame el guion antes de crear el video": deja el guion, el estilo y los gráficos listos con cambiar_guion / cambiar_perfil / planear_graficos, pero NO renderices ni publiques. Termina explicándole en pocas líneas qué propones para que lo revise.'
+    : 'Renderiza para dejar el borrador listo en la app y revisa fotogramas del borrador antes de contestar (si el pedido lo necesita, mejóralo con tus herramientas y publica tu versión).';
+  const instrucciones = `Esta es una edición nueva: el audio ya está transcrito y nadie ha decidido nada todavía. Haz la edición completa según el pedido de la persona. ANTES de decidir nada, extrae fotogramas del original con FFmpeg (p. ej. una hoja de 8 imágenes en ./claude/fotogramas/) y míralos con Read: qué se ve, si hay una persona o un producto, y si el audio es voz o una canción (con canción no añadas música). Luego decide qué frases cortar (falsos comienzos, repeticiones, muletillas, errores, lo que sobra), el gancho, las palabras a resaltar y los gráficos (planear_graficos si el perfil los usa), y ajusta el estilo si el pedido lo pide. ${final}
+
+Pedido de la persona: «${pedido}»`;
+  await sendToClaude(editId, instrucciones, defaultAppUrl(), { mostrar: pedido });
+}
+
+export async function sendToClaude(
+  editId: string,
+  mensaje: string,
+  appUrl: string,
+  opts: { mostrar?: string } = {}
+): Promise<{ turnoId: string }> {
   const texto = mensaje.trim();
   if (!texto) throw new EditError('Escribe qué quieres que haga Claude.');
   if (isTurnActive(editId)) throw new EditError('Claude ya está trabajando en esta edición. Espera o detenlo.', 409);
@@ -275,7 +301,8 @@ export async function sendToClaude(editId: string, mensaje: string, appUrl: stri
   const userMsg: ClaudeChatMessage = {
     id: randomUUID(),
     rol: 'usuario',
-    texto,
+    // En el chat se ve lo que escribió la persona; Claude recibe además las instrucciones
+    texto: opts.mostrar?.trim() || texto,
     fecha: new Date().toISOString(),
   };
   // La sesión solo se guarda cuando Claude Code la crea de verdad (al terminar el turno)
