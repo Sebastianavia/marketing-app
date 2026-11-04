@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ProjectMetadata } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export interface ProjectHydrationState {
   activeProject: ProjectMetadata | null;
@@ -48,12 +49,12 @@ export const useProjectHydrationStore = create<ProjectHydrationState>((set, get)
         // Carga por identificador { category, name }
         const res = await fetch(
           `/api/projects/load?category=${encodeURIComponent(
-            (target as any).category
-          )}&name=${encodeURIComponent((target as any).name)}`
+            (target as { category: string }).category
+          )}&name=${encodeURIComponent((target as { name: string }).name)}`
         );
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `No se pudo cargar el proyecto ${(target as any).name}`);
+          throw new Error(errData.error || `No se pudo cargar el proyecto ${(target as { name: string }).name}`);
         }
         const data = await res.json();
         project = data.project;
@@ -101,10 +102,10 @@ export const useProjectHydrationStore = create<ProjectHydrationState>((set, get)
       });
 
       return project;
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Hydration Error]:', err);
       set({
-        error: err.message || 'Error cargando metadatos del proyecto',
+        error: errorMessage(err, 'Error cargando metadatos del proyecto'),
         isLoading: false,
       });
       return null;

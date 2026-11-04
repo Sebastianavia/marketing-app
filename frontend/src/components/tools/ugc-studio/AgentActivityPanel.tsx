@@ -38,8 +38,8 @@ function QuotaMeters({ refreshKey }: { refreshKey: number }) {
   const [slots, setSlots] = useState<SlotReport[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // El indicador de carga solo lo enciende el botón (rediscover); la consulta periódica es silenciosa
   const load = useCallback(async (rediscover = false) => {
-    setLoading(true);
     try {
       const res = await fetch(`/api/ugc-studio/quota${rediscover ? '?rediscover=1' : ''}`);
       const data = await res.json();
@@ -52,9 +52,12 @@ function QuotaMeters({ refreshKey }: { refreshKey: number }) {
   }, []);
 
   useEffect(() => {
-    void load();
+    const first = setTimeout(() => void load(), 0);
     const timer = setInterval(() => void load(), 20_000);
-    return () => clearInterval(timer);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
   }, [load, refreshKey]);
 
   const keys = [...new Set(slots.map((s) => s.keyIndex))];
@@ -67,7 +70,10 @@ function QuotaMeters({ refreshKey }: { refreshKey: number }) {
         <p className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300">Cuota Gemini (requests hoy)</p>
         <button
           type="button"
-          onClick={() => void load(true)}
+          onClick={() => {
+            setLoading(true);
+            void load(true);
+          }}
           className="ml-auto text-slate-400 hover:text-indigo-500"
           title="Volver a detectar los modelos más recientes de la capa gratuita"
         >

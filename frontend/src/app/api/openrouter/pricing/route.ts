@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UGC_MODELS_CATALOG } from '@/config/ugc-models.config';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -114,10 +115,10 @@ export async function GET(req: NextRequest) {
       totalOpenRouterModels: rawModels.length,
       modelPrices,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[OpenRouter Pricing API Error]:', error);
     return NextResponse.json(
-      { error: error.message || 'Error al obtener precios de OpenRouter' },
+      { error: errorMessage(error, 'Error al obtener precios de OpenRouter') },
       { status: 500 }
     );
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStorageBasePath, setStorageBasePath } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -7,8 +8,8 @@ export async function GET() {
   try {
     const basePath = await getStorageBasePath();
     return NextResponse.json({ basePath });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Error al obtener ruta' }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err, 'Error al obtener ruta') }, { status: 500 });
   }
 }
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     const updated = await setStorageBasePath(basePath);
     return NextResponse.json({ success: true, basePath: updated });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Error al actualizar ruta' }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err, 'Error al actualizar ruta') }, { status: 500 });
   }
 }

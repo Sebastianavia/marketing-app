@@ -143,7 +143,8 @@ export async function planSceneRender(
 // Renders en curso por escena: evita pagar dos veces la misma escena (doble clic, dos pestañas)
 const RENDER_LOCK_MS = 20 * 60 * 1000;
 const activeRenders: Map<string, { taskId: string; at: number }> =
-  ((globalThis as any).__ugcActiveRenders ??= new Map());
+  ((globalThis as unknown as { __ugcActiveRenders?: Map<string, { taskId: string; at: number }> }).__ugcActiveRenders ??=
+    new Map());
 
 export function getActiveRender(sceneId: string): string | undefined {
   const entry = activeRenders.get(sceneId);
@@ -194,7 +195,7 @@ export interface SceneRenderStatus {
 // Un mismo taskId se finaliza una sola vez aunque la UI siga consultando
 const finalizing = (globalThis as unknown as { __ugcFinalizing?: Map<string, Promise<SceneRenderStatus>> }).__ugcFinalizing ??
   new Map<string, Promise<SceneRenderStatus>>();
-(globalThis as any).__ugcFinalizing = finalizing;
+(globalThis as unknown as { __ugcFinalizing?: Map<string, Promise<SceneRenderStatus>> }).__ugcFinalizing = finalizing;
 
 export async function getSceneRenderStatus(taskId: string): Promise<SceneRenderStatus> {
   const pending = finalizing.get(taskId);

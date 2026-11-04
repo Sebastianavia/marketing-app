@@ -31,6 +31,7 @@ import {
   DEFAULT_VOICE_SETTINGS,
   type VoiceSettingsState,
 } from '@/config/elevenlabs-models';
+import { errorMessage as getErrorMessage } from '@/lib/errors';
 
 export function VoiceStudioView() {
   // Pestaña activa: 'clone' (Clonar Nueva Voz) | 'tts' (Estudio de Generación)
@@ -82,13 +83,8 @@ export function VoiceStudioView() {
   const injectIntoTool = useMiaStore((s) => s.injectIntoTool);
   const setActiveTool = useMiaStore((s) => s.setActiveTool);
 
-  // Cargar lista de voces en el montaje inicial
-  useEffect(() => {
-    fetchVoices();
-  }, []);
-
+  // No activa isLoadingVoices (el estado inicial ya es true); quien recarga lo activa antes
   const fetchVoices = async () => {
-    setIsLoadingVoices(true);
     try {
       const res = await fetch('/api/elevenlabs/voices');
       if (res.ok) {
@@ -106,6 +102,12 @@ export function VoiceStudioView() {
       setIsLoadingVoices(false);
     }
   };
+
+  // Cargar lista de voces en el montaje inicial
+  useEffect(() => {
+    const first = setTimeout(() => void fetchVoices(), 0);
+    return () => clearTimeout(first);
+  }, []);
 
   // ===========================================================================
   // MANEJADORES: CLONACIÓN DE VOZ
@@ -176,11 +178,12 @@ export function VoiceStudioView() {
       setSampleFiles([]);
 
       // Recargar voces y seleccionar la nueva voz clonada en la pestaña de generación
+      setIsLoadingVoices(true);
       await fetchVoices();
       setSelectedVoiceId(data.voice_id);
       setActiveTab('tts');
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Error inesperado al clonar la voz.');
+    } catch (err) {
+      setErrorMessage(getErrorMessage(err, 'Error inesperado al clonar la voz.'));
     } finally {
       setIsCloning(false);
     }
@@ -235,8 +238,8 @@ export function VoiceStudioView() {
       setGeneratedAudioBlob(blob);
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Error en la síntesis de voz.');
+    } catch (err) {
+      setErrorMessage(getErrorMessage(err, 'Error en la síntesis de voz.'));
     } finally {
       setIsSynthesizing(false);
     }

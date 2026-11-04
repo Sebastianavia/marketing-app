@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { UgcPipelineMasterOrchestrator } from '@/services/pipeline/ugc-pipeline.service';
 import { UgcPipelineExecutionInput } from '@/types/pipeline.types';
+import { errorMessage, errorProp } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minutos máximo de ejecución en servidor
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     const writer = stream.writable.getWriter();
     const encoder = new TextEncoder();
 
-    const sendEvent = async (data: any) => {
+    const sendEvent = async (data: unknown) => {
       try {
         const payload = `data: ${JSON.stringify(data)}\n\n`;
         await writer.write(encoder.encode(payload));
@@ -63,11 +64,11 @@ export async function POST(req: NextRequest) {
           type: 'DONE',
           result,
         });
-      } catch (err: any) {
+      } catch (err) {
         await sendEvent({
           type: 'ERROR',
-          error: err.message || 'Error en pipeline de renderizado',
-          phase: err.phase || 'failed',
+          error: errorMessage(err, 'Error en pipeline de renderizado'),
+          phase: errorProp(err, 'phase') || 'failed',
         });
       } finally {
         await writer.close();
@@ -81,9 +82,9 @@ export async function POST(req: NextRequest) {
         Connection: 'keep-alive',
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     return new Response(
-      JSON.stringify({ error: error.message || 'Error interno del servidor' }),
+      JSON.stringify({ error: errorMessage(error, 'Error interno del servidor') }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

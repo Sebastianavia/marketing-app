@@ -126,9 +126,9 @@ export interface UgcPipelineFinalResult {
 export class PipelineError extends Error {
   public phase: PipelinePhase;
   public isRecoverable: boolean;
-  public details?: any;
+  public details?: unknown;
 
-  constructor(message: string, phase: PipelinePhase, isRecoverable = false, details?: any) {
+  constructor(message: string, phase: PipelinePhase, isRecoverable = false, details?: unknown) {
     super(message);
     this.name = 'PipelineError';
     this.phase = phase;

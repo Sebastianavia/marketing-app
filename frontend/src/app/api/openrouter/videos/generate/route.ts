@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenRouterVideoService } from '@/services/openrouter/openrouter-video.service';
+import { errorMessage, errorStatus } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -33,11 +34,11 @@ export async function POST(req: NextRequest) {
       taskId: task.taskId,
       status: task.status,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[API OpenRouter Video Generate Error]:', error);
     return NextResponse.json(
-      { error: error.message || 'Error al iniciar tarea de video en OpenRouter.' },
-      { status: error.status || 500 }
+      { error: errorMessage(error, 'Error al iniciar tarea de video en OpenRouter.') },
+      { status: errorStatus(error) }
     );
   }
 }

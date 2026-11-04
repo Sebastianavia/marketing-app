@@ -86,14 +86,15 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
   const error = useUgcStudioStore((s) => s.error);
   const { sendMessage, cancel, addReference, updateReference, removeReference, clearError } = useUgcStudioStore.getState();
 
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText ?? '');
+  const [prevInitialText, setPrevInitialText] = useState(initialText);
+  if (initialText !== prevInitialText) {
+    setPrevInitialText(initialText);
+    if (initialText) setText(initialText);
+  }
   const [pending, setPending] = useState<PendingImage | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (initialText) setText(initialText);
-  }, [initialText]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });

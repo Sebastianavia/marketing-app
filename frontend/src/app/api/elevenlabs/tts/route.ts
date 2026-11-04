@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { synthesizeSpeech } from '@/lib/generation/voice';
 import { DailyLimitError } from '@/lib/usage/usage-store';
+import { errorMessage, errorProp, errorStatus } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -42,18 +43,18 @@ export async function POST(req: NextRequest) {
         'Cache-Control': 'no-store',
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     // Mismo formato que /api/render-jobs: la vista muestra el mensaje con lo gastado y el límite
     if (error instanceof DailyLimitError) {
       return NextResponse.json({ error: error.message, code: 'daily_limit' }, { status: 402 });
     }
     console.error('[API ElevenLabs TTS Error]:', error);
-    const status = error.httpStatus || error.status || 500;
+    const status = errorStatus(error);
     return NextResponse.json(
       {
-        error: error.message || 'Error sintetizando audio en ElevenLabs.',
-        code: error.code || 'unknown',
-        details: error.details,
+        error: errorMessage(error, 'Error sintetizando audio en ElevenLabs.'),
+        code: errorProp(error, 'code') || 'unknown',
+        details: errorProp(error, 'details'),
       },
       { status }
     );

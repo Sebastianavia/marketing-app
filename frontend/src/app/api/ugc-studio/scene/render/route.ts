@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dispatchSceneRender, getActiveRender, planSceneRender } from '@/services/ugc-studio/scene-render.service';
 import { sanitizeSettings, Storyboard, StudioSettings, UgcReference } from '@/types/ugc-studio.types';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
       usedFirstFrame: Boolean(plan.firstFrameUrl) || plan.continuityReference,
       usedReferences: plan.referenceUrls.length > 0,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Error al renderizar la escena.' }, { status: 422 });
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error, 'Error al renderizar la escena.') }, { status: 422 });
   }
 }

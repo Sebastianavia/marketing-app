@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSceneRenderStatus } from '@/services/ugc-studio/scene-render.service';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,8 +10,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const { id } = await params;
     return NextResponse.json(await getSceneRenderStatus(id));
-  } catch (error: any) {
+  } catch (error) {
     // Error transitorio (red, subida): la UI sigue consultando
-    return NextResponse.json({ status: 'processing', warning: error.message }, { status: 200 });
+    return NextResponse.json({ status: 'processing', warning: errorMessage(error) }, { status: 200 });
   }
 }

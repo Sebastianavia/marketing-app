@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ApiMartClient } from '@/lib/ai/apimart';
+import { errorMessage } from '@/lib/errors';
 
 export async function GET(
   req: NextRequest,
@@ -24,9 +25,9 @@ export async function GET(
 
     const status = await client.checkTaskStatus(id);
     return NextResponse.json(status);
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error.message || 'Error consultando tarea en ApiMart' },
+      { error: errorMessage(error, 'Error consultando tarea en ApiMart') },
       { status: 500 }
     );
   }

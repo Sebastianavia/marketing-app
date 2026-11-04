@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -86,10 +87,10 @@ export async function GET(
       rawStatus: status,
       isFinished,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[API OpenRouter Status Error]:', error);
     return NextResponse.json(
-      { error: error.message || 'Error al consultar estado en OpenRouter.' },
+      { error: errorMessage(error, 'Error al consultar estado en OpenRouter.') },
       { status: 500 }
     );
   }

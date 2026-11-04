@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { LLM_MODELS } from '@/config/llm-models';
 import { postOrchestrated } from '@/lib/ai/orchestrator-client';
+import { errorMessage } from '@/lib/errors';
 
 interface DroppedLocalFile {
   name: string;
@@ -153,7 +154,7 @@ export function MiaTerminal() {
       }
 
       const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
-      const realPath = (file as any).path || `D:\\workspace\\assets\\${file.name}`;
+      const realPath = (file as File & { path?: string }).path || `D:\\workspace\\assets\\${file.name}`;
 
       return {
         name: file.name,
@@ -244,10 +245,10 @@ export function MiaTerminal() {
           updateLastMessage(streamedText);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       addMessage({
         role: 'assistant',
-        content: `Error del Asistente: ${err.message || 'No se pudo generar respuesta.'}`,
+        content: `Error del Asistente: ${errorMessage(err, 'No se pudo generar respuesta.')}`,
       });
     } finally {
       setIsLoading(false);

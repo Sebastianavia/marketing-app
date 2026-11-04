@@ -3,6 +3,7 @@ import { generateText } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { getGeminiKeyPool } from '@/lib/ai/gemini-pool';
 import { heygenService, HeyGenApiError } from '@/services/heygen.service';
+import type { HeyGenGenerateVideoPayload } from '@/types/heygen.types';
 import { ElevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
 import { openRouterService } from '@/services/openrouter.service';
 import { recordUsage } from '@/lib/usage/usage-store';
@@ -124,7 +125,7 @@ export async function POST(req: NextRequest) {
     const width = aspectRatio === '9:16' ? 1080 : 1920;
     const height = aspectRatio === '9:16' ? 1920 : 1080;
 
-    const generatePayload = {
+    const generatePayload: HeyGenGenerateVideoPayload = {
       title: `TalkingPhoto_${Date.now()}`,
       video_inputs: [
         {
@@ -147,7 +148,7 @@ export async function POST(req: NextRequest) {
       aspect_ratio: aspectRatio,
     };
 
-    const heygenResponse = await heygenService.generateAvatarVideo(generatePayload as any);
+    const heygenResponse = await heygenService.generateAvatarVideo(generatePayload);
 
     return NextResponse.json({
       success: true,
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest) {
       audio_asset_id: audioAssetId,
       script_text: scriptText,
     });
-  } catch (error: any) {
+  } catch (error) {
     const err = error as HeyGenApiError;
     return NextResponse.json(
       {

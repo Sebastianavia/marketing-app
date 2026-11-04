@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ApiMartClient } from '@/lib/ai/apimart';
+import { errorMessage } from '@/lib/errors';
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,9 +25,9 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(task);
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error.message || 'Error al iniciar generación en ApiMart' },
+      { error: errorMessage(error, 'Error al iniciar generación en ApiMart') },
       { status: 500 }
     );
   }

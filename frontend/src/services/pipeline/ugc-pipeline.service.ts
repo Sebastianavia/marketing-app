@@ -9,6 +9,7 @@ import {
   PipelinePhase,
 } from '@/types/pipeline.types';
 import { saveProject } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export type PipelineProgressCallback = (event: UgcPipelineProgressEvent) => void;
 
@@ -177,7 +178,7 @@ export class UgcPipelineMasterOrchestrator {
           aspectRatio: input.aspectRatio || '9:16',
         },
       };
-    } catch (err: any) {
+    } catch (err) {
       // =======================================================================
       // SRE ROLLBACK / CLEANUP STRATEGY
       // =======================================================================
@@ -198,7 +199,7 @@ export class UgcPipelineMasterOrchestrator {
         err instanceof PipelineError
           ? err
           : new PipelineError(
-              err.message || 'Error desconocido durante la ejecución del pipeline.',
+              errorMessage(err, 'Error desconocido durante la ejecución del pipeline.'),
               currentPhase,
               true,
               err

@@ -1,6 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
+import { errorMessage } from '@/lib/errors';
 
 export interface CloudinaryState {
   totalCount: number | null;
@@ -54,11 +55,11 @@ export const useCloudinaryStore = create<CloudinaryState>((set, get) => ({
         isLoading: false,
       });
       return count;
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[useCloudinaryStore] Error consultando conteo de Cloudinary:', err);
       set({
         isLoading: false,
-        lastError: err.message || 'No se pudo obtener el conteo de Cloudinary',
+        lastError: errorMessage(err, 'No se pudo obtener el conteo de Cloudinary'),
       });
       return null;
     }
@@ -96,17 +97,17 @@ export const useCloudinaryStore = create<CloudinaryState>((set, get) => ({
         deletedCount,
         remainingCount,
       };
-    } catch (err: any) {
+    } catch (err) {
       console.error('[useCloudinaryStore] Error en limpieza masiva:', err);
       set({
         isDeleting: false,
-        lastError: err.message || 'Error al eliminar archivos antiguos',
+        lastError: errorMessage(err, 'Error al eliminar archivos antiguos'),
       });
       return {
         success: false,
         deletedCount: 0,
         remainingCount: get().totalCount || 0,
-        error: err.message,
+        error: errorMessage(err),
       };
     }
   },

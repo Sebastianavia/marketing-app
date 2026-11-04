@@ -47,10 +47,10 @@ function rankCandidates(names: string[]): string[] {
 async function listModelNames(apiKey: string): Promise<string[]> {
   const res = await fetch(`${API_BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': apiKey } });
   if (!res.ok) throw new Error(`ListModels HTTP ${res.status}`);
-  const data = await res.json();
+  const data = (await res.json()) as { models?: { name?: string; supportedGenerationMethods?: string[] }[] };
   return (data.models ?? [])
-    .filter((m: any) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
-    .map((m: any) => String(m.name).replace(/^models\//, ''));
+    .filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
+    .map((m) => String(m.name).replace(/^models\//, ''));
 }
 
 async function probeModel(apiKey: string, model: string): Promise<boolean> {

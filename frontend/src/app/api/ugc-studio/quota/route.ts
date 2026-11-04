@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { geminiRouter } from '@/lib/ai/gemini/gemini-router';
 import { getFreeTierModels } from '@/lib/ai/gemini/gemini-models';
 import { getGeminiKeyPool } from '@/lib/ai/gemini-pool';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
     }
     const slots = await geminiRouter.report();
     return NextResponse.json({ slots });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Error leyendo cuota de Gemini' }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error, 'Error leyendo cuota de Gemini') }, { status: 500 });
   }
 }

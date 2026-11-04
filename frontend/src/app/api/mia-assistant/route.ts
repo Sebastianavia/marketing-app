@@ -7,6 +7,7 @@ import { getGeminiKeyPool, maskApiKey } from '@/lib/ai/gemini-pool';
 import { orchestrateTextStream, orchestratorErrorResponse } from '@/lib/ai/orchestrator';
 import { llmCost } from '@/config/llm-models';
 import { recordUsage } from '@/lib/usage/usage-store';
+import { errorMessage } from '@/lib/errors';
 
 export const maxDuration = 45;
 
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
         cleanGeminiModel = 'gemini-2.5-pro';
       }
 
-      let lastError: any = null;
+      let lastError: unknown = null;
 
       // Iterar por cada llave del pool si la anterior se agota (Failover / Rotación)
       for (let i = 0; i < geminiKeys.length; i++) {
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
           const result = streamText({
             model: google(cleanGeminiModel),
             system: systemPrompt,
-            messages: messages.map((m: any) => ({
+            messages: messages.map((m: { role: 'user' | 'assistant'; content: string }) => ({
               role: m.role,
               content: m.content,
             })),
@@ -142,9 +143,9 @@ export async function POST(req: NextRequest) {
               'X-Gemini-Total-Keys': String(geminiKeys.length),
             },
           });
-        } catch (keyErr: any) {
+        } catch (keyErr) {
           console.warn(
-            `[Gemini Pool] Llave #${i + 1} (${masked}) agotada o con error: ${keyErr.message}. Conmutando a la siguiente llave...`
+            `[Gemini Pool] Llave #${i + 1} (${masked}) agotada o con error: ${errorMessage(keyErr)}. Conmutando a la siguiente llave...`
           );
           lastError = keyErr;
           continue;
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest) {
       console.error('[Gemini Pool] Todas las llaves de Gemini en el pool fueron agotadas.');
       return new Response(
         JSON.stringify({
-          error: `Todas las llaves de Gemini (${geminiKeys.length}) alcanzaron su límite de cuota o presentaron error: ${lastError?.message || 'Límite excedido'}. Agrega otra llave en el icono 🔑 del Asistente.`,
+          error: `Todas las llaves de Gemini (${geminiKeys.length}) alcanzaron su límite de cuota o presentaron error: ${errorMessage(lastError, 'Límite excedido')}. Agrega otra llave en el icono 🔑 del Asistente.`,
         }),
         {
           status: 429,
@@ -188,7 +189,7 @@ export async function POST(req: NextRequest) {
       const result = streamText({
         model: client.chat(modelId),
         system: systemPrompt,
-        messages: messages.map((m: any) => ({
+        messages: messages.map((m: { role: 'user' | 'assistant'; content: string }) => ({
           role: m.role,
           content: m.content,
         })),
@@ -218,9 +219,9 @@ export async function POST(req: NextRequest) {
       JSON.stringify({ error: 'Mia necesita GEMINI_API_KEYS (gratis) u OPENROUTER_API_KEY en .env.local.' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
-  } catch (error: any) {
+  } catch (error) {
     return new Response(
-      JSON.stringify({ error: error.message || 'Error en el Asistente' }),
+      JSON.stringify({ error: errorMessage(error, 'Error en el Asistente') }),
       {
         status: 500,
         headers: { 'Content-Type': 'application/json' },

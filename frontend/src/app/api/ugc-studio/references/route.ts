@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await cloudinaryStorageService.uploadImage(buffer, file.name, 'lulo-studio/ugc-studio/references');
     return NextResponse.json({ url: result.publicUrl });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'No se pudo subir la referencia.' }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ error: errorMessage(error, 'No se pudo subir la referencia.') }, { status: 500 });
   }
 }

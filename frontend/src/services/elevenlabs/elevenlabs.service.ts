@@ -31,6 +31,7 @@ import {
   isKnownElevenModel,
   stripAudioTags,
 } from '@/config/elevenlabs-models';
+import { errorMessage, errorProp } from '@/lib/errors';
 
 const ELEVENLABS_API_ORIGIN = 'https://api.elevenlabs.io';
 const ELEVENLABS_BASE_URL = `${ELEVENLABS_API_ORIGIN}/v1`;
@@ -100,7 +101,7 @@ function mapSdkError(err: unknown): ElevenLabsTTSError {
 
   if (err instanceof ElevenLabsError) {
     const status = err.statusCode ?? 500;
-    const body: any = err.body ?? {};
+    const body = (err.body ?? {}) as { detail?: { status?: string; message?: string } | string };
     const detail = body?.detail ?? {};
     const apiStatus: string = typeof detail === 'object' ? detail.status || '' : '';
     const apiMessage: string =
@@ -328,10 +329,10 @@ export class ElevenLabsService {
         voice_id: voiceId,
         name: trimmedName,
       };
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof PipelineError) throw err;
       throw new PipelineError(
-        `Error de red al contactar servicio de clonación ElevenLabs: ${err.message}`,
+        `Error de red al contactar servicio de clonación ElevenLabs: ${errorMessage(err)}`,
         'voice_cloning',
         true,
         err
@@ -422,7 +423,7 @@ export class ElevenLabsService {
       });
 
       // Transformación segura de ReadableStream<Uint8Array> a Node Buffer
-      const arrayBuffer = await new Response(audioStream as any).arrayBuffer();
+      const arrayBuffer = await new Response(audioStream as unknown as BodyInit).arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
       if (!buffer || buffer.length === 0) {
@@ -445,7 +446,7 @@ export class ElevenLabsService {
         charactersBilled: textToSpeak.length,
         tagsRemoved,
       };
-    } catch (err: any) {
+    } catch (err) {
       throw mapSdkError(err);
     }
   }
@@ -574,13 +575,13 @@ export class ElevenLabsService {
       try {
         const client = this.getClient();
         await client.voices.delete(id);
-      } catch (apiErr: any) {
-        const status = apiErr?.statusCode || apiErr?.status;
+      } catch (apiErr) {
+        const status = errorProp(apiErr, 'statusCode') || errorProp(apiErr, 'status');
         // Si el estado es 404, la voz ya no existía en ElevenLabs, lo cual es aceptable
         if (status !== 404) {
           console.warn(
             `[ElevenLabsService] Advertencia al eliminar voz remota (${status}):`,
-            apiErr?.message
+            errorMessage(apiErr)
           );
         }
       }
@@ -612,11 +613,11 @@ export class ElevenLabsService {
     try {
       const client = this.getClient();
       const remoteRes = await client.voices.getAll();
-      const remoteVoices: any[] = (remoteRes as any)?.voices || [];
+      const remoteVoices = remoteRes?.voices ?? [];
 
       // Extraer todas las IDs válidas presentes en la cuenta de ElevenLabs
       const validRemoteIds = new Set<string>(
-        remoteVoices.map((v: any) => v.voice_id || v.id).filter(Boolean)
+        remoteVoices.map((v) => v.voiceId).filter(Boolean)
       );
 
       // Purgar de inmediato registros fantasma locales que ya no existan en ElevenLabs
@@ -627,7 +628,7 @@ export class ElevenLabsService {
       const localIds = new Set(currentLocal.map((v) => v.id));
 
       for (const rv of remoteVoices) {
-        const vId = rv.voice_id || rv.id;
+        const vId = rv.voiceId;
         if (
           vId &&
           (rv.category === 'cloned' || rv.category === 'generated') &&
@@ -647,10 +648,10 @@ export class ElevenLabsService {
 
       const refreshed = await getStoredVoices();
       return { storedVoices: refreshed, remoteCount: remoteVoices.length };
-    } catch (err: any) {
+    } catch (err) {
       console.warn(
         '[ElevenLabsService] No se pudo conectar para sincronizar con ElevenLabs, usando caché local:',
-        err?.message
+        errorMessage(err)
       );
       const fallback = await getStoredVoices();
       return { storedVoices: fallback };

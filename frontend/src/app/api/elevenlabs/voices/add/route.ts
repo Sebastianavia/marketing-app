@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { elevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
+import { errorMessage, errorStatus } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 90; // Clonación puede tomar algunos segundos
@@ -59,11 +60,11 @@ export async function POST(req: NextRequest) {
       samplesCount: filesToUpload.length,
       message: 'Voz clonada y almacenada en base de datos local exitosamente.',
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[API cloneVoice Error]:', error);
     return NextResponse.json(
-      { error: error.message || 'Error durante la clonación de voz.' },
-      { status: error.status || 500 }
+      { error: errorMessage(error, 'Error durante la clonación de voz.') },
+      { status: errorStatus(error) }
     );
   }
 }

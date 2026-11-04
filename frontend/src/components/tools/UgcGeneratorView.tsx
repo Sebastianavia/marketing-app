@@ -110,6 +110,8 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
   const clearInjectedData = useMiaStore((s) => s.clearInjectedData);
   useEffect(() => {
     if (injectedData && injectedData.targetTool === 'ugc-generator') {
+      // Consume un evento único del store de Mia (y lo borra): aquí un efecto es lo correcto
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInjectedBrief(injectedData.content);
       setInjectedNotice(true);
       setChatOpen(true);
@@ -155,9 +157,12 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
   const pendingCount = messages.filter((m) => m.card?.status === 'pending').length;
   const error = useUgcStudioStore((s) => s.error);
   // Las confirmaciones y los errores viven en el chat: si estaba oculto, se abre para que no pasen desapercibidos
-  useEffect(() => {
+  const chatAttention = `${pendingCount}|${error ?? ''}`;
+  const [seenChatAttention, setSeenChatAttention] = useState<string | null>(null);
+  if (chatAttention !== seenChatAttention) {
+    setSeenChatAttention(chatAttention);
     if (pendingCount > 0 || error) setChatOpen(true);
-  }, [pendingCount, error]);
+  }
   const estimateScene = storyboard?.scenes.find((s) => s.id === estimate?.sceneId);
 
   return (

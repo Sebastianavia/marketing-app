@@ -45,6 +45,7 @@ import {
   SupervisorReview,
   UgcReference,
 } from '@/types/ugc-studio.types';
+import { errorMessage } from '@/lib/errors';
 
 /**
  * Orquestador del equipo de agentes. Grafo:
@@ -79,8 +80,8 @@ async function runAgent<T>(
     });
     emit({ type: 'agent_done', agentId });
     return result;
-  } catch (err: any) {
-    emit({ type: 'agent_error', agentId, detail: err?.message || 'Error del agente' });
+  } catch (err) {
+    emit({ type: 'agent_error', agentId, detail: errorMessage(err, 'Error del agente') });
     throw err;
   }
 }

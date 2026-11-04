@@ -21,6 +21,8 @@ import {
   StudioSettings,
   UgcReference,
 } from '@/types/ugc-studio.types';
+import { isAbortError, errorMessage } from '@/lib/errors';
+import type { ProjectMetadata } from '@/lib/storage/project-storage';
 
 /**
  * Tarjeta de confirmación dentro del chat: lo que gasta dinero o descarta trabajo no se ejecuta
@@ -351,8 +353,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             } else handleEvent(event);
           });
           return ok && !get().error;
-        } catch (err: any) {
-          if (err.name !== 'AbortError') set({ error: err.message });
+        } catch (err) {
+          if (!isAbortError(err)) set({ error: errorMessage(err) });
           return false;
         } finally {
           set({ busy: null, phase: null });
@@ -382,8 +384,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               } Pídeme cambios o dime "renderiza todo" cuando te guste.`
             );
           }
-        } catch (err: any) {
-          if (err.name !== 'AbortError') set({ error: err.message });
+        } catch (err) {
+          if (!isAbortError(err)) set({ error: errorMessage(err) });
         } finally {
           set({ busy: null, phase: null });
           abortController = null;
@@ -478,12 +480,12 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           }
           const done = pollRender(sceneId, taskId);
           return wait ? await done : true;
-        } catch (err: any) {
+        } catch (err) {
           if (previous.render?.videoUrl) {
             patchScene(sceneId, { status: previous.status, render: previous.render });
-            set({ error: `No se pudo renderizar la escena ${previous.index}: ${err.message}` });
+            set({ error: `No se pudo renderizar la escena ${previous.index}: ${errorMessage(err)}` });
           } else {
-            patchScene(sceneId, { status: 'failed', render: { error: err.message } });
+            patchScene(sceneId, { status: 'failed', render: { error: errorMessage(err) } });
           }
           return false;
         }
@@ -590,10 +592,15 @@ export const useUgcStudioStore = create<UgcStudioState>()(
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'No se pudo leer el historial.');
           const wanted = name.trim().toLowerCase();
-          const ugc = (data.projects as any[]).filter((p) => p.category === 'UGC' && p.ugcStudio?.storyboard);
+          type UgcProject = ProjectMetadata & {
+            ugcStudio: { storyboard: Storyboard; references: UgcReference[]; settings: StudioSettings };
+          };
+          const ugc = (data.projects as ProjectMetadata[]).filter(
+            (p): p is UgcProject => p.category === 'UGC' && !!p.ugcStudio?.storyboard
+          );
           const project =
             ugc.find((p) => p.name.toLowerCase() === wanted) ??
-            ugc.find((p) => (p.ugcStudio.storyboard as Storyboard).title.toLowerCase() === wanted) ??
+            ugc.find((p) => p.ugcStudio.storyboard.title.toLowerCase() === wanted) ??
             ugc.find((p) => p.name.toLowerCase().includes(wanted));
           if (!project) {
             say(`No encontré un proyecto llamado "${name}". Puedes verlos todos en Historial (arriba a la izquierda).`);
@@ -604,8 +611,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             { path: project.path, videoUrl: project.videoUrl }
           );
           return true;
-        } catch (err: any) {
-          set({ error: err.message });
+        } catch (err) {
+          set({ error: errorMessage(err) });
           return false;
         }
       };
@@ -655,8 +662,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             else if (event.type === 'error') failure = event.message;
             else handleEvent(event);
           });
-        } catch (err: any) {
-          if (err.name !== 'AbortError') failure = err.message;
+        } catch (err) {
+          if (!isAbortError(err)) failure = errorMessage(err);
         } finally {
           set({ busy: null, phase: null });
           abortController = null;
@@ -1046,8 +1053,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
                 actions = event.actions;
               } else handleEvent(event);
             });
-          } catch (err: any) {
-            if (err.name !== 'AbortError') set({ error: err.message });
+          } catch (err) {
+            if (!isAbortError(err)) set({ error: errorMessage(err) });
           } finally {
             set({ busy: null, phase: null });
             abortController = null;
@@ -1152,8 +1159,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
               return { references: [...st.references, { id: `ref${next}`, url: data.url, role, label: label.trim() }] };
             });
             return true;
-          } catch (err: any) {
-            set({ error: err.message || 'No se pudo subir la referencia.' });
+          } catch (err) {
+            set({ error: errorMessage(err, 'No se pudo subir la referencia.') });
             return false;
           } finally {
             set({ uploading: false });
@@ -1326,8 +1333,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || `Error HTTP ${res.status}`);
             set({ estimate: { sceneId, ...data } });
-          } catch (err: any) {
-            set({ error: err.message || 'No se pudo calcular el costo de la escena.' });
+          } catch (err) {
+            set({ error: errorMessage(err, 'No se pudo calcular el costo de la escena.') });
           }
         },
 
@@ -1357,8 +1364,8 @@ export const useUgcStudioStore = create<UgcStudioState>()(
             if (!res.ok) throw new Error(data.error);
             set({ finalVideoUrl: data.videoUrl, savedProjectPath: data.project?.path ?? null });
             say(`Video final listo y guardado como "${data.project?.name ?? storyboard.title}".`);
-          } catch (err: any) {
-            set({ error: err.message });
+          } catch (err) {
+            set({ error: errorMessage(err) });
           } finally {
             set({ assembling: false });
           }

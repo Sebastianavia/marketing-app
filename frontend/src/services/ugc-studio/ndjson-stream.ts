@@ -1,5 +1,6 @@
 import type { StudioEvent } from '@/types/ugc-studio.types';
 import type { Emit } from './orchestrator.service';
+import { errorMessage } from '@/lib/errors';
 
 /**
  * Convierte un trabajo de agentes en una respuesta NDJSON (un StudioEvent por línea),
@@ -26,8 +27,8 @@ export function ndjsonResponse(
       };
       try {
         emit(await work(emit, signal));
-      } catch (err: any) {
-        if (!requestSignal.aborted) emit({ type: 'error', message: err?.message || 'Error en el equipo de agentes' });
+      } catch (err) {
+        if (!requestSignal.aborted) emit({ type: 'error', message: errorMessage(err, 'Error en el equipo de agentes') });
         abortController.abort();
       } finally {
         try {

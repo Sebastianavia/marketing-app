@@ -6,6 +6,7 @@ import {
 import { ApiMartClient } from '@/lib/ai/apimart';
 import { OpenRouterVideoService } from '../openrouter/openrouter-video.service';
 import { PipelineError } from '@/types/pipeline.types';
+import { errorMessage } from '@/lib/errors';
 
 export interface UgcDispatchRequest {
   modelId: string;
@@ -109,9 +110,9 @@ export class UgcDispatcherService {
           estimatedCostUSD,
           videoUrl: task.videoUrl,
         };
-      } catch (err: any) {
+      } catch (err) {
         throw new PipelineError(
-          `Fallo en despacho hacia APIMart (${modelConfig.name}): ${err.message}`,
+          `Fallo en despacho hacia APIMart (${modelConfig.name}): ${errorMessage(err)}`,
           'video_dispatch',
           true,
           err
@@ -154,9 +155,9 @@ export class UgcDispatcherService {
           estimatedCostUSD,
           videoUrl: task.videoUrl,
         };
-      } catch (err: any) {
+      } catch (err) {
         throw new PipelineError(
-          `Fallo en despacho hacia OpenRouter (${modelConfig.name}): ${err.message}`,
+          `Fallo en despacho hacia OpenRouter (${modelConfig.name}): ${errorMessage(err)}`,
           'video_dispatch',
           true,
           err
@@ -165,7 +166,7 @@ export class UgcDispatcherService {
     }
 
     throw new PipelineError(
-      `Proveedor no soportado: ${(modelConfig as any).provider}`,
+      `Proveedor no soportado: ${(modelConfig as { provider?: string }).provider}`,
       'video_dispatch',
       false
     );

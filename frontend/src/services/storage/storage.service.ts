@@ -5,6 +5,7 @@ import { StorageUploadParams, StorageUploadResult, PipelineError } from '@/types
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+import { errorMessage } from '@/lib/errors';
 
 export class StorageService {
   private s3Client: S3Client | null = null;
@@ -87,9 +88,9 @@ export class StorageService {
           bucket: this.bucketName,
           sizeBytes: buffer.length,
         };
-      } catch (err: any) {
+      } catch (err) {
         throw new PipelineError(
-          `Error subiendo activo de audio a Cloudflare R2 / S3: ${err.message}`,
+          `Error subiendo activo de audio a Cloudflare R2 / S3: ${errorMessage(err)}`,
           'audio_upload',
           true,
           err
@@ -117,9 +118,9 @@ export class StorageService {
         bucket: 'local-filesystem',
         sizeBytes: buffer.length,
       };
-    } catch (localErr: any) {
+    } catch (localErr) {
       throw new PipelineError(
-        `Error almacenando audio localmente: ${localErr.message}`,
+        `Error almacenando audio localmente: ${errorMessage(localErr)}`,
         'audio_upload',
         false,
         localErr

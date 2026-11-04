@@ -14,7 +14,8 @@ import {
   Receipt,
   Coins,
 } from 'lucide-react';
-import { sanitizeProjectName } from '@/lib/storage/project-storage';
+import { sanitizeProjectName, type ProjectMetadata } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export interface SaveProjectData {
   id?: string;
@@ -38,7 +39,7 @@ export interface SaveProjectData {
   ratio?: string;
   videoUrl?: string;
   videoPath?: string;
-  ugcFramework?: any;
+  ugcFramework?: ProjectMetadata['ugcFramework'];
   tags?: string[];
   status?: 'draft' | 'rendered' | 'failed';
   // Facturación y Recibo de Consumo Final
@@ -52,7 +53,7 @@ export interface SaveProjectData {
 interface SaveProjectWidgetProps {
   category: ProjectCategory;
   projectData: SaveProjectData;
-  onSaved?: (project: any) => void;
+  onSaved?: (project: ProjectMetadata) => void;
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -71,25 +72,26 @@ export function SaveProjectWidget({
 }: SaveProjectWidgetProps) {
   const [projectName, setProjectName] = useState(projectData.title || '');
   const [isChecking, setIsChecking] = useState(false);
-  const [nameExists, setNameExists] = useState(false);
+  const [nameExistsOnDisk, setNameExists] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Con el nombre vacío no hay conflicto aunque quede guardado el resultado de una consulta anterior
+  const nameExists = projectName.trim() ? nameExistsOnDisk : false;
 
-  // Sincronizar nombre cuando cambia el proyecto hidratado
-  useEffect(() => {
+  // Sincronizar nombre cuando cambia el proyecto hidratado (ajuste durante el render)
+  const [prevTitle, setPrevTitle] = useState<string | undefined>(undefined);
+  if (projectData.title !== prevTitle) {
+    setPrevTitle(projectData.title);
     if (projectData.title && (!projectName || projectName.startsWith('TalkingPhoto_'))) {
       setProjectName(projectData.title);
     }
-  }, [projectData.title]);
+  }
 
   // Debounce check against disk
   useEffect(() => {
     const safe = projectName.trim();
-    if (!safe) {
-      setNameExists(false);
-      return;
-    }
+    if (!safe) return;
 
     const timer = setTimeout(async () => {
       setIsChecking(true);
@@ -159,8 +161,8 @@ export function SaveProjectWidget({
 
       setSavedPath(data.project.path);
       onSaved?.(data.project);
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar');
+    } catch (err) {
+      setError(errorMessage(err, 'Error al guardar'));
     } finally {
       setIsSaving(false);
     }

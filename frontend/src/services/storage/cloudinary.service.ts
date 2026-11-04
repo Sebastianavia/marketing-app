@@ -1,5 +1,6 @@
-import { v2 as cloudinary } from 'cloudinary';
+import { v2 as cloudinary, type UploadApiOptions } from 'cloudinary';
 import { PipelineError } from '@/types/pipeline.types';
+import { errorMessage } from '@/lib/errors';
 
 export interface CloudinaryUploadResult {
   publicUrl: string;
@@ -176,7 +177,7 @@ export class CloudinaryStorageService {
         oldestCreatedAt,
         bytesTotal,
       };
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[CloudinaryStorageService] Fallo en search API, intentando fallback de usage:', err);
       try {
         const usage = await cloudinary.api.usage();
@@ -186,9 +187,9 @@ export class CloudinaryStorageService {
           breakdown: {},
           configured: true,
         };
-      } catch (usageErr: any) {
+      } catch (usageErr) {
         console.error('[CloudinaryStorageService] Error al obtener conteo:', usageErr);
-        throw new Error(err.message || 'No se pudo consultar el almacenamiento de Cloudinary.');
+        throw new Error(errorMessage(err, 'No se pudo consultar el almacenamiento de Cloudinary.'));
       }
     }
   }
@@ -244,7 +245,7 @@ export class CloudinaryStorageService {
       if (publicIds.length === 0) continue;
       try {
         const delRes = await cloudinary.api.delete_resources(publicIds, {
-          resource_type: type as any,
+          resource_type: type as 'image' | 'video' | 'raw',
         });
         const count = Object.values(delRes.deleted || {}).filter(
           (status) => status === 'deleted'
@@ -298,7 +299,7 @@ export class CloudinaryStorageService {
     const cleanPublicId = filename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
 
     return new Promise((resolve, reject) => {
-      const uploadOptions: any = {
+      const uploadOptions: UploadApiOptions = {
         folder,
         public_id: `${Date.now()}_${cleanPublicId}`,
         resource_type: resourceType,
@@ -336,7 +337,7 @@ export class CloudinaryStorageService {
             publicId: result.public_id,
             format: result.format,
             bytes: result.bytes || buffer.length,
-            resourceType: (result.resource_type as any) || resourceType,
+            resourceType: (result.resource_type as 'image' | 'video' | 'raw') || resourceType,
           });
         }
       );

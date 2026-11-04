@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkProjectExists, sanitizeProjectName } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
     const exists = await checkProjectExists(category, sanitizedName);
 
     return NextResponse.json({ exists, sanitizedName });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }

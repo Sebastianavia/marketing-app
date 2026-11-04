@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProject, getProjectByPath } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -45,10 +46,10 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ project, mediaWarnings });
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error al cargar proyecto:', err);
     return NextResponse.json(
-      { error: err.message || 'Error al cargar el proyecto desde disco' },
+      { error: errorMessage(err, 'Error al cargar el proyecto desde disco') },
       { status: 500 }
     );
   }
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ project, mediaWarnings });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }

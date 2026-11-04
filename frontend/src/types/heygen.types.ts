@@ -43,6 +43,7 @@ export interface HeyGenCharacterConfig {
   avatar_id?: string;
   talking_photo_id?: string;
   avatar_style?: 'normal' | 'closeUp' | 'circle';
+  talking_photo_style?: string;
   scale?: number;
   offset?: {
     x: number;
@@ -56,6 +57,7 @@ export interface HeyGenVoiceConfig {
   voice_id?: string;
   speed?: number; // 0.5 a 1.5
   audio_url?: string;
+  audio_asset_id?: string;
 }
 
 export interface HeyGenVideoInputClip {

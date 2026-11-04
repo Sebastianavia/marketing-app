@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { elevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -19,10 +20,10 @@ export async function DELETE(
 
     const result = await elevenLabsService.deleteVoice(id);
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error('[API ElevenLabs Delete Voice [id] Error]:', error);
     return NextResponse.json(
-      { error: error.message || 'Error al eliminar la voz de ElevenLabs.' },
+      { error: errorMessage(error, 'Error al eliminar la voz de ElevenLabs.') },
       { status: 500 }
     );
   }

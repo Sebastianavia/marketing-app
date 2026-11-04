@@ -4,6 +4,7 @@ import {
   PollingConfig,
   PipelineError,
 } from '@/types/pipeline.types';
+import { errorMessage } from '@/lib/errors';
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
@@ -211,10 +212,10 @@ export class OpenRouterVideoService {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof PipelineError) throw err;
       throw new PipelineError(
-        `Error de red conectando con OpenRouter: ${err.message}`,
+        `Error de red conectando con OpenRouter: ${errorMessage(err)}`,
         'video_dispatch',
         true,
         err
@@ -256,7 +257,12 @@ export class OpenRouterVideoService {
     });
 
     const text = await response.text();
-    let data: any = {};
+    let data: {
+      id?: string;
+      task_id?: string;
+      error?: { message?: string };
+      data?: { id?: string } & Record<string, unknown>;
+    } & Record<string, unknown> = {};
     try {
       data = JSON.parse(text);
     } catch {
@@ -430,17 +436,17 @@ export class OpenRouterVideoService {
         };
 
         config.onProgress?.(currentTask, elapsedSeconds);
-      } catch (pollErr: any) {
+      } catch (pollErr) {
         if (pollErr instanceof PipelineError) throw pollErr;
 
         consecutiveErrors++;
         console.warn(
-          `[OpenRouterVideoService] Error transitorio en polling: ${pollErr.message} (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`
+          `[OpenRouterVideoService] Error transitorio en polling: ${errorMessage(pollErr)} (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS})`
         );
 
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
           throw new PipelineError(
-            `Se interrumpió la conexión durante el renderizado del video: ${pollErr.message}`,
+            `Se interrumpió la conexión durante el renderizado del video: ${errorMessage(pollErr)}`,
             'video_polling',
             true,
             pollErr

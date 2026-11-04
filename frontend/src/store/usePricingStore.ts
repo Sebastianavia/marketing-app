@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { pricingService, PriceDiscrepancy } from '@/services/pricing/pricing.service';
 import { UGC_MODELS_CATALOG } from '@/config/ugc-models.config';
+import { errorMessage } from '@/lib/errors';
 
 interface PricingState {
   liveRates: Record<string, number>;
@@ -43,9 +44,9 @@ export const usePricingStore = create<PricingState>((set, get) => ({
         lastSyncedAt: result.syncedAt,
         isSyncing: false,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[usePricingStore] Error en sincronización de precios:', err);
-      set({ error: err.message || 'Error al sincronizar tarifas', isSyncing: false });
+      set({ error: errorMessage(err, 'Error al sincronizar tarifas'), isSyncing: false });
     }
   },
 

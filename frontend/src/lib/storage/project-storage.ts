@@ -407,7 +407,7 @@ export async function getProjectByPath(projectDir: string): Promise<ProjectMetad
     id: metadata.id || `dir_${folderName}`,
     name: metadata.name || folderName,
     title: metadata.title || folderName,
-    category: (metadata.category as any) || 'HeyGen',
+    category: (metadata.category as ProjectMetadata['category']) || 'HeyGen',
     createdAt: metadata.createdAt || (stat ? stat.birthtime.toISOString() : new Date().toISOString()),
     updatedAt: metadata.updatedAt || (stat ? stat.mtime.toISOString() : new Date().toISOString()),
     path: projectDir,

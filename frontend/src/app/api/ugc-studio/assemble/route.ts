@@ -15,6 +15,7 @@ import {
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
 import { getProject, saveProject, sanitizeProjectName } from '@/lib/storage/project-storage';
 import { sanitizeSettings, Storyboard, StudioSettings, UGC_VIDEO_MODEL, UgcReference } from '@/types/ugc-studio.types';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -120,9 +121,9 @@ export async function POST(req: NextRequest) {
     const saved = await saveProject('UGC', name, { ...projectData, id: project.id, createdAt: project.createdAt, videoPath });
 
     return NextResponse.json({ videoUrl: uploaded.publicUrl, project: saved.project, trimmedSeconds: trims });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[UGC Studio Assemble]:', error);
-    return NextResponse.json({ error: error.message || 'Error al ensamblar el video final.' }, { status: 500 });
+    return NextResponse.json({ error: errorMessage(error, 'Error al ensamblar el video final.') }, { status: 500 });
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

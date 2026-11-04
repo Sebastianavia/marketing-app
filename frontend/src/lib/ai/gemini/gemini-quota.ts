@@ -44,6 +44,13 @@ function pacificDayKey(now = Date.now()): string {
 }
 
 /** Parsea "37s" / "1.5s" (formato google.protobuf.Duration) a ms. */
+/** Detalle de un error de Google (RetryInfo / QuotaFailure). */
+interface GoogleErrorDetail {
+  '@type'?: string;
+  retryDelay?: unknown;
+  violations?: { quotaId?: string; quotaMetric?: string; quotaValue?: string | number }[];
+}
+
 function parseRetryDelay(value: unknown): number | undefined {
   if (typeof value !== 'string') return undefined;
   const seconds = parseFloat(value.replace(/s$/, ''));
@@ -161,7 +168,7 @@ class GeminiQuotaTracker {
    */
   handleRateLimit(slotId: string, responseBody?: string): void {
     const u = this.usage(slotId);
-    let details: any[] = [];
+    let details: GoogleErrorDetail[] = [];
     let messageLimits: number[] = [];
     try {
       const error = JSON.parse(responseBody || '{}')?.error;
@@ -181,7 +188,7 @@ class GeminiQuotaTracker {
       if (type.endsWith('RetryInfo')) retryMs = parseRetryDelay(d.retryDelay);
       if (!type.endsWith('QuotaFailure')) continue;
 
-      (d.violations ?? []).forEach((v: any, idx: number) => {
+      (d.violations ?? []).forEach((v, idx) => {
         const id = `${v.quotaId ?? ''} ${v.quotaMetric ?? ''}`;
         const value = Number(v.quotaValue ?? messageLimits[idx]);
         if (value === 0) {

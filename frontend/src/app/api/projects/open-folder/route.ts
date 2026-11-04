@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { openInExplorer } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
 
     const opened = await openInExplorer(targetPath);
     return NextResponse.json({ success: opened });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }

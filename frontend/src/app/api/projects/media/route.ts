@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -54,8 +55,8 @@ export async function GET(req: NextRequest) {
         'Cache-Control': 'public, max-age=3600',
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error al transmitir archivo multimedia local:', err);
-    return new NextResponse(err.message || 'Error de lectura de archivo', { status: 500 });
+    return new NextResponse(errorMessage(err, 'Error de lectura de archivo'), { status: 500 });
   }
 }

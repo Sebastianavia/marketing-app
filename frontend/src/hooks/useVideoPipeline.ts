@@ -6,6 +6,7 @@ import {
   UgcPipelineExecutionInput,
   UgcPipelineFinalResult,
 } from '@/types/pipeline.types';
+import { isAbortError, errorMessage } from '@/lib/errors';
 
 export interface UseVideoPipelineState {
   isProcessing: boolean;
@@ -142,15 +143,15 @@ export function useVideoPipeline() {
           }
         }
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
+    } catch (err) {
+      if (isAbortError(err)) return;
 
       setState((prev) => ({
         ...prev,
         isProcessing: false,
         currentPhase: 'failed',
         phaseLabel: 'Fallo en el pipeline',
-        error: err.message || 'Error durante la ejecución del renderizado.',
+        error: errorMessage(err, 'Error durante la ejecución del renderizado.'),
       }));
     }
   }, []);

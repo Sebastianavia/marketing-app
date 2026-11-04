@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -40,10 +41,10 @@ export async function POST(req: NextRequest) {
       resourceType: result.resourceType,
       bytes: result.bytes,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[API Cloudinary Upload Error]:', err);
     return NextResponse.json(
-      { error: err.message || 'Error al procesar la subida en Cloudinary.' },
+      { error: errorMessage(err, 'Error al procesar la subida en Cloudinary.') },
       { status: 500 }
     );
   }
@@ -56,10 +57,10 @@ export async function GET() {
       success: true,
       ...data,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[API Cloudinary Count Error]:', err);
     return NextResponse.json(
-      { error: err.message || 'Error al consultar almacenamiento de Cloudinary.' },
+      { error: errorMessage(err, 'Error al consultar almacenamiento de Cloudinary.') },
       { status: 500 }
     );
   }
@@ -88,10 +89,10 @@ export async function DELETE(req: NextRequest) {
       success: true,
       ...cleanResult,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[API Cloudinary Delete Error]:', err);
     return NextResponse.json(
-      { error: err.message || 'Error al ejecutar limpieza en Cloudinary.' },
+      { error: errorMessage(err, 'Error al ejecutar limpieza en Cloudinary.') },
       { status: 500 }
     );
   }

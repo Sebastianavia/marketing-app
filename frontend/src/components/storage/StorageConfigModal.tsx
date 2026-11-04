@@ -10,6 +10,7 @@ import {
   FolderOpen,
   AlertCircle,
 } from 'lucide-react';
+import { errorMessage } from '@/lib/errors';
 
 interface StorageConfigModalProps {
   isOpen: boolean;
@@ -67,8 +68,8 @@ export function StorageConfigModal({
         setSavedSuccess(false);
         onClose();
       }, 1200);
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar');
+    } catch (err) {
+      setError(errorMessage(err, 'Error al guardar'));
     } finally {
       setLoading(false);
     }

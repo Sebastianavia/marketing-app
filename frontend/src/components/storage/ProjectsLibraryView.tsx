@@ -27,7 +27,7 @@ import { PROJECT_CATEGORIES, projectCategoryLabel } from '@/config/project-categ
 const media = (p?: string) => (p ? `/api/projects/media?path=${encodeURIComponent(p)}` : undefined);
 
 interface ProjectsLibraryViewProps {
-  onOpenTool?: (toolId: string, initialData?: any) => void;
+  onOpenTool?: (toolId: string, initialData?: ProjectMetadata) => void;
 }
 
 const CATEGORIES = [{ id: 'ALL', label: 'Todos' }, ...PROJECT_CATEGORIES.map((c) => ({ id: c.id, label: c.label }))];
@@ -41,8 +41,8 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [deletingName, setDeletingName] = useState<string | null>(null);
 
+  // No activa `loading` (el estado inicial ya es true); para recargar usar refreshProjects
   const fetchProjects = async () => {
-    setLoading(true);
     try {
       const [projRes, pathRes] = await Promise.all([
         fetch('/api/projects'),
@@ -65,8 +65,14 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
     }
   };
 
+  const refreshProjects = () => {
+    setLoading(true);
+    void fetchProjects();
+  };
+
   useEffect(() => {
-    fetchProjects();
+    const first = setTimeout(() => void fetchProjects(), 0);
+    return () => clearTimeout(first);
   }, []);
 
   const handleOpenFolder = async (folderPath?: string) => {
@@ -188,7 +194,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
 
           <button
             type="button"
-            onClick={fetchProjects}
+            onClick={refreshProjects}
             className="flex h-8 w-8 items-center justify-center rounded-lg border border-line bg-surface text-fg-muted hover:text-fg hover:bg-surface-2 transition-colors shadow-2xs"
             title="Actualizar lista de proyectos"
           >
@@ -413,7 +419,7 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
         onClose={() => setIsConfigModalOpen(false)}
         onStorageChanged={(newPath) => {
           setBasePath(newPath);
-          fetchProjects();
+          refreshProjects();
         }}
       />
     </div>

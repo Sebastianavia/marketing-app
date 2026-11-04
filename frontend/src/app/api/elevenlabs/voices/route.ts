@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { elevenLabsService } from '@/services/elevenlabs/elevenlabs.service';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -77,9 +78,9 @@ export async function GET() {
         },
       }
     );
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error.message || 'Error al listar las voces disponibles.' },
+      { error: errorMessage(error, 'Error al listar las voces disponibles.') },
       { status: 500 }
     );
   }
@@ -104,10 +105,10 @@ export async function DELETE(req: NextRequest) {
 
     const result = await elevenLabsService.deleteVoice(voiceId);
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error) {
     console.error('[API ElevenLabs Delete Voice Error]:', error);
     return NextResponse.json(
-      { error: error.message || 'Error al eliminar la voz de ElevenLabs.' },
+      { error: errorMessage(error, 'Error al eliminar la voz de ElevenLabs.') },
       { status: 500 }
     );
   }

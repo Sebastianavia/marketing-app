@@ -6,6 +6,7 @@ import {
   checkProjectExists,
   sanitizeProjectName,
 } from '@/lib/storage/project-storage';
+import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 
@@ -13,8 +14,8 @@ export async function GET() {
   try {
     const projects = await getAllProjects();
     return NextResponse.json({ projects });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Error al listar proyectos' }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err, 'Error al listar proyectos') }, { status: 500 });
   }
 }
 
@@ -53,8 +54,8 @@ export async function POST(req: NextRequest) {
 
     const result = await saveProject(category, safeName, data || {});
     return NextResponse.json(result);
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Error al guardar proyecto' }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err, 'Error al guardar proyecto') }, { status: 500 });
   }
 }
 
@@ -73,7 +74,7 @@ export async function DELETE(req: NextRequest) {
 
     const deleted = await deleteProject(category, name);
     return NextResponse.json({ success: deleted });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Error al eliminar proyecto' }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: errorMessage(err, 'Error al eliminar proyecto') }, { status: 500 });
   }
 }

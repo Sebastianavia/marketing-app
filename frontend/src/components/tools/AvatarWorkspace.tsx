@@ -40,6 +40,7 @@ import { useProjectHydration } from '@/store/useProjectHydrationStore';
 import { SaveProjectWidget } from '../storage/SaveProjectWidget';
 import { usePricingStore } from '@/store/usePricingStore';
 import { useCloudinaryStore } from '@/store/useCloudinaryStore';
+import { errorMessage } from '@/lib/errors';
 
 export interface VoiceOption {
   id: string;
@@ -114,6 +115,8 @@ export function AvatarWorkspace() {
     try {
       const savedCustomId = localStorage.getItem('elevenlabs_custom_voice_id');
       if (savedCustomId) {
+        // localStorage solo existe en el cliente: leerlo en el render rompería la hidratación SSR
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setCustomVoiceId(savedCustomId);
       }
       const savedUseCustom = localStorage.getItem('elevenlabs_use_custom_voice_id');
@@ -150,8 +153,8 @@ export function AvatarWorkspace() {
   const [voiceSuccessMsg, setVoiceSuccessMsg] = useState<string | null>(null);
 
   // Cargar y sincronizar dinámicamente voces de ElevenLabs en tiempo real (purgando registros fantasma)
+  // El indicador de sincronización lo enciende syncVoices (botones), no la carga inicial
   const fetchVoices = async (showSyncIndicator = false) => {
-    if (showSyncIndicator) setIsSyncingVoices(true);
     try {
       const res = await fetch(`/api/elevenlabs/voices?t=${Date.now()}`, {
         cache: 'no-store',
@@ -181,8 +184,14 @@ export function AvatarWorkspace() {
     }
   };
 
+  const syncVoices = () => {
+    setIsSyncingVoices(true);
+    void fetchVoices(true);
+  };
+
   useEffect(() => {
-    fetchVoices();
+    const first = setTimeout(() => void fetchVoices(), 0);
+    return () => clearTimeout(first);
   }, []);
 
   const handleDeleteVoice = async () => {
@@ -211,8 +220,8 @@ export function AvatarWorkspace() {
       }
 
       await fetchVoices();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error al eliminar la voz.');
+    } catch (err) {
+      setErrorMsg(errorMessage(err, 'Error al eliminar la voz.'));
     } finally {
       setIsDeletingVoice(false);
     }
@@ -282,6 +291,8 @@ export function AvatarWorkspace() {
 
   // Invalida el caché de Cloudinary para audio si el usuario cambia el guion, la voz, el modelo, parámetros de síntesis, ID manual o el archivo local
   useEffect(() => {
+    // Pendiente al dividir AvatarWorkspace: derivar la validez del audio en vez de borrarlo en un efecto
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCloudinaryAudioInfo(null);
   }, [
     scriptText,
@@ -307,6 +318,8 @@ export function AvatarWorkspace() {
 
     // 1. Inyectar Guion exacto guardado en disco
     if (typeof activeProject.script === 'string') {
+      // Hidratación única desde la Biblioteca (store externo)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setScriptText(activeProject.script);
     }
     if (activeProject.prompt) {
@@ -361,6 +374,8 @@ export function AvatarWorkspace() {
 
   useEffect(() => {
     if (injectedData && (injectedData.targetTool === 'avatar-studio' || injectedData.targetTool === 'all')) {
+      // Consume un evento único del store de Mia (y lo borra)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setScriptText(injectedData.content);
       clearInjectedData();
     }
@@ -405,8 +420,8 @@ export function AvatarWorkspace() {
 
       const data = await res.json();
       setScriptText(data.script || scriptPrompt);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error generando el guion.');
+    } catch (err) {
+      setErrorMsg(errorMessage(err, 'Error generando el guion.'));
     } finally {
       setIsGeneratingScript(false);
     }
@@ -684,13 +699,13 @@ export function AvatarWorkspace() {
 
       clearInterval(timer);
       await followJob(jobData.jobId, Date.now());
-    } catch (err: any) {
+    } catch (err) {
       console.error('[Render Error]:', err);
       if (err instanceof CloudinaryUploadError) {
         showToast('Error al subir archivos multimedia');
         setErrorMsg(`Error al subir archivos a Cloudinary: ${err.message}. Verifica tu conexión y vuelve a intentar.`);
       } else {
-        setErrorMsg(err.message || 'Error durante el proceso de renderizado. Por favor reintenta la operación.');
+        setErrorMsg(errorMessage(err, 'Error durante el proceso de renderizado. Por favor reintenta la operación.'));
       }
       setIsRendering(false);
       clearInterval(timer);
@@ -1064,7 +1079,7 @@ export function AvatarWorkspace() {
                 {audioMode === 'generar' && (
                   <button
                     type="button"
-                    onClick={() => fetchVoices(true)}
+                    onClick={syncVoices}
                     disabled={isSyncingVoices}
                     title="Sincronizar directamente con ElevenLabs y purgar registros fantasma"
                     className="flex items-center gap-1 text-[10px] tabular-nums px-2 py-0.5 rounded-lg border border-line bg-surface-2 hover:bg-surface-2 text-fg-muted hover:text-accent transition-colors cursor-pointer"
@@ -1200,7 +1215,7 @@ export function AvatarWorkspace() {
                       {/* Botón Sincronizar en tiempo real */}
                       <button
                         type="button"
-                        onClick={() => fetchVoices(true)}
+                        onClick={syncVoices}
                         disabled={isSyncingVoices}
                         title="Sincronizar en tiempo real con ElevenLabs y purgar registros fantasma"
                         className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-line bg-surface-2 hover:bg-surface-2 text-fg-muted hover:text-accent transition-colors cursor-pointer shrink-0 disabled:opacity-50"

@@ -227,7 +227,7 @@ class GeminiRouter {
 
           // JSON inválido / no cumple el schema: reintentar en otro slot unas pocas veces
           if (++badOutputAttempts >= MAX_ATTEMPTS_ON_BAD_OUTPUT) throw err;
-          const e = err as any;
+          const e = err as { name?: string; message?: string } | undefined;
           console.warn(
             `[GeminiRouter] ${params.agentId}: salida inválida en ${slot.model} (${e?.name}: ${e?.message}). Reintentando.`
           );
