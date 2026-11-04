@@ -56,8 +56,9 @@ Navegación en `src/app/page.tsx`: estado `activeTool` (no hay rutas por herrami
 |---|---|---|
 | `avatar-studio` | `AvatarWorkspace.tsx` (1650 líneas) | **Real.** Foto → Cloudinary; audio por ElevenLabs TTS o MP3 local → Cloudinary; render OpenRouter `heygen/avatar-iv`; polling hasta 10 min; costo final; guardar proyecto. |
 | `voice-studio` | `VoiceStudioView.tsx` | **Real.** Clonación IVC + TTS multilingüe (es/en/pt). |
-| `ugc-generator` | `UgcGeneratorView.tsx` + `UgcModelSelector.tsx` | **Parcial.** El selector de modelo/costo (APIMart/OpenRouter) es solo visual: `useUgcPipeline` llama a `/api/openrouter/script` y luego a **HeyGen directo** (`/api/heygen/generate`). `ugc-dispatcher` y `/api/ugc/dispatch` existen pero la UI no los usa. |
-| `text-to-video` | `TextToVideoView.tsx` | **Real** (escenas: voz → clips → unión FFmpeg; ver `lib/scenes/`). |
+| `ugc-generator` | `UgcGeneratorView.tsx` + `components/tools/ugc-studio/*` (UGC Studio) | **Real.** Equipo de agentes (Gemini) → storyboard en lienzo → render por escena con `heygen/heygen-video-1` vía OpenRouter → montaje FFmpeg. Con Claude: Claude revisa, corrige y edita el final (ver decisiones). Probado con dinero real el 2026-11-04. |
+| `text-to-video` | `TextToVideoModes.tsx` (Manual: `TextToVideoView.tsx`; Director: `director-mode/*`) | **Real.** Manual: escenas → voz → clips → FFmpeg (`lib/scenes/`). Director: etapas + Claude + generación con aprobación (`lib/director-mode/generation.ts`); generar y montar sin probar con dinero. |
+| `video-editor` | `components/editor/*` | **Real.** Video en bruto → reel (Scribe, cortes, subtítulos, sonido, gráficos) + chat "Claude · editor". |
 | `image-studio` | `ImageStudioView.tsx` ("Creación de imágenes") | **Real (2026-10-13).** Avatar guardado (opcional) + hasta 14 referencias en total + prompt → `POST /api/images/generate` → OpenRouter `/api/v1/images` con `input_references`. Con `avatarId` el servidor pone primero las fotos del avatar (portada primero, reducidas a 1536 px con sharp si está) y antepone una instrucción de identidad al prompt. Modelos en `config/image-models.ts` (por defecto Seedream 5.0 Flash, $0.018/img). Guarda en `Generados/` y registra costo. Sin probar aún con dinero real. |
 | `avatars` | `AvatarsView.tsx` ("Creación de avatar") | **Real (2026-10-13).** Galería de avatares + detalle (nombre, descripción, hasta 14 fotos, portada). Disco: `<carpeta de proyectos>\Avatares\<Nombre-xxxxxx>\avatar.json` + fotos; lo eliminado va a `Avatares\_papelera`. API `/api/avatars`, `/api/avatars/[id]`, `/api/avatars/[id]/photos`. Lógica en `lib/avatars/`. "Crear imágenes con este avatar" usa `store/useNavStore.ts`. Pendiente decidir sincronización (Drive/Cloudinary/otro). Sin atajo de teclado. |
 | `deep-swap` | `DeepSwapView.tsx` ("Genjutsu") | **Simulado/demo.** `faceswap.service.ts` preparado para Replicate/fal. |
@@ -188,8 +189,10 @@ Plan completo: https://claude.ai/code/artifact/5321e959-43c0-467d-8114-330e35a19
 ## Pendiente del plan (al 2026-10-12)
 
 - **Login con Google (2026-10-26): solo fachada.** `components/auth/LoginScreen.tsx` se muestra antes de la app (`page.tsx` según `useAuthStore.status`). "Continuar con Google" espera 1,3 s y abre una sesión local (`localStorage` `lulo_session`); "Cerrar sesión" está al final de la barra lateral. Para conectarlo de verdad, reemplazar solo `authenticateWithGoogle` en `store/useAuthStore.ts`.
-- Generador UGC: usar de verdad el modelo elegido (hoy aún va por `useUgcPipeline` → HeyGen directo).
-- Guion a video y Clonación y reemplazo: siguen simulados.
+- Clonación y reemplazo (Genjutsu): sigue simulado.
+- Probar con dinero: generación + montaje del Director (proyecto de las zapatillas, ≈ $0,61 pendiente de aprobar) y el editor con un video real hablando a cámara de 30–60 s.
+- Probar todo en Windows (Claude sin sandbox, `claude.exe`/`claude.cmd` vía cross-spawn).
+- Funciones avanzadas del editor sin probar: recorte de persona (PyTorch), Whisper local, caras (OpenCV).
 - Cliente MCP de Buzzy (falta URL y clave).
 - Campañas automáticas (Fase 2 del plan).
 - Errores de lint previos en `AvatarWorkspace.tsx` y otros archivos antiguos (setState en efectos, `any`).
