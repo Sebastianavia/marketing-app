@@ -116,7 +116,14 @@ export async function prepareGeneration(id: string) {
   const { production } = await updateProduction(id, (x) => {
     x.director!.produccion = { ...gen, preparada: new Date().toISOString() };
   });
-  return { aprobacion: { id: result.approval.id, montoUSD: result.approval.montoUSD }, suposiciones: result.suposiciones, ...generationSummary(production) };
+  const monto = result.approval.montoUSD;
+  return {
+    aprobacion: { id: result.approval.id, montoUSD: monto },
+    // Dilo tal cual a la persona: es el único sitio donde se aprueba
+    dondeAprobar: `Botón amarillo «El Director pide $${monto.toFixed(3)}» en la barra superior de Lulo Studio → revisar y aprobar. Mientras tanto, los clips del lienzo dicen «Espera tu aprobación».`,
+    suposiciones: result.suposiciones,
+    ...generationSummary(production),
+  };
 }
 
 /** Lanza lo aprobado: las voces primero (las necesita el avatar) y luego los clips. */
