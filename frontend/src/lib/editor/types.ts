@@ -65,6 +65,26 @@ export interface EditActivity {
   msg: string;
 }
 
+/** Un paso que dio Claude (herramienta usada) dentro de una respuesta. */
+export interface ClaudeChatStep {
+  herramienta: string;
+  detalle: string;
+  error?: string;
+}
+
+/** Mensaje del chat "Claude" de la edición. */
+export interface ClaudeChatMessage {
+  id: string;
+  rol: 'usuario' | 'claude';
+  texto: string;
+  fecha: string;
+  pasos?: ClaudeChatStep[];
+  /** Acciones que el aislamiento o los permisos no dejaron hacer. */
+  denegados?: string[];
+  error?: boolean;
+  duracionSeg?: number;
+}
+
 export interface EditProject {
   id: string;
   titulo: string;
@@ -112,6 +132,8 @@ export interface EditProject {
   aprobado?: { videoPath: string; fecha: string };
   actividad: EditActivity[];
   costoUSD: number;
+  /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */
+  claude?: { sessionId?: string; mensajes: ClaudeChatMessage[] };
 }
 
 /** Lo que se lista en la biblioteca de ediciones. */

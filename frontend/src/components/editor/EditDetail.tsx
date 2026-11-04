@@ -27,6 +27,7 @@ import { formatClock, keptIntervals, phraseText, totalDuration } from '@/lib/edi
 import { downloadUrl, editorApi, mediaUrl } from './editor-api';
 import { StatusBadge } from './EditsList';
 import { LookDots } from './LookPreview';
+import { ClaudeEditChat } from './ClaudeEditChat';
 
 /**
  * Una edición de principio a fin: avance en vivo → revisar guion (cortes en rojo, textos,
@@ -166,6 +167,16 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
 
       {(edit.estado === 'borrador' || edit.estado === 'aprobado') && edit.borrador && (
         <DraftCard edit={edit} busy={busy} run={run} />
+      )}
+
+      {(edit.frases.length > 0 || edit.borrador) && (
+        <ClaudeEditChat
+          edit={edit}
+          onChanged={() => {
+            void load();
+            onChanged();
+          }}
+        />
       )}
 
       {hasScript && edit.estado !== 'error' && (

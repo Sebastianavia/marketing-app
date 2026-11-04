@@ -64,6 +64,12 @@ export const editorApi = {
     api<{ edicion: EditProject }>(`/api/editor/projects/${id}`, { method: 'POST', ...json(body) }).then((d) => d.edicion),
   remove: (id: string) => api<{ ok: boolean }>(`/api/editor/projects/${id}`, { method: 'DELETE' }),
   openFolder: (id: string) => api<{ ok: boolean }>(`/api/editor/projects/${id}/folder`, { method: 'POST' }),
+
+  claudeSend: (id: string, mensaje: string) =>
+    api<{ turnoId: string }>(`/api/editor/projects/${id}/claude`, { method: 'POST', ...json({ accion: 'enviar', mensaje }) }),
+  claudeStop: (id: string) => api<{ ok: boolean }>(`/api/editor/projects/${id}/claude`, { method: 'POST', ...json({ accion: 'detener' }) }),
+  claudeReset: (id: string) =>
+    api<{ ok: boolean }>(`/api/editor/projects/${id}/claude`, { method: 'POST', ...json({ accion: 'nueva_conversacion' }) }),
   fromProjects: (meta: NewEditPayload & { rutaLocal: string }) =>
     api<{ edicion: EditProject }>('/api/editor/projects', { method: 'POST', ...json(meta) }).then((d) => d.edicion),
 };
@@ -115,4 +121,54 @@ export function toInput(p: EditProfile): ProfileInput {
   void _c;
   void _a;
   return JSON.parse(JSON.stringify(rest)) as ProfileInput;
+}
+
+/** Eventos del turno de Claude en curso (ver lib/editor/claude-agent.ts). */
+export type ClaudeAgentEvent =
+  | { tipo: 'texto'; delta: string }
+  | { tipo: 'paso'; id: string; herramienta: string; detalle: string }
+  | { tipo: 'resultado_paso'; id: string; error: boolean; resumen: string }
+  | { tipo: 'fin'; mensaje: import('@/lib/editor/types').ClaudeChatMessage }
+  | { tipo: 'error'; mensaje: string; codigo?: string };
+
+export type ClaudeSandboxMode = 'aislado' | 'sin_aislamiento' | 'sin_bash';
+
+/**
+ * Sigue el turno de Claude. Si no hay turno en curso devuelve { activo: false, modo };
+ * si lo hay, llama a onEvent con cada evento hasta que termina y devuelve { activo: true }.
+ */
+export async function followClaude(
+  id: string,
+  onEvent: (e: ClaudeAgentEvent) => void,
+  signal?: AbortSignal,
+  onOpen?: () => void
+): Promise<{ activo: boolean; modo?: ClaudeSandboxMode }> {
+  const r = await fetch(`/api/editor/projects/${id}/claude?desde=0`, { cache: 'no-store', signal });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new ApiError(d.error || 'No se pudo leer el chat.', r.status);
+  }
+  if ((r.headers.get('content-type') ?? '').includes('application/json')) return r.json();
+  onOpen?.();
+  const reader = r.body?.getReader();
+  if (!reader) return { activo: true };
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line) as ClaudeAgentEvent);
+      } catch {
+        // línea incompleta o no JSON: se ignora
+      }
+    }
+  }
+  return { activo: true };
 }

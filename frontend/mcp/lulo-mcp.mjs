@@ -20,6 +20,26 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const APP_URL = (process.env.LULO_APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
+/**
+ * Conjunto de herramientas:
+ *  - 'director' (por defecto): las del Director (/api/director/tools).
+ *  - 'editor': las de UNA edición (/api/editor/agent-tools?edit=<LULO_EDIT_ID>). La app lanza
+ *    así a Claude desde el chat de Edición; la edición queda fijada aquí y Claude no puede cambiarla.
+ */
+const TOOLSET = process.env.LULO_TOOLSET === 'editor' ? 'editor' : 'director';
+const EDIT_ID = process.env.LULO_EDIT_ID || '';
+if (TOOLSET === 'editor' && !/^[a-f0-9-]{36}$/.test(EDIT_ID)) {
+  console.error('[lulo-mcp] LULO_TOOLSET=editor necesita LULO_EDIT_ID válido.');
+  process.exit(1);
+}
+const LIST_PATH = TOOLSET === 'editor' ? `/api/editor/agent-tools?edit=${EDIT_ID}` : '/api/director/tools';
+const callPath = (name) =>
+  TOOLSET === 'editor'
+    ? `/api/editor/agent-tools/${encodeURIComponent(name)}?edit=${EDIT_ID}`
+    : `/api/director/tools/${encodeURIComponent(name)}`;
+/** Render de la edición: hasta 15 min esperando dentro de la herramienta. */
+const EDITOR_TOOL_TIMEOUT_MS = 20 * 60_000;
 const TOKEN_HEADER = 'x-lulo-director-token';
 const OFFLINE_MESSAGE = `Lulo Studio no responde en ${APP_URL}. Abre la app (en frontend: npm run dev) y vuelve a intentarlo.`;
 
@@ -89,13 +109,13 @@ const CONNECT_TOOL = {
 let online = false;
 
 const server = new Server(
-  { name: 'lulo-studio', version: '0.1.0' },
+  { name: TOOLSET === 'editor' ? 'lulo-editor' : 'lulo-studio', version: '0.2.0' },
   { capabilities: { tools: { listChanged: true } } },
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    const { tools } = await callApp('/api/director/tools');
+    const { tools } = await callApp(LIST_PATH);
     online = true;
     return {
       tools: tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
@@ -117,7 +137,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (name === CONNECT_TOOL.name) {
     try {
-      await callApp('/api/director/tools');
+      await callApp(LIST_PATH);
       online = true;
       await server.sendToolListChanged();
       return text('Conectado con Lulo Studio. Las herramientas ya están disponibles.');
@@ -127,10 +147,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   try {
-    const { result } = await callApp(`/api/director/tools/${encodeURIComponent(name)}`, {
+    const { result } = await callApp(callPath(name), {
       method: 'POST',
       body: JSON.stringify(args ?? {}),
-    }, TOOL_TIMEOUT_MS);
+    }, TOOLSET === 'editor' ? EDITOR_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
     if (!online) {
       online = true;
       await server.sendToolListChanged();

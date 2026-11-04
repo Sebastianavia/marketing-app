@@ -146,14 +146,26 @@ export function resolveClaudeCli(): string | null {
   return (state.cliPath = null);
 }
 
-/** Entorno para el CLI: sin clave de API (cobraría) ni marcas de una sesión de Claude Code padre. */
-function childEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  delete env.CLAUDECODE;
-  delete env.CLAUDE_CODE_ENTRYPOINT;
-  return env;
+/**
+ * Variables del sistema que el CLI necesita. Se pasa una LISTA BLANCA, no process.env:
+ * Next carga .env.local en process.env y Claude (que puede ejecutar comandos en el modo agente)
+ * no debe ver ninguna clave (OpenRouter, ElevenLabs…) ni ANTHROPIC_API_KEY (cobraría por API).
+ */
+const ENV_ALLOW = new Set([
+  'PATH', 'Path', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TEMP', 'TMP', 'LANG', 'TERM', 'TZ',
+  'SystemRoot', 'SYSTEMROOT', 'SystemDrive', 'windir', 'WINDIR', 'ComSpec', 'COMSPEC', 'PATHEXT', 'OS',
+  'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'USERNAME', 'HOMEDRIVE', 'HOMEPATH', 'ProgramData', 'ProgramFiles',
+  'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE',
+  'CLAUDE_CONFIG_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
+  'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+]);
+
+export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && (ENV_ALLOW.has(k) || k.startsWith('LC_') || k.startsWith('XDG_'))) env[k] = v;
+  }
+  return { ...env, ...extra } as NodeJS.ProcessEnv;
 }
 
 function runQuick(cli: string, args: string[], timeoutMs = 15_000): Promise<{ code: number | null; stdout: string; stderr: string }> {
@@ -264,6 +276,11 @@ interface StreamLine {
     unifiedWindows?: Record<string, { utilization?: number }>;
   };
   errors?: string[];
+  session_id?: string;
+  parent_tool_use_id?: string | null;
+  num_turns?: number;
+  permission_denials?: Array<{ tool_name?: string; tool_input?: unknown }>;
+  message?: { content?: unknown[] };
 }
 
 function toRateLimit(info: NonNullable<StreamLine['rate_limit_info']>): RateLimitInfo {
@@ -289,18 +306,196 @@ function limitMessage(rl?: RateLimitInfo): string {
   return `Se agotó el cupo de tu suscripción de Claude por ahora.${when}`;
 }
 
-export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeResult> {
+export interface ToolUseEvent {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResultEvent {
+  id: string;
+  isError: boolean;
+  text: string;
+}
+
+export interface ExecClaudeOptions {
+  args: string[];
+  cwd: string;
+  stdin: string;
+  env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  defaultModel?: string;
+  onText?: (delta: string) => void;
+  onToolUse?: (e: ToolUseEvent) => void;
+  onToolResult?: (e: ToolResultEvent) => void;
+}
+
+export interface ExecClaudeResult extends ClaudeCodeResult {
+  sessionId?: string;
+  /** Herramientas que el modo de permisos negó (rutas fuera de la carpeta, etc.). */
+  denied: Array<{ tool: string; input: unknown }>;
+  numTurns: number;
+}
+
+interface ContentBlock {
+  type?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: unknown;
+  text?: string;
+}
+
+function blockText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((c) => (c && typeof c === 'object' && 'text' in c && typeof c.text === 'string' ? c.text : ''))
+      .join('\n');
+  }
+  return '';
+}
+
+/** Lanza el CLI, lee stream-json y devuelve el resultado. No crea carpetas ni limita la concurrencia. */
+export function execClaude(o: ExecClaudeOptions): Promise<ExecClaudeResult> {
   const cli = resolveClaudeCli();
   if (!cli) {
-    throw new ClaudeCodeError(
-      'not_installed',
-      'No encontré Claude Code en este PC. Instálalo (https://claude.com/claude-code), abre una terminal, ejecuta `claude` e inicia sesión con tu cuenta.'
+    return Promise.reject(
+      new ClaudeCodeError(
+        'not_installed',
+        'No encontré Claude Code en este PC. Instálalo (https://claude.com/claude-code), abre una terminal, ejecuta `claude` e inicia sesión con tu cuenta.'
+      )
     );
   }
+  const started = Date.now();
+  return new Promise<ExecClaudeResult>((resolve, reject) => {
+    const child = spawn(cli, o.args, { cwd: o.cwd, env: o.env ?? childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+    let buffer = '';
+    let stderr = '';
+    let finalLine: StreamLine | null = null;
+    let rateLimit: RateLimitInfo | undefined;
+    let model = o.defaultModel || 'sonnet';
+    let sessionId: string | undefined;
+    let settled = false;
 
+    const finish = (err: Error | null, value?: ExecClaudeResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      o.signal?.removeEventListener('abort', onAbort);
+      if (err) reject(err);
+      else resolve(value!);
+    };
+    const kill = () => {
+      if (child.exitCode === null) child.kill();
+    };
+    const onAbort = () => {
+      kill();
+      finish(new ClaudeCodeError('failed', 'Petición cancelada.'));
+    };
+    const timer = setTimeout(() => {
+      kill();
+      finish(new ClaudeCodeError('timeout', 'Claude Code tardó demasiado en responder.'));
+    }, o.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    if (o.signal?.aborted) return onAbort();
+    o.signal?.addEventListener('abort', onAbort);
+
+    const handle = (raw: string) => {
+      const line = raw.trim();
+      if (!line) return;
+      let msg: StreamLine;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (msg.session_id) sessionId = msg.session_id;
+      if (msg.type === 'system' && msg.subtype === 'init' && msg.model) model = msg.model;
+      else if (msg.type === 'rate_limit_event' && msg.rate_limit_info) {
+        rateLimit = toRateLimit(msg.rate_limit_info);
+        state.rateLimit = rateLimit;
+      } else if (msg.type === 'stream_event' && msg.event?.type === 'content_block_delta' && msg.event.delta?.type === 'text_delta') {
+        if (msg.event.delta.text) o.onText?.(msg.event.delta.text);
+      } else if (msg.type === 'assistant' && !msg.parent_tool_use_id) {
+        for (const b of (msg.message?.content ?? []) as ContentBlock[]) {
+          if (b.type === 'tool_use' && b.id && b.name) o.onToolUse?.({ id: b.id, name: b.name, input: b.input ?? {} });
+        }
+      } else if (msg.type === 'user' && !msg.parent_tool_use_id) {
+        for (const b of (msg.message?.content ?? []) as ContentBlock[]) {
+          if (b.type === 'tool_result' && b.tool_use_id) {
+            o.onToolResult?.({ id: b.tool_use_id, isError: b.is_error === true, text: blockText(b.content).slice(0, 2000) });
+          }
+        }
+      } else if (msg.type === 'result') finalLine = msg;
+    };
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      buffer += chunk;
+      let nl: number;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        handle(buffer.slice(0, nl));
+        buffer = buffer.slice(nl + 1);
+      }
+    });
+    child.stderr?.on('data', (d) => (stderr = (stderr + d).slice(-4000)));
+    child.on('error', (err) => finish(new ClaudeCodeError('failed', `No se pudo iniciar Claude Code: ${errorMessage(err)}`)));
+    child.on('close', (code) => {
+      handle(buffer);
+      const r = finalLine as StreamLine | null;
+      const detail = [r?.result, ...(r?.errors ?? []), stderr].filter(Boolean).join(' ').slice(0, 400);
+      if (!r || r.is_error || r.subtype !== 'success') {
+        if (rateLimit?.status === 'rejected' || r?.api_error_status === 429 || looksLikeLimit(detail)) {
+          return finish(new ClaudeCodeError('limit', limitMessage(rateLimit)));
+        }
+        if (r?.api_error_status === 401 || looksLikeLogin(detail)) {
+          return finish(
+            new ClaudeCodeError('not_logged_in', 'Claude Code no tiene la sesión iniciada. Abre una terminal, ejecuta `claude` y luego /login.')
+          );
+        }
+        if (r?.subtype === 'error_max_turns') {
+          return finish(new ClaudeCodeError('failed', 'Claude llegó al máximo de pasos para este pedido. Pídele que continúe.'));
+        }
+        return finish(new ClaudeCodeError('failed', `Claude Code no pudo responder${code ? ` (código ${code})` : ''}: ${detail || 'sin detalle'}`));
+      }
+      const u = r.usage ?? {};
+      finish(null, {
+        text: r.result ?? '',
+        structured: r.structured_output,
+        model: Object.keys(r.modelUsage ?? {})[0] ?? model,
+        usage: {
+          inputTokens: u.input_tokens ?? 0,
+          outputTokens: u.output_tokens ?? 0,
+          cacheReadTokens: u.cache_read_input_tokens ?? 0,
+          cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+        },
+        equivalentCostUSD: r.total_cost_usd ?? 0,
+        rateLimit,
+        durationMs: Date.now() - started,
+        sessionId: r.session_id ?? sessionId,
+        denied: (r.permission_denials ?? []).map((d) => ({ tool: d.tool_name ?? '?', input: d.tool_input })),
+        numTurns: r.num_turns ?? 0,
+      });
+    });
+
+    child.stdin?.on('error', () => {
+      // el proceso se cerró antes de leer: lo informa 'close'
+    });
+    child.stdin?.end(o.stdin, 'utf8');
+  });
+}
+
+/** Limita cuántos Claude Code corren a la vez en este PC (para no agotar el cupo de golpe). */
+export function acquireClaudeSlot(): Promise<() => void> {
+  return acquire();
+}
+
+export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeResult> {
   const release = await acquire();
   const dir = path.join(/*turbopackIgnore: true*/ os.tmpdir(), 'lulo-claude', randomUUID());
-  const started = Date.now();
   try {
     await fsp.mkdir(dir, { recursive: true });
     const systemFile = path.join(/*turbopackIgnore: true*/ dir, 'sistema.txt');
@@ -334,103 +529,24 @@ export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeR
     ];
     if (req.jsonSchema) args.push('--json-schema', JSON.stringify(req.jsonSchema));
 
-    return await new Promise<ClaudeCodeResult>((resolve, reject) => {
-      const child = spawn(cli, args, { cwd: dir, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
-      let buffer = '';
-      let stderr = '';
-      let finalLine: StreamLine | null = null;
-      let rateLimit: RateLimitInfo | undefined;
-      let model = req.model || 'sonnet';
-      let settled = false;
-
-      const finish = (err: Error | null, value?: ClaudeCodeResult) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        req.signal?.removeEventListener('abort', onAbort);
-        if (err) reject(err);
-        else resolve(value!);
-      };
-      const kill = () => {
-        if (child.exitCode === null) child.kill();
-      };
-      const onAbort = () => {
-        kill();
-        finish(new ClaudeCodeError('failed', 'Petición cancelada.'));
-      };
-      const timer = setTimeout(() => {
-        kill();
-        finish(new ClaudeCodeError('timeout', 'Claude Code tardó demasiado en responder.'));
-      }, req.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-      if (req.signal?.aborted) return onAbort();
-      req.signal?.addEventListener('abort', onAbort);
-
-      const handle = (raw: string) => {
-        const line = raw.trim();
-        if (!line) return;
-        let msg: StreamLine;
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          return;
-        }
-        if (msg.type === 'system' && msg.subtype === 'init' && msg.model) model = msg.model;
-        else if (msg.type === 'rate_limit_event' && msg.rate_limit_info) {
-          rateLimit = toRateLimit(msg.rate_limit_info);
-          state.rateLimit = rateLimit;
-        } else if (msg.type === 'stream_event' && msg.event?.type === 'content_block_delta' && msg.event.delta?.type === 'text_delta') {
-          if (msg.event.delta.text) req.onText?.(msg.event.delta.text);
-        } else if (msg.type === 'result') finalLine = msg;
-      };
-
-      child.stdout?.setEncoding('utf8');
-      child.stdout?.on('data', (chunk: string) => {
-        buffer += chunk;
-        let nl: number;
-        while ((nl = buffer.indexOf('\n')) >= 0) {
-          handle(buffer.slice(0, nl));
-          buffer = buffer.slice(nl + 1);
-        }
-      });
-      child.stderr?.on('data', (d) => (stderr += d));
-      child.on('error', (err) => finish(new ClaudeCodeError('failed', `No se pudo iniciar Claude Code: ${errorMessage(err)}`)));
-      child.on('close', (code) => {
-        handle(buffer);
-        const r = finalLine as StreamLine | null;
-        const detail = [r?.result, ...(r?.errors ?? []), stderr].filter(Boolean).join(' ').slice(0, 400);
-        if (!r || r.is_error || r.subtype !== 'success') {
-          if (rateLimit?.status === 'rejected' || r?.api_error_status === 429 || looksLikeLimit(detail)) {
-            return finish(new ClaudeCodeError('limit', limitMessage(rateLimit)));
-          }
-          if (r?.api_error_status === 401 || looksLikeLogin(detail)) {
-            return finish(
-              new ClaudeCodeError('not_logged_in', 'Claude Code no tiene la sesión iniciada. Abre una terminal, ejecuta `claude` y luego /login.')
-            );
-          }
-          return finish(new ClaudeCodeError('failed', `Claude Code no pudo responder${code ? ` (código ${code})` : ''}: ${detail || 'sin detalle'}`));
-        }
-        const u = r.usage ?? {};
-        finish(null, {
-          text: r.result ?? '',
-          structured: r.structured_output,
-          model: Object.keys(r.modelUsage ?? {})[0] ?? model,
-          usage: {
-            inputTokens: u.input_tokens ?? 0,
-            outputTokens: u.output_tokens ?? 0,
-            cacheReadTokens: u.cache_read_input_tokens ?? 0,
-            cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
-          },
-          equivalentCostUSD: r.total_cost_usd ?? 0,
-          rateLimit,
-          durationMs: Date.now() - started,
-        });
-      });
-
-      child.stdin?.on('error', () => {
-        // el proceso se cerró antes de leer: lo informa 'close'
-      });
-      child.stdin?.end(prompt, 'utf8');
+    const r = await execClaude({
+      args,
+      cwd: dir,
+      stdin: prompt,
+      signal: req.signal,
+      timeoutMs: req.timeoutMs,
+      defaultModel: req.model,
+      onText: req.onText,
     });
+    return {
+      text: r.text,
+      structured: r.structured,
+      model: r.model,
+      usage: r.usage,
+      equivalentCostUSD: r.equivalentCostUSD,
+      rateLimit: r.rateLimit,
+      durationMs: r.durationMs,
+    };
   } finally {
     release();
     fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
