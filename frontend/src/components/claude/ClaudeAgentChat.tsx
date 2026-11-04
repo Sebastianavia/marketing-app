@@ -387,26 +387,35 @@ function formatSecs(s: number): string {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
+const LIST_ITEM = /^\s*([-*]|\d+\.)\s+/;
+
 /** Markdown mínimo: párrafos, listas con "-" o "1.", **negrita** y `código`. */
 function RichText({ text }: { text: string }) {
   const blocks = text.split(/\n{2,}/);
   return (
     <div className="space-y-1.5 text-[13px] leading-relaxed text-fg">
-      {blocks.map((b, i) => {
-        const lines = b.split('\n');
-        if (lines.every((l) => /^\s*([-*]|\d+\.)\s+/.test(l))) {
-          return (
-            <ul key={i} className="list-disc space-y-0.5 pl-5">
-              {lines.map((l, j) => (
-                <li key={j}>{inline(l.replace(/^\s*([-*]|\d+\.)\s+/, ''))}</li>
+      {blocks.flatMap((b, i) => {
+        // Dentro de un bloque, las líneas seguidas que empiezan con "-", "*" o "1." forman una lista
+        // (aunque vengan justo debajo de un título sin línea en blanco)
+        const groups: Array<{ list: boolean; lines: string[] }> = [];
+        for (const line of b.split('\n')) {
+          const list = LIST_ITEM.test(line);
+          const last = groups[groups.length - 1];
+          if (last && last.list === list) last.lines.push(line);
+          else groups.push({ list, lines: [line] });
+        }
+        return groups.map((g, j) =>
+          g.list ? (
+            <ul key={`${i}-${j}`} className="list-disc space-y-0.5 pl-5">
+              {g.lines.map((l, k) => (
+                <li key={k}>{inline(l.replace(LIST_ITEM, ''))}</li>
               ))}
             </ul>
-          );
-        }
-        return (
-          <p key={i} className="whitespace-pre-wrap">
-            {inline(b)}
-          </p>
+          ) : (
+            <p key={`${i}-${j}`} className="whitespace-pre-wrap">
+              {inline(g.lines.join('\n'))}
+            </p>
+          )
         );
       })}
     </div>
