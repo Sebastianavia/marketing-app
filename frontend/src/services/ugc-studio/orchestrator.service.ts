@@ -1,5 +1,6 @@
 import type { ModelMessage, UserContent } from 'ai';
 import { geminiRouter } from '@/lib/ai/gemini/gemini-router';
+import { orchestrateObject, resolveMode } from '@/lib/ai/orchestrator';
 import { formatById, LANGUAGE_INFO, productionBlock, VISUAL_STYLE_INFO } from '@/config/ugc-formats';
 import { getAllProjects } from '@/lib/storage/project-storage';
 import { getLivePricing, ratePerSecond } from './scene-render.service';
@@ -68,6 +69,22 @@ async function runAgent<T>(
   const agentId = label ? `${agent.id}:${label}` : agent.id;
   emit({ type: 'agent_start', agentId, agentName: label ? `${agent.name} (${label})` : agent.name });
   try {
+    // Con "Claude · mi suscripción" en el selector IA, todo el equipo (y el chat) lo hace Claude
+    if ((await resolveMode()) === 'claude-subscription') {
+      const { prompt, files } = contentToPrompt(content);
+      const { object } = await orchestrateObject({
+        tool: 'ugc-generator',
+        description: `UGC Studio · ${agent.name}${label ? ` (${label})` : ''}`,
+        system: agent.system,
+        prompt,
+        files,
+        schema: agent.schema,
+        temperature: agent.temperature,
+        mode: 'claude-subscription',
+      });
+      emit({ type: 'agent_done', agentId });
+      return object as T;
+    }
     const messages: ModelMessage[] = [{ role: 'user', content }];
     const result = await geminiRouter.generateObject({
       agentId,
@@ -84,6 +101,29 @@ async function runAgent<T>(
     emit({ type: 'agent_error', agentId, detail: errorMessage(err, 'Error del agente') });
     throw err;
   }
+}
+
+/** Mensaje del AI SDK (texto + imágenes) → prompt de texto y adjuntos para Claude Code. */
+function contentToPrompt(content: UserContent): {
+  prompt: string;
+  files: Array<{ data: Uint8Array; mediaType: string; filename: string }>;
+} {
+  if (typeof content === 'string') return { prompt: content, files: [] };
+  const parts: string[] = [];
+  const files: Array<{ data: Uint8Array; mediaType: string; filename: string }> = [];
+  for (const part of content) {
+    if (part.type === 'text') parts.push(part.text);
+    else if (part.type === 'file' || part.type === 'image') {
+      const raw = part.type === 'file' ? part.data : part.image;
+      if (!(raw instanceof Uint8Array)) continue;
+      const mediaType = (part as { mediaType?: string }).mediaType ?? 'image/jpeg';
+      const ext = mediaType.includes('png') ? '.png' : mediaType.includes('webp') ? '.webp' : '.jpg';
+      const filename = `referencia-${files.length + 1}${ext}`;
+      files.push({ data: raw, mediaType, filename });
+      parts.push(`[foto: ./${filename}]`);
+    }
+  }
+  return { prompt: parts.join('\n'), files };
 }
 
 /**

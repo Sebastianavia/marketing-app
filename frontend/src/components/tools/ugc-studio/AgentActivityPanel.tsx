@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, XCircle, Gauge, RefreshCw } from 'lucide-react';
 import { useUgcStudioStore } from '@/store/useUgcStudioStore';
+import { useOrchestratorMode } from '@/components/claude/useOrchestratorMode';
 
 interface SlotReport {
   id: string;
@@ -134,6 +135,7 @@ export function AgentActivityPanel() {
   const phase = useUgcStudioStore((s) => s.phase);
   const busy = useUgcStudioStore((s) => s.busy);
   const doneCount = activities.filter((a) => a.status === 'done').length;
+  const claudeMode = useOrchestratorMode() === 'claude-subscription';
 
   return (
     <div className="surface-card rounded-xl p-4 space-y-4">
@@ -176,7 +178,13 @@ export function AgentActivityPanel() {
         </ul>
       </div>
       <div className="border-t border-slate-200 dark:border-white/[0.06] pt-3">
-        <QuotaMeters refreshKey={doneCount} />
+        {claudeMode ? (
+          <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+            El equipo trabaja con Claude (tu suscripción, selector IA). Cada storyboard son unas 14 llamadas: gasta bastante cupo de tu plan.
+          </p>
+        ) : (
+          <QuotaMeters refreshKey={doneCount} />
+        )}
       </div>
     </div>
   );
