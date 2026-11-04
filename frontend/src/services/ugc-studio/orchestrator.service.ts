@@ -452,10 +452,48 @@ const ProductionReviewSchema = z.object({
     )
     .max(4)
     .describe('Vacío si está aprobado'),
+  reemplazos: z
+    .array(
+      z.object({
+        escena: z.number().int().describe('Número (index) de la escena, o 0 para todas'),
+        buscar: z.string().min(1).describe('Texto exacto a buscar (respeta mayúsculas y tildes)'),
+        reemplazar: z.string().describe('Texto correcto'),
+      })
+    )
+    .max(12)
+    .describe('Correcciones literales que se aplican tal cual al diálogo y al prompt (erratas, nombre de marca mal escrito, una palabra concreta). Vacío si no hay.'),
 });
 
+type Replacement = z.infer<typeof ProductionReviewSchema>['reemplazos'][number];
+
+/**
+ * Aplica las correcciones literales de Claude al diálogo y al prompt de video. Se reaplican tras
+ * cada revisión de Gemini: si el equipo vuelve a escribir la errata, se corrige otra vez.
+ */
+function applyReplacements(sb: Storyboard, reps: Replacement[]): { storyboard: Storyboard; aplicados: number } {
+  if (!reps.length) return { storyboard: sb, aplicados: 0 };
+  let aplicados = 0;
+  const fix = (text: string, index: number) => {
+    let out = text;
+    for (const r of reps) {
+      if (r.escena !== 0 && r.escena !== index) continue;
+      if (!r.buscar || r.buscar === r.reemplazar || !out.includes(r.buscar)) continue;
+      aplicados += out.split(r.buscar).length - 1;
+      out = out.split(r.buscar).join(r.reemplazar);
+    }
+    return out;
+  };
+  const scenes = sb.scenes.map((s) => ({
+    ...s,
+    videoPrompt: fix(s.videoPrompt, s.index),
+    dialogue: s.dialogue.map((d) => ({ ...d, line: fix(d.line, s.index) })),
+  }));
+  return { storyboard: { ...sb, scenes }, aplicados };
+}
+
 const REVIEW_SYSTEM = `Eres el jefe de producción de un estudio de anuncios UGC. Un equipo de agentes (estratega, director creativo, guionista, fotografía, audio, supervisores, ingeniero de prompts) armó el storyboard. Tú lo revisas como lo haría un director exigente antes de gastar dinero en renderizar: ¿el gancho detiene el scroll en 2 s?, ¿el producto se ve y se usa de forma creíble y fiel a las fotos?, ¿el diálogo suena natural y cabe en la duración?, ¿hay continuidad (persona, ropa, lugar, luz)?, ¿el CTA es claro?, ¿los prompts de video describen lo que el modelo puede generar (sin texto en pantalla, sin manos imposibles)?
-Aprueba si está bien; no pidas cambios por gusto. Si algo falla, pide como máximo 4 cambios concretos por escena, que el equipo pueda ejecutar sin preguntar.`;
+Aprueba si está bien; no pidas cambios por gusto. Si algo falla, pide como máximo 4 cambios concretos por escena, que el equipo pueda ejecutar sin preguntar.
+Las erratas, el nombre de la marca mal escrito o una palabra concreta equivocada NO las mandes al equipo: ponlas en "reemplazos" (texto exacto → texto correcto) y se corrigen al instante, en el diálogo y en el prompt. Revisa sobre todo que el nombre del producto esté escrito exactamente igual en todas partes.`;
 
 /**
  * Claude revisa el storyboard completo (con las fotos de referencia) y, si hace falta, manda a
@@ -473,6 +511,15 @@ async function claudeProductionReview(
   const MAX_ROUNDS = 2;
   let current = storyboard;
   const pedidos: string[] = [];
+  const reemplazos: Replacement[] = [];
+  let corregidos = 0;
+  const fixText = () => {
+    const r = applyReplacements(current, reemplazos);
+    current = r.storyboard;
+    corregidos += r.aplicados;
+  };
+  const note = () =>
+    corregidos ? ` Claude corrigió ${corregidos} vez/veces el texto directamente (${[...new Set(reemplazos.map((r) => `«${r.buscar}» → «${r.reemplazar}»`))].join(', ')}).` : '';
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     const agentId = `claude_jefe_produccion:${round}`;
     emit({ type: 'agent_start', agentId, agentName: `Claude · jefe de producción (revisión ${round})` });
@@ -519,9 +566,11 @@ async function claudeProductionReview(
       return { ...current, claudeReview: { aprobado: false, resumen: `Claude no pudo revisar el storyboard: ${errorMessage(err, 'sin detalle')}`, rondas: round - 1, pedidos } };
     }
 
+    reemplazos.push(...review.reemplazos);
+    fixText();
     const cambios = review.cambios.filter((c) => current.scenes.some((s) => s.index === c.escena));
     if (review.aprobado || cambios.length === 0) {
-      return { ...current, claudeReview: { aprobado: true, resumen: review.resumen, rondas: round, pedidos } };
+      return { ...current, claudeReview: { aprobado: true, resumen: `${review.resumen}${note()}`, rondas: round, pedidos } };
     }
     // Manda a Gemini rehacer cada escena con sus instrucciones (una a una: cada revisión ve la anterior)
     for (const c of cambios) {
@@ -534,13 +583,15 @@ async function claudeProductionReview(
         emit({ type: 'agent_error', agentId: `revision:${c.escena}`, detail: errorMessage(err, 'No se pudo rehacer la escena') });
       }
     }
+    // Gemini pudo volver a escribir una errata al rehacer escenas: se corrige otra vez
+    fixText();
     // Última ronda: los cambios pedidos se aplican igual, sin otra revisión
     if (round === MAX_ROUNDS) {
       return {
         ...current,
         claudeReview: {
           aprobado: false,
-          resumen: `${review.resumen} (Estos últimos ajustes ya se aplicaron; revísalos antes de renderizar.)`,
+          resumen: `${review.resumen}${note()} (Estos últimos ajustes ya se aplicaron; revísalos antes de renderizar.)`,
           rondas: round,
           pedidos,
         },

@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { errorMessage } from '@/lib/errors';
 import { DEFAULT_STT_MODEL, sttCost } from '@/config/cost-rates';
 import { getSettings } from '@/lib/data/settings';
 import { assertWithinDailyLimit, recordUsage } from '@/lib/usage/usage-store';
@@ -26,6 +27,28 @@ const MIME: Record<string, string> = {
   '.flac': 'audio/flac',
 };
 
+/** Errores pasajeros: corte de red, tiempo agotado, o ElevenLabs saturado (429/5xx). */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [2_000, 6_000];
+
+/**
+ * Reintenta la petición ante fallos pasajeros (2 reintentos: a los 2 s y a los 6 s). ElevenLabs
+ * solo cobra las transcripciones que devuelve, así que un fallo de red no se paga dos veces.
+ */
+async function postWithRetry(send: () => Promise<Response>): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await send();
+      if (!RETRY_STATUS.has(res.status) || attempt >= RETRY_DELAYS_MS.length) return res;
+      console.warn(`[transcripción] ElevenLabs respondió ${res.status}; reintento ${attempt + 1}…`);
+    } catch (err) {
+      if (attempt >= RETRY_DELAYS_MS.length) throw new Error(`No se pudo conectar con ElevenLabs tras ${attempt + 1} intentos (${errorMessage(err)}).`);
+      console.warn(`[transcripción] fallo de conexión (${errorMessage(err)}); reintento ${attempt + 1}…`);
+    }
+    await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+  }
+}
+
 export async function transcribeWithElevenLabs(
   file: string,
   o: { seconds: number; productionId?: string; tool?: string; label?: string }
@@ -45,7 +68,9 @@ export async function transcribeWithElevenLabs(
   form.append('tag_audio_events', 'false');
   form.append('file', new Blob([new Uint8Array(bytes)], { type: MIME[path.extname(name).toLowerCase()] ?? 'application/octet-stream' }), name);
 
-  const res = await fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': key }, body: form });
+  const res = await postWithRetry(() =>
+    fetch('https://api.elevenlabs.io/v1/speech-to-text', { method: 'POST', headers: { 'xi-api-key': key }, body: form, signal: AbortSignal.timeout(180_000) })
+  );
   if (!res.ok) {
     const detail = (await res.text().catch(() => '')).slice(0, 300);
     throw new Error(
