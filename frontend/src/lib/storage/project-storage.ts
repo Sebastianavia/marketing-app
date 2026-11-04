@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
+import os from 'os';
 import path from 'path';
 import { exec } from 'child_process';
 
@@ -73,31 +74,46 @@ export interface SaveProjectPayload extends Partial<ProjectMetadata> {
 const DEFAULT_CATEGORIES: readonly ProjectCategory[] = ['HeyGen', 'UGC', 'TextToVideo', 'Genjutsu', 'Imagenes', 'Producciones', 'Ediciones'];
 
 /**
- * Obtiene el directorio base configurado por el usuario.
- * Si no está configurado, usa por defecto D:\LuloStudio_Projects (o C:\LuloStudio_Projects si D: no existe).
+ * ¿La ruta sirve en este sistema? Una ruta de Windows ("C:\…") en macOS/Linux no es absoluta:
+ * Node la toma como relativa a la carpeta de la app y FFmpeg lee "C:" como un protocolo
+ * ("Protocol not found"), así que se descarta.
+ */
+function usableBasePath(p: string): boolean {
+  if (process.platform === 'win32') return path.win32.isAbsolute(p);
+  return path.posix.isAbsolute(p) && !/^[a-zA-Z]:[\\/]/.test(p);
+}
+
+/**
+ * Obtiene el directorio base configurado por el usuario (siempre una ruta absoluta).
+ * Si no está configurado o no sirve en este sistema: en Windows D:\LuloStudio_Projects
+ * (o C:\LuloStudio_Projects si D: no existe); en macOS/Linux ~/LuloStudio_Projects.
  */
 export async function getStorageBasePath(): Promise<string> {
   // La ruta vive en la carpeta de datos del usuario (fuera de la app), así sobrevive a actualizaciones.
   try {
     const { basePath } = await getSettings();
-    if (basePath && typeof basePath === 'string') {
+    if (basePath && typeof basePath === 'string' && usableBasePath(basePath)) {
       if (!fsSync.existsSync(basePath)) {
         await fs.mkdir(basePath, { recursive: true });
       }
       return basePath;
     }
+    if (basePath) console.warn(`[almacenamiento] La carpeta de proyectos "${basePath}" no sirve en este sistema; se usa la predeterminada.`);
   } catch (err) {
     console.error('Error leyendo la configuración de almacenamiento:', err);
   }
 
-  // Valor por defecto: D:\LuloStudio_Projects, o C:\LuloStudio_Projects si no existe D:
-  let defaultPath = 'D:\\LuloStudio_Projects';
-  try {
-    if (!fsSync.existsSync('D:\\')) {
+  let defaultPath: string;
+  if (process.platform === 'win32') {
+    // D:\LuloStudio_Projects, o C:\LuloStudio_Projects si no existe D:
+    defaultPath = 'D:\\LuloStudio_Projects';
+    try {
+      if (!fsSync.existsSync('D:\\')) defaultPath = 'C:\\LuloStudio_Projects';
+    } catch {
       defaultPath = 'C:\\LuloStudio_Projects';
     }
-  } catch {
-    defaultPath = 'C:\\LuloStudio_Projects';
+  } else {
+    defaultPath = path.join(/*turbopackIgnore: true*/ os.homedir(), 'LuloStudio_Projects');
   }
 
   try {
@@ -120,6 +136,13 @@ export async function getStorageBasePath(): Promise<string> {
  */
 export async function setStorageBasePath(newPath: string): Promise<string> {
   const sanitizedPath = path.normalize(newPath.trim());
+  if (!usableBasePath(sanitizedPath)) {
+    throw new Error(
+      process.platform === 'win32'
+        ? 'Escribe una ruta completa, por ejemplo D:\\LuloStudio_Projects.'
+        : `Escribe una ruta completa de este equipo, por ejemplo ${path.join(os.homedir(), 'LuloStudio_Projects')}.`
+    );
+  }
 
   // Verificar o crear el directorio
   if (!fsSync.existsSync(sanitizedPath)) {

@@ -199,6 +199,9 @@ const publicarBorrador = tool({
     if (!fsSync.existsSync(src)) throw new AgentToolError(`No existe ${archivo} en la carpeta de la edición.`, 404);
     if (path.extname(src).toLowerCase() !== '.mp4') throw new AgentToolError('El borrador tiene que ser .mp4 (H.264 + AAC).');
     if (path.basename(src) === p.original.archivo) throw new AgentToolError('Ese es el video original, no un borrador.');
+    if (/^borrador-v\d+\.mp4$/i.test(path.basename(src)) && path.dirname(src) === path.resolve(p.carpeta)) {
+      throw new AgentToolError('Ese borrador ya está en la app (lo dejó renderizar). publicar_borrador es solo para videos que hiciste tú.');
+    }
     const info = await probeVideo(src);
     if (!info.tieneVideo || info.duracion <= 0) throw new AgentToolError('Ese archivo no tiene una pista de video válida.');
 

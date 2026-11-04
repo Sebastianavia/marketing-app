@@ -38,13 +38,13 @@ const MODE_INFO: Record<ClaudeSandboxMode, { label: string; hint: string; safe: 
     safe: true,
   },
   sin_aislamiento: {
-    label: 'Sin aislamiento',
-    hint: 'Windows no tiene aislamiento: Claude ejecuta comandos con tus permisos (activado con LULO_CLAUDE_BASH_SIN_AISLAMIENTO). No ve tus claves ni puede gastar dinero.',
+    label: 'Todos los permisos',
+    hint: 'En Windows no hay aislamiento: Claude ejecuta comandos con todos tus permisos. No recibe tus claves en su entorno y sus herramientas de archivos siguen limitadas a esta edición. Para apagarlo: LULO_CLAUDE_BASH_SIN_AISLAMIENTO=0.',
     safe: false,
   },
   sin_bash: {
     label: 'Solo herramientas de Lulo',
-    hint: 'En Windows Claude no ejecuta comandos (no hay aislamiento): cambia estilo, guion y renderiza con el motor de la app.',
+    hint: 'Comandos desactivados (LULO_CLAUDE_BASH_SIN_AISLAMIENTO=0): Claude cambia estilo, guion y renderiza con el motor de la app.',
     safe: true,
   },
 };

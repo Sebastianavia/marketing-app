@@ -28,15 +28,17 @@ import type { ClaudeChatMessage, ClaudeChatStep, EditProject } from './types';
  *  - Red solo a dominios de descargas (PyPI, GitHub, Hugging Face, npm…); localhost bloqueado,
  *    así que no puede llamar a la API de la app ni aprobar gastos.
  *  - El entorno no lleva ninguna clave (lista blanca en bridge.ts).
- * En Windows nativo el sandbox no existe: Bash queda desactivado salvo que se active
- * LULO_CLAUDE_BASH_SIN_AISLAMIENTO=1 (bajo tu responsabilidad).
+ * En Windows nativo el sandbox no existe: por decisión del dueño (2026-11-04), Claude ejecuta
+ * comandos con todos los permisos del usuario. LULO_CLAUDE_BASH_SIN_AISLAMIENTO=0 lo apaga
+ * (solo herramientas de Lulo). El entorno sigue sin claves y Read/Write siguen en la carpeta,
+ * pero sin sandbox un comando sí podría leer .env.local o llamar a localhost.
  */
 
 export type SandboxMode = 'aislado' | 'sin_aislamiento' | 'sin_bash';
 
 export function sandboxMode(): SandboxMode {
   if (process.platform === 'darwin' || process.platform === 'linux') return 'aislado';
-  return process.env.LULO_CLAUDE_BASH_SIN_AISLAMIENTO === '1' ? 'sin_aislamiento' : 'sin_bash';
+  return process.env.LULO_CLAUDE_BASH_SIN_AISLAMIENTO === '0' ? 'sin_bash' : 'sin_aislamiento';
 }
 
 /** Dominios a los que Bash puede conectarse para descargar herramientas y recursos. */
@@ -200,7 +202,7 @@ Modelos descargados (recorte de persona, etc.): ${ctx.modelos}
 
 CÓMO TRABAJAR
 1. Empieza con lulo: ver_edicion para conocer el perfil, las frases y el borrador actual.
-2. Si el pedido se puede hacer con el motor de la app (subtítulos, colores, fuente, posición, gancho, cortes, zoom, música, gráficos, formato), usa cambiar_perfil / cambiar_guion y luego renderizar. Es lo más fiable.
+2. Si el pedido se puede hacer con el motor de la app (subtítulos, colores, fuente, posición, gancho, cortes, zoom, música, gráficos, formato), usa cambiar_perfil / cambiar_guion y luego renderizar. Es lo más fiable. Lo que sale de renderizar YA aparece en la app como borrador: no lo vuelvas a publicar.
 3. Si el motor no lo hace (efectos especiales, b-roll, transiciones, cambiar fondo, velocidad, superponer imágenes, color grading, lo que sea), hazlo tú con FFmpeg, Python u otra herramienta que instales, trabajando sobre el borrador actual o el original. Guarda tu resultado como MP4 (H.264 + AAC, mismo formato vertical) dentro de la carpeta, en una subcarpeta \`claude/\`, y usa lulo: publicar_borrador para que la persona lo vea en la app.
 4. Comprueba tu resultado antes de publicarlo (duración, que tenga audio, que se vea bien): extrae fotogramas con FFmpeg a \`./claude/fotogramas/\` y míralos con Read. No uses /tmp ni otras carpetas: fuera de la carpeta de la edición no puedes leer.
 5. No pidas permiso para cada paso: decide tú. Pregunta solo si el pedido es ambiguo de verdad.
