@@ -91,13 +91,19 @@ export interface SceneRenderPlan {
   discount: number;
   livePricing: boolean;
   estimatedCostUSD: number;
+  /** Solo estimación: la escena anterior aún no está renderizada (su último fotograma es provisional). */
+  pendingChain?: boolean;
 }
+
+/** Marcador del último fotograma que aún no existe: solo para estimar, nunca se envía. */
+const PENDING_FRAME = 'pendiente://ultimo-fotograma';
 
 export async function planSceneRender(
   storyboard: Storyboard,
   scene: StoryboardScene,
   references: UgcReference[],
-  settings: StudioSettings
+  settings: StudioSettings,
+  opts: { estimateOnly?: boolean } = {}
 ): Promise<SceneRenderPlan> {
   let firstFrameUrl: string | undefined;
   let referenceUrls: string[] = [];
@@ -105,7 +111,9 @@ export async function planSceneRender(
 
   if (scene.transition.type === 'continua') {
     const previous = storyboard.scenes.find((s) => s.index === scene.index - 1);
-    if (!previous?.render?.lastFrameUrl) {
+    // Para estimar no hace falta el fotograma real: cuesta lo mismo con cualquier imagen
+    const lastFrame = previous?.render?.lastFrameUrl ?? (opts.estimateOnly ? PENDING_FRAME : undefined);
+    if (!lastFrame) {
       throw new Error(
         `La escena ${scene.index} continúa desde la escena ${scene.index - 1}: renderiza primero la escena anterior para encadenar el primer fotograma.`
       );
@@ -113,9 +121,9 @@ export async function planSceneRender(
     if (continuityReference) {
       const ids = sentReferenceIds(storyboard.scenes, scene, references);
       // El último fotograma primero: el prompt le pide al modelo arrancar exactamente como esa imagen
-      referenceUrls = [previous.render.lastFrameUrl, ...references.filter((r) => ids.includes(r.id)).map((r) => r.url)];
+      referenceUrls = [lastFrame, ...references.filter((r) => ids.includes(r.id)).map((r) => r.url)];
     } else {
-      firstFrameUrl = previous.render.lastFrameUrl;
+      firstFrameUrl = lastFrame;
     }
   } else {
     const ids = sentReferenceIds(storyboard.scenes, scene, references);
@@ -139,6 +147,7 @@ export async function planSceneRender(
     discount: pricing.discount,
     livePricing: pricing.live,
     estimatedCostUSD: Number((ratePerSecondUSD * scene.durationSeconds + imagesCost).toFixed(4)),
+    ...(firstFrameUrl === PENDING_FRAME || referenceUrls[0] === PENDING_FRAME ? { pendingChain: true } : {}),
   };
 }
 

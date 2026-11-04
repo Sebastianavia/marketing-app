@@ -33,9 +33,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const plan = await planSceneRender(body.storyboard, scene, body.references ?? [], settings);
+    // Para estimar, una escena "continua" no necesita que la anterior ya esté renderizada
+    const plan = await planSceneRender(body.storyboard, scene, body.references ?? [], settings, { estimateOnly: !body.confirm });
     if (!body.confirm) {
       return NextResponse.json({
+        pendingChain: Boolean(plan.pendingChain),
         estimatedCostUSD: plan.estimatedCostUSD,
         ratePerSecondUSD: plan.ratePerSecondUSD,
         discount: plan.discount,
