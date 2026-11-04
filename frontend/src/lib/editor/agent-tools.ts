@@ -8,7 +8,8 @@ import { listProfiles, normalizeProfile } from './profile-store';
 import { runAction } from './actions';
 import { EditError, getEdit, logActivity, updateEdit } from './edit-store';
 import { ffmpeg, probeVideo } from './media';
-import { phraseText } from './timeline';
+import { keptIntervals, phraseText, subtitleWords } from './timeline';
+import { snapToFrames } from './render';
 import { ACTIVE_STATUSES, type EditProject } from './types';
 
 /**
@@ -167,6 +168,79 @@ const cambiarGuion = tool({
   },
 });
 
+const palabrasBorrador = tool({
+  name: 'palabras_borrador',
+  description:
+    'Cada palabra que se dice con su inicio y fin EN EL VIDEO DEL BORRADOR (ya con los cortes del motor), y el texto de cada frase. Úsala para sincronizar textos, capturas, zooms o efectos con lo que se va diciendo. La transcripción es la de la app: no la deduzcas de subtitulos.ass (allí las palabras van troceadas en bloques y etiquetas).',
+  schema: z.object({}),
+  run: async (editId) => {
+    const p = await getEdit(editId);
+    const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+    const palabras = subtitleWords(p.frases, intervals);
+    const kept = p.frases.filter((f) => !f.cortar);
+    return {
+      nota: 'Tiempos del borrador que hace el motor (renderizar). Si tu versión cambia la duración o el orden, recalcula a partir de estos.',
+      frases: kept.map((f, i) => ({
+        frase: i,
+        texto: f.textoEditado ?? phraseText(f),
+        desde: palabras.find((w) => w.frase === i)?.s ?? null,
+        hasta: [...palabras].reverse().find((w) => w.frase === i)?.e ?? null,
+      })),
+      palabras,
+    };
+  },
+});
+
+/** Volumen momentáneo (EBU R128) cada 0,5 s, picos y silencios de un video o audio, con FFmpeg ($0). */
+async function listen(file: string) {
+  const out = await ffmpeg({
+    args: ['-hide_banner', '-nostats', '-i', file, '-filter_complex', '[0:a]asplit[a][b];[a]ebur128=peak=true[x];[b]silencedetect=noise=-38dB:d=0.3[y]', '-map', '[x]', '-map', '[y]', '-f', 'null', '-'],
+    timeoutMs: 120_000,
+  }).catch((err) => {
+    throw new AgentToolError(`No se pudo analizar el audio: ${errorMessage(err)}`);
+  });
+  const momentary: Array<{ t: number; lufs: number }> = [];
+  let next = 0;
+  for (const m of out.matchAll(/t:\s*([\d.]+)\s+TARGET.*?M:\s*(-?[\d.]+|-inf)/g)) {
+    const t = Number(m[1]);
+    if (t + 1e-6 < next) continue;
+    next = t + 0.5;
+    momentary.push({ t: Math.round(t * 10) / 10, lufs: m[2] === '-inf' ? -70 : Number(m[2]) });
+  }
+  const integrated = /I:\s*(-?[\d.]+) LUFS/.exec(out.slice(out.lastIndexOf('Summary')));
+  const truePeak = /Peak:\s*(-?[\d.]+) dBFS/.exec(out.slice(out.lastIndexOf('Summary')));
+  const silences: Array<{ desde: number; hasta: number }> = [];
+  for (const m of out.matchAll(/silence_start:\s*([\d.]+)[\s\S]*?silence_end:\s*([\d.]+)/g)) {
+    silences.push({ desde: Number(Number(m[1]).toFixed(2)), hasta: Number(Number(m[2]).toFixed(2)) });
+  }
+  // Picos: subidas bruscas de 6 LU o más sobre el medio segundo anterior (golpes, whooshes, pops)
+  const picos = momentary.filter((x, i) => i > 0 && x.lufs - momentary[i - 1].lufs >= 6).map((x) => ({ t: x.t, lufs: x.lufs }));
+  return {
+    integradoLUFS: integrated ? Number(integrated[1]) : null,
+    picoVerdaderoDBFS: truePeak ? Number(truePeak[1]) : null,
+    volumenCadaMedioSegundo: momentary,
+    picos,
+    silencios: silences,
+    comoLeerlo:
+      'Voz clara en redes: integrado cerca de −14 LUFS y pico ≤ −1 dBFS. Un efecto se nota como pico breve; si la voz baja mucho donde hay efectos o música, están demasiado fuertes. Silencios largos en mitad del video = algo falta.',
+  };
+}
+
+const escucharAudio = tool({
+  name: 'escuchar_audio',
+  description:
+    'Escucha el audio de un video o audio de la carpeta (por defecto el borrador actual) y devuelve el volumen cada medio segundo, el volumen total, picos (efectos, golpes) y silencios. Úsala SIEMPRE antes de publicar para comprobar que la voz se entiende, que los efectos suenan donde quieres y que no hay silencios raros.',
+  schema: z.object({ archivo: z.string().max(260).optional().describe('Ruta relativa dentro de la carpeta; vacío = borrador actual') }),
+  run: async (editId, { archivo }) => {
+    const p = await getEdit(editId);
+    const rel = archivo || p.borrador?.archivo;
+    if (!rel) throw new AgentToolError('Todavía no hay borrador: indica el archivo.');
+    const file = insideFolder(p, rel);
+    if (!fsSync.existsSync(file)) throw new AgentToolError(`No existe ${rel}.`, 404);
+    return { archivo: rel, ...(await listen(file)) };
+  },
+});
+
 const planearGraficos = tool({
   name: 'planear_graficos',
   description:
@@ -248,7 +322,7 @@ const publicarBorrador = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verEdicion, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

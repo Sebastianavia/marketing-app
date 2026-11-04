@@ -19,6 +19,8 @@ const SUGGESTIONS = [
 
 const STEP_NAMES: Record<string, string> = {
   'lulo: ver_edicion': 'Mirando la edición',
+  'lulo: palabras_borrador': 'Leyendo los tiempos de cada palabra',
+  'lulo: escuchar_audio': 'Escuchando el audio',
   'lulo: cambiar_perfil': 'Cambiando el estilo',
   'lulo: cambiar_guion': 'Ajustando el guion',
   'lulo: planear_graficos': 'Planeando los gráficos',
