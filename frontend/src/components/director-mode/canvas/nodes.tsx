@@ -2,7 +2,7 @@
 
 import React, { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { AudioLines, FileText, Lock, Paperclip, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { AudioLines, Clapperboard, FileText, Lock, Paperclip, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { VOICE_MODES, getBrollModel } from '@/config/broll-models';
 import { getDirectorSkill } from '@/config/director-skills';
 import { formatTime } from '@/lib/director-mode/durations';
@@ -241,6 +241,16 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
         </Shell>
       );
     }
+    case 'produccion':
+      return (
+        <Shell selected={false} tone={data.tone} width={data.compacto ? 170 : 220}>
+          <Header icon={<Clapperboard className="h-3 w-3 text-fg-subtle" />} title={data.titulo} />
+          <div className="mt-1">
+            <Status tone={data.tone} label={data.estado} />
+          </div>
+          {data.detalle && <p className="mt-1 text-[10px] leading-snug text-fg-subtle">{data.detalle}</p>}
+        </Shell>
+      );
     case 'futuro':
       return (
         <Shell selected={false} tone="future" width={data.compacto ? 150 : 200} dashed>

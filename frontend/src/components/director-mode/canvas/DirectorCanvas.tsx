@@ -16,7 +16,7 @@ import {
 import { LayoutGrid } from 'lucide-react';
 import { useThemeStore } from '@/store/useThemeStore';
 import type { DirectorState } from '@/lib/director-mode/types';
-import { buildGraph, type DirectorNode } from './build-graph';
+import { buildGraph, type DirectorNode, type PaidSceneLite } from './build-graph';
 import { nodeTypes } from './nodes';
 
 /**
@@ -58,14 +58,16 @@ function place(base: DirectorNode[], current: DirectorNode[], saved: Positions):
 interface Props {
   productionId: string;
   d: DirectorState;
+  /** Escenas de pago de la producción (estado real de la generación). */
+  paid?: PaidSceneLite[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }
 
-function CanvasInner({ productionId, d, selectedId, onSelect }: Props) {
+function CanvasInner({ productionId, d, paid, selectedId, onSelect }: Props) {
   const theme = useThemeStore((s) => s.theme);
   const { fitView } = useReactFlow();
-  const graph = useMemo(() => buildGraph(d, productionId), [d, productionId]);
+  const graph = useMemo(() => buildGraph(d, productionId, paid), [d, productionId, paid]);
   const [nodes, setNodes] = useState<DirectorNode[]>(() => place(graph.nodes, [], readPositions(productionId)));
   const [prevGraph, setPrevGraph] = useState(graph);
 

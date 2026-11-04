@@ -22,7 +22,29 @@ export type DirectorNodeData =
   | { kind: 'etiqueta'; tone: NodeTone; d: DirectorState; tag: DirectorTag; pid: string }
   | { kind: 'sueltas'; tone: NodeTone; d: DirectorState; pid: string }
   | { kind: 'locucion'; tone: NodeTone; d: DirectorState; pid: string }
-  | { kind: 'futuro'; tone: 'future'; titulo: string; fase: number; compacto?: boolean };
+  | { kind: 'futuro'; tone: 'future'; titulo: string; fase: number; compacto?: boolean }
+  /** Generación (escenas de pago y video final): estado real de la producción. */
+  | { kind: 'produccion'; tone: NodeTone; titulo: string; estado: string; detalle?: string; compacto?: boolean };
+
+/** Lo mínimo de una escena de pago (Production.escenas) que el lienzo necesita. */
+export interface PaidSceneLite {
+  id: string;
+  estado: 'pendiente' | 'aprobada' | 'generando' | 'lista' | 'fallida' | 'rechazada';
+  estimadoUSD: number;
+  gastoUSD: number;
+  error?: string;
+}
+
+const PAID_STATE: Record<PaidSceneLite['estado'], { tone: NodeTone; label: string }> = {
+  pendiente: { tone: 'pending', label: 'Espera tu aprobación' },
+  aprobada: { tone: 'review', label: 'Aprobada · por generar' },
+  generando: { tone: 'review', label: 'Generando…' },
+  lista: { tone: 'ok', label: 'Lista' },
+  fallida: { tone: 'error', label: 'Falló' },
+  rechazada: { tone: 'blocked', label: 'Rechazada' },
+};
+
+const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
 
 export type DirectorNode = Node<DirectorNodeData, 'director'>;
 
@@ -76,7 +98,9 @@ const ROW = 190;
 const REF_ROW = 150;
 
 /** `pid` = id de la producción (para las miniaturas de las referencias). */
-export function buildGraph(d: DirectorState, pid = ''): { nodes: DirectorNode[]; edges: Edge[] } {
+export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = []): { nodes: DirectorNode[]; edges: Edge[] } {
+  const gen = d.produccion;
+  const paidById = new Map(paid.map((p) => [p.id, p]));
   const scenes = d.guion?.escenas ?? [];
   const rows = Math.max(1, scenes.length);
   const midY = ((rows - 1) * ROW) / 2;
@@ -89,7 +113,7 @@ export function buildGraph(d: DirectorState, pid = ''): { nodes: DirectorNode[];
       position: { x, y },
       data,
       // Los nodos futuros no se eligen ni se arrastran
-      ...(data.kind === 'futuro' ? { selectable: false, focusable: false } : {}),
+      ...(data.kind === 'futuro' || data.kind === 'produccion' ? { selectable: false, focusable: false } : {}),
     });
   const link = (source: string, target: string, future = false, cls?: string) =>
     edges.push({
@@ -157,12 +181,50 @@ export function buildGraph(d: DirectorState, pid = ''): { nodes: DirectorNode[];
     add(nodeId.prompt(s.id), X.prompt, y, { kind: 'prompt', tone: promptTone, d, scene: s });
     link(nodeId.escena(s.id), nodeId.prompt(s.id));
 
-    add(nodeId.imagen(s.id), X.imagen, y + 40, { kind: 'futuro', tone: 'future', titulo: 'Imagen inicial', fase: 3, compacto: true });
-    add(nodeId.clip(s.id), X.clip, y + 40, { kind: 'futuro', tone: 'future', titulo: 'Clip', fase: 4, compacto: true });
-    link(nodeId.prompt(s.id), nodeId.imagen(s.id), true);
-    link(nodeId.imagen(s.id), nodeId.clip(s.id), true);
-    link(nodeId.clip(s.id), nodeId.final, true);
+    // Con la producción preparada, el clip muestra su estado real (la generación no usa imagen inicial)
+    const m = gen?.mapa.find((x) => x.escenaId === s.id);
+    const clip = m && paidById.get(m.clip);
+    if (gen && m && clip) {
+      const st = PAID_STATE[clip.estado];
+      const voz = m.voz ? paidById.get(m.voz) : undefined;
+      add(nodeId.clip(s.id), X.imagen + 60, y + 40, {
+        kind: 'produccion',
+        tone: voz && voz.estado !== 'lista' && clip.estado === 'lista' ? PAID_STATE[voz.estado].tone : st.tone,
+        titulo: 'Clip',
+        estado: st.label,
+        detalle: clip.estado === 'fallida' && clip.error ? clip.error.slice(0, 80) : clip.gastoUSD > 0 ? `${usd(clip.gastoUSD)} gastado` : `≈ ${usd(clip.estimadoUSD)}`,
+        compacto: true,
+      });
+      link(nodeId.prompt(s.id), nodeId.clip(s.id), clip.estado !== 'lista');
+    } else {
+      add(nodeId.imagen(s.id), X.imagen, y + 40, { kind: 'futuro', tone: 'future', titulo: 'Imagen inicial', fase: 3, compacto: true });
+      add(nodeId.clip(s.id), X.clip, y + 40, { kind: 'futuro', tone: 'future', titulo: 'Clip', fase: 4, compacto: true });
+      link(nodeId.prompt(s.id), nodeId.imagen(s.id), true);
+      link(nodeId.imagen(s.id), nodeId.clip(s.id), true);
+    }
+    link(nodeId.clip(s.id), nodeId.final, !gen?.final);
   });
-  add(nodeId.final, X.final + 40, midY + 30, { kind: 'futuro', tone: 'future', titulo: 'Video final', fase: 4 });
+  if (gen) {
+    const mine = gen.mapa.flatMap((m) => [m.clip, ...(m.voz ? [m.voz] : [])]).concat(gen.vozGeneral ? [gen.vozGeneral] : []);
+    const all = mine.map((id) => paidById.get(id)).filter((x): x is PaidSceneLite => Boolean(x));
+    const ready = all.length > 0 && all.every((x) => x.estado === 'lista');
+    const spent = all.reduce((t, x) => t + x.gastoUSD, 0);
+    const vozGeneral = gen.vozGeneral ? paidById.get(gen.vozGeneral) : undefined;
+    add(nodeId.final, X.final + 40, midY + 30, {
+      kind: 'produccion',
+      tone: gen.final ? 'ok' : ready ? 'review' : all.some((x) => x.estado === 'fallida') ? 'error' : 'pending',
+      titulo: 'Video final',
+      estado: gen.final ? `Montado · v${gen.final.version}` : ready ? 'Listo para montar' : all.some((x) => x.estado === 'pendiente') ? 'Espera tu aprobación' : 'En producción',
+      detalle: [
+        gen.final ? `${gen.final.duracionSeg.toFixed(1)} s · ${gen.final.archivo}` : '',
+        vozGeneral ? `Locución: ${PAID_STATE[vozGeneral.estado].label.toLowerCase()}` : '',
+        spent > 0 ? `${usd(spent)} gastado` : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    });
+  } else {
+    add(nodeId.final, X.final + 40, midY + 30, { kind: 'futuro', tone: 'future', titulo: 'Video final', fase: 4 });
+  }
   return { nodes, edges };
 }

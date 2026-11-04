@@ -283,7 +283,7 @@ export function DirectorStudio() {
               setPendingFiles(Array.from(e.dataTransfer.files));
             }}
           >
-            <DirectorCanvas productionId={production.id} d={d} selectedId={focusId} onSelect={setFocusId} />
+            <DirectorCanvas productionId={production.id} d={d} paid={production.escenas} selectedId={focusId} onSelect={setFocusId} />
             {dragging && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-bg/60 text-[13px] text-fg">
                 Suelta para añadir referencias{' '}
