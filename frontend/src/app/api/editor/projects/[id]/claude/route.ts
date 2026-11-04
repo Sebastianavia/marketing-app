@@ -3,14 +3,8 @@ import { z } from 'zod';
 import { assertAppUiRequest } from '@/lib/director/local-guard';
 import { getEdit } from '@/lib/editor/edit-store';
 import { editorError } from '@/lib/editor/http';
-import {
-  followTurn,
-  isTurnActive,
-  resetClaudeChat,
-  sandboxMode,
-  sendToClaude,
-  stopTurn,
-} from '@/lib/editor/claude-agent';
+import { agentTurnResponse } from '@/lib/ai/claude-code/agent-runner';
+import { resetClaudeChat, sendToClaude, stopTurn, turnKey } from '@/lib/editor/claude-agent';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,19 +19,8 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   try {
     const { id } = await params;
     await getEdit(id);
-    if (!isTurnActive(id)) return NextResponse.json({ activo: false, modo: sandboxMode() });
     const from = Math.max(0, Number(req.nextUrl.searchParams.get('desde')) || 0);
-    const encoder = new TextEncoder();
-    const body = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          for await (const e of followTurn(id, from)) controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'));
-        } finally {
-          controller.close();
-        }
-      },
-    });
-    return new Response(body, { headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' } });
+    return agentTurnResponse(turnKey(id), from);
   } catch (err) {
     return editorError(err, 'No se pudo leer el chat.');
   }

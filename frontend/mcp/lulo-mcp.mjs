@@ -27,17 +27,29 @@ const APP_URL = (process.env.LULO_APP_URL || 'http://localhost:3000').replace(/\
  *  - 'editor': las de UNA edición (/api/editor/agent-tools?edit=<LULO_EDIT_ID>). La app lanza
  *    así a Claude desde el chat de Edición; la edición queda fijada aquí y Claude no puede cambiarla.
  */
-const TOOLSET = process.env.LULO_TOOLSET === 'editor' ? 'editor' : 'director';
+const TOOLSET = ['editor', 'director-mode'].includes(process.env.LULO_TOOLSET) ? process.env.LULO_TOOLSET : 'director';
 const EDIT_ID = process.env.LULO_EDIT_ID || '';
+const PRODUCTION_ID = process.env.LULO_PRODUCTION_ID || '';
 if (TOOLSET === 'editor' && !/^[a-f0-9-]{36}$/.test(EDIT_ID)) {
   console.error('[lulo-mcp] LULO_TOOLSET=editor necesita LULO_EDIT_ID válido.');
   process.exit(1);
 }
-const LIST_PATH = TOOLSET === 'editor' ? `/api/editor/agent-tools?edit=${EDIT_ID}` : '/api/director/tools';
+if (TOOLSET === 'director-mode' && !/^[A-Za-z0-9_-]{6,64}$/.test(PRODUCTION_ID)) {
+  console.error('[lulo-mcp] LULO_TOOLSET=director-mode necesita LULO_PRODUCTION_ID válido.');
+  process.exit(1);
+}
+const LIST_PATH =
+  TOOLSET === 'editor'
+    ? `/api/editor/agent-tools?edit=${EDIT_ID}`
+    : TOOLSET === 'director-mode'
+      ? `/api/director-mode/agent-tools?prod=${encodeURIComponent(PRODUCTION_ID)}`
+      : '/api/director/tools';
 const callPath = (name) =>
   TOOLSET === 'editor'
     ? `/api/editor/agent-tools/${encodeURIComponent(name)}?edit=${EDIT_ID}`
-    : `/api/director/tools/${encodeURIComponent(name)}`;
+    : TOOLSET === 'director-mode'
+      ? `/api/director-mode/agent-tools/${encodeURIComponent(name)}?prod=${encodeURIComponent(PRODUCTION_ID)}`
+      : `/api/director/tools/${encodeURIComponent(name)}`;
 /** Render de la edición: hasta 15 min esperando dentro de la herramienta. */
 const EDITOR_TOOL_TIMEOUT_MS = 20 * 60_000;
 const TOKEN_HEADER = 'x-lulo-director-token';
@@ -109,7 +121,7 @@ const CONNECT_TOOL = {
 let online = false;
 
 const server = new Server(
-  { name: TOOLSET === 'editor' ? 'lulo-editor' : 'lulo-studio', version: '0.2.0' },
+  { name: TOOLSET === 'editor' ? 'lulo-editor' : TOOLSET === 'director-mode' ? 'lulo-director' : 'lulo-studio', version: '0.3.0' },
   { capabilities: { tools: { listChanged: true } } },
 );
 
@@ -150,7 +162,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { result } = await callApp(callPath(name), {
       method: 'POST',
       body: JSON.stringify(args ?? {}),
-    }, TOOLSET === 'editor' ? EDITOR_TOOL_TIMEOUT_MS : TOOL_TIMEOUT_MS);
+    }, TOOLSET === 'director' ? TOOL_TIMEOUT_MS : EDITOR_TOOL_TIMEOUT_MS);
     if (!online) {
       online = true;
       await server.sendToolListChanged();

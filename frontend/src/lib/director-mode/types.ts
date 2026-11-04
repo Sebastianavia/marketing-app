@@ -1,5 +1,6 @@
 import type { VoiceMode } from '@/config/broll-models';
 import type { DirectorSkillId } from '@/config/director-skills';
+import type { ClaudeChatState } from '@/lib/ai/claude-code/agent-types';
 
 /**
  * Modo Director de Guion a video (estilo Buzzy). Vive dentro de `produccion.json`
@@ -193,4 +194,6 @@ export interface DirectorState {
   referencias?: DirectorRef[];
   etiquetas?: DirectorTag[];
   locucion?: DirectorVoiceover;
+  /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */
+  claude?: ClaudeChatState;
 }

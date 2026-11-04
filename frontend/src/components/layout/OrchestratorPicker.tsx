@@ -89,6 +89,8 @@ export function OrchestratorPicker() {
         body: JSON.stringify({ orchestrator: next }),
       });
       if (!r.ok) throw new Error();
+      // Las pantallas que cambian según el modo (chat de Claude del Director…) se enteran al momento
+      window.dispatchEvent(new CustomEvent('lulo:orchestrator', { detail: next }));
     } catch {
       setMode(prev);
     } finally {
