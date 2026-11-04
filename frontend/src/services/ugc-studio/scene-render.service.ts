@@ -4,6 +4,8 @@ import { OpenRouterVideoService } from '@/services/openrouter/openrouter-video.s
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
 import { extractLastFrame, makeTempDir } from '@/lib/video/ffmpeg';
 import { PipelineError } from '@/types/pipeline.types';
+import { assertWithinDailyLimit, recordUsage } from '@/lib/usage/usage-store';
+import { getSettings } from '@/lib/data/settings';
 import {
   continuesWithReferences,
   sentReferenceIds,
@@ -168,6 +170,8 @@ export async function dispatchSceneRender(
 ): Promise<string> {
   const service = new OpenRouterVideoService();
   if (!service.isConfigured) throw new Error('OPENROUTER_API_KEY no está configurada.');
+  // Mismo límite diario que el resto de la app (Costos)
+  await assertWithinDailyLimit(plan.estimatedCostUSD, (await getSettings()).dailyLimitUSD);
   const taskId = await service.createGenerativeVideoTask({
     model: UGC_VIDEO_MODEL,
     prompt: plan.continuityReference
@@ -181,7 +185,33 @@ export async function dispatchSceneRender(
     referenceUrls: plan.referenceUrls,
   });
   activeRenders.set(scene.id, { taskId, at: Date.now() });
+  taskMeta.set(taskId, {
+    seconds: scene.durationSeconds,
+    estimatedUSD: plan.estimatedCostUSD,
+    description: `UGC Studio · "${storyboard.title}" · escena ${scene.index}`,
+  });
   return taskId;
+}
+
+// Datos de cada render para registrarlo en Costos al terminar (una sola vez por taskId)
+const taskMeta: Map<string, { seconds: number; estimatedUSD: number; description: string }> =
+  ((globalThis as unknown as { __ugcTaskMeta?: Map<string, { seconds: number; estimatedUSD: number; description: string }> }).__ugcTaskMeta ??=
+    new Map());
+
+async function recordRender(taskId: string, costUSD: number | undefined) {
+  const meta = taskMeta.get(taskId);
+  taskMeta.delete(taskId);
+  await recordUsage({
+    tool: 'ugc-generator',
+    kind: 'video',
+    provider: 'openrouter',
+    model: UGC_VIDEO_MODEL,
+    description: meta?.description ?? `UGC Studio · render ${taskId}`,
+    units: meta?.seconds ?? 1,
+    unit: meta ? 'segundos' : 'render',
+    costUSD: costUSD ?? meta?.estimatedUSD ?? 0,
+    estimated: costUSD === undefined,
+  }).catch((err) => console.warn('[UGC Studio] No se pudo registrar el costo del render:', err));
 }
 
 export interface SceneRenderStatus {
@@ -235,6 +265,7 @@ export async function getSceneRenderStatus(taskId: string): Promise<SceneRenderS
         cloudinaryStorageService.uploadImage(frame, `${taskId}_last.jpg`, 'lulo-studio/ugc-studio/frames'),
       ]);
       releaseRender(taskId);
+      await recordRender(taskId, status.costUSD);
       return { status: 'completed', videoUrl: video.publicUrl, lastFrameUrl: lastFrame.publicUrl, costUSD: status.costUSD };
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
