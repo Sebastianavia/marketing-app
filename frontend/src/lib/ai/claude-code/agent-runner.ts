@@ -237,6 +237,13 @@ const AGENT_DENY = [
   'Read(**/director-token)',
   'WebFetch(domain:localhost)',
   'WebFetch(domain:127.0.0.1)',
+  // Su propia configuración (se reescribe en cada turno, pero mejor que no la toque)
+  'Edit(./claude/.ajustes.json)',
+  'Write(./claude/.ajustes.json)',
+  'Edit(./claude/.mcp.json)',
+  'Write(./claude/.mcp.json)',
+  'Edit(./claude/.sistema.txt)',
+  'Write(./claude/.sistema.txt)',
 ];
 
 /**
