@@ -1,0 +1,128 @@
+# Claude en Lulo Studio — guía para el equipo
+
+Actualizado el 2026-11-04. Resume lo que cambió en la app para que **Claude** (con la suscripción
+Pro/Max de cada persona) dirija y haga los videos, cómo usarlo y cómo dejarlo listo en Windows.
+El detalle técnico de cada pieza está en `CLAUDE.md` (sección "Decisiones de arquitectura").
+
+---
+
+## 1. Cómo usa la app a Claude (sin clave de API)
+
+- La app **no** usa el token de la suscripción: lanza el programa oficial **Claude Code** que cada
+  persona tiene instalado y con la sesión iniciada en su PC (`claude` → `/login`). Así cada uno usa
+  su propio plan. No se comparten cuentas.
+- Usar el token de la suscripción en otras apps o en proxies tipo OmniRoute va **contra los
+  términos de Anthropic** y puede acabar en el bloqueo de la cuenta. No lo hagan.
+- El plan Pro tiene un **cupo** (ventana de 5 h y semanal). El selector «IA» de la barra superior
+  muestra cuánto se ha usado. Si se agota, la app avisa y pregunta antes de pasar a algo de pago.
+
+### Selector «IA» (barra superior)
+
+| Opción | Qué hace |
+|---|---|
+| Gratis · Gemini | Como antes: claves de Gemini, $0. |
+| **Claude · mi suscripción** | Claude Code de tu PC. $0 extra (gasta cupo del plan). Activa todo lo de esta guía. |
+| Claude Haiku / Sonnet | Claude por OpenRouter, de pago por uso. |
+
+---
+
+## 2. Qué hace Claude en cada herramienta (con «Claude · mi suscripción»)
+
+| Herramienta | Quién hace qué |
+|---|---|
+| **Estudio Claude** (nuevo, primera de la barra lateral) | Chat a pantalla completa: le pides un video y Claude elige y encadena las herramientas (UGC, edición), te muestra el plan, los costos, pide aprobación y te entrega el video en el chat. |
+| **Edición de video** | La app transcribe (ElevenLabs, ≈ $0,004/min) y **Claude hace la edición completa desde el principio**: mira el video, corta, pone gancho, subtítulos, zooms, efectos, pantalla dividida, color… El chat «Claude · editor» queda para pedir cambios. |
+| **UGC Studio** | **Gemini** (gratis) arma el storyboard con sus 14 agentes; **Claude** lo revisa como jefe de producción, manda corregir escenas y corrige erratas directamente; decide en el chat; al montar, el video pasa solo al editor y Claude lo pule. Renderizar pide tu confirmación. |
+| **Guion a video · Director** | Claude arma el proyecto desde la idea (ajustes, guion, prompts) y te guía. La generación del video (voz + tomas + montaje) está hecha pero **sin probar con dinero** (ver pendientes). |
+| Mia, guiones, «Dar emoción», plan de escenas | Los escribe Claude. |
+
+Con Gemini o Claude de pago en el selector, todo funciona como antes.
+
+---
+
+## 3. El dinero: siempre lo aprueba una persona
+
+- **Estudio Claude**: tarjeta «Claude pide aprobar $X» dentro del chat (Aprobar / No).
+- **Director**: botón amarillo «El Director pide $X» en la barra superior.
+- **UGC Studio**: tarjeta de confirmación en su chat.
+- Ningún Claude puede aprobarse un gasto: las rutas de aprobación solo aceptan la ventana de la app,
+  y los Claude de la app tienen bloqueados los comandos con *approve*, *approvals*, *reject*,
+  `localhost:3000`, `.env.local` y el token del Director.
+- Todo queda en **Costos** (los renders de UGC Studio también, desde el 2026-11-04).
+
+---
+
+## 4. Seguridad de los Claude de la app
+
+| | macOS / Linux | Windows |
+|---|---|---|
+| Comandos (FFmpeg, Python, descargas) | **Aislados** (sandbox de Claude Code): solo escriben en la carpeta del proyecto y en la de herramientas, no leen el resto de tu carpeta personal, sin localhost, red solo a sitios de descargas | **Con todos tus permisos** (Windows no tiene sandbox; decisión del dueño). Se apaga con `LULO_CLAUDE_BASH_SIN_AISLAMIENTO=0` en `.env.local` |
+| Claves de `.env.local` | No llegan a Claude (entorno con lista blanca) | Igual |
+| Aprobar gastos | Bloqueado | Bloqueado por reglas (no por sandbox) |
+| Lectura/escritura con sus herramientas de archivos | Solo su carpeta | Solo su carpeta |
+
+Descargas permitidas en macOS/Linux: PyPI, GitHub, Hugging Face, npm, Google Fonts y sitios
+oficiales de FFmpeg. Más dominios: `LULO_CLAUDE_DOMINIOS=dominio1.com,dominio2.com`.
+
+---
+
+## 5. Dejarlo listo en Windows (PC de Sebas)
+
+1. **Actualizar el código**: `git pull` en `master`, luego en `frontend`: `npm install`.
+2. **Claude Code** (instalador nativo recomendado, deja `claude.exe` en `%USERPROFILE%\.local\bin`):
+   abrir PowerShell → instalar desde https://claude.com/claude-code → ejecutar `claude` → `/login`
+   con la cuenta Pro/Max propia. Comprobar con `claude auth status`.
+   - Si se instaló con npm (`claude.cmd`) también funciona; la app lo detecta.
+   - Si la app no lo encuentra: `CLAUDE_CLI_PATH=C:\ruta\a\claude.exe` en `frontend\.env.local`.
+3. **Git for Windows** (https://git-scm.com): Claude Code lo usa para ejecutar comandos. Sin él,
+   Claude solo usa las herramientas de Lulo (no FFmpeg/Python propios). Si está en otra ruta:
+   `CLAUDE_CODE_GIT_BASH_PATH=C:\Program Files\Git\bin\bash.exe`.
+4. **FFmpeg con libass** (subtítulos del editor): la versión «full» de gyan.dev. Si no está en el
+   PATH: `FFMPEG_PATH=` y `FFPROBE_PATH=` en `.env.local`. Evitar FFmpeg 8.0 / 8.0.1 (bug en `aselect`).
+5. **Carpeta de proyectos**: `D:\LuloStudio_Projects` (o `C:\…` si no hay D:). Se cambia en
+   Proyectos → ajustes de carpeta; debe ser una ruta completa.
+6. Arrancar: `cd frontend; npm run dev` → http://localhost:3000 → selector «IA» → «Claude · mi
+   suscripción» (debe decir «Plan pro» o «max»).
+7. **Regla manual pendiente** (Claude Code no puede editar ese archivo): en `.claude/settings.json`,
+   dentro de `"deny"`, añadir `"Bash(*api/studio*approvals*)"` y
+   `"PowerShell(*api/studio*approvals*)"`, para que Claude Code en la terminal tampoco apruebe
+   gastos del Estudio Claude.
+
+### Lo que se corrigió pensando en Windows
+
+- Una sola variable `PATH`/`Path` al lanzar Claude (antes podía no encontrar FFmpeg/Python).
+- Reglas de permisos con rutas en el formato que usa Claude Code en Windows (`/c/Users/...`).
+- Configuración del MCP y permisos en archivos, no en la línea de comandos (límite de 8191
+  caracteres de `cmd.exe` con `claude.cmd`); esquemas JSON largos van en el mensaje.
+- Comprobación de «archivo dentro de la carpeta» sin distinguir mayúsculas.
+- La carpeta de proyectos por defecto ya no crea `C:\…` relativo en macOS/Linux.
+
+> Todo esto se probó en macOS. **En Windows no se ha probado todavía**: es el primer paso pendiente.
+
+---
+
+## 6. Variables nuevas de `.env.local` (todas opcionales)
+
+| Variable | Para qué |
+|---|---|
+| `CLAUDE_CODE_MODEL` | Modelo de Claude Code (`sonnet` por defecto; `opus`/`haiku` según el plan). |
+| `CLAUDE_CLI_PATH` | Ruta a `claude`/`claude.exe` si la app no lo encuentra. |
+| `LULO_CLAUDE_DOMINIOS` | Dominios extra para descargas de Claude (macOS/Linux). |
+| `LULO_CLAUDE_BASH_SIN_AISLAMIENTO=0` | Windows: apagar los comandos de Claude (solo herramientas de Lulo). |
+| `FFMPEG_PATH`, `FFPROBE_PATH` | FFmpeg completo si no está en el PATH. |
+
+---
+
+## 7. Estado y pendientes
+
+| Servicio | Estado |
+|---|---|
+| UGC Studio | ✅ Probado con dinero real (UGC de Lulo Studio, 768p, $0,75). |
+| Edición de video con Claude | ✅ Probado (videos de 10–15 s): primer pase, cambios por chat, pantalla dividida, efectos. |
+| Estudio Claude | 🟡 Probado hasta la aprobación del render; falta render + montaje + edición desde el estudio. |
+| Director · generación | 🟡 Preparar y aprobar probados; generar y montar sin probar (≈ $0,61 del proyecto de zapatillas). |
+| Avatar, Voz, Imágenes desde el Estudio | 🧪 Funcionan en su pantalla; aún no se pueden usar desde el Estudio. |
+| Genjutsu, Buzzy | 🚧 En construcción. |
+
+Pendiente: probar todo en Windows; un video real hablando a cámara de 30–60 s en el editor;
+funciones avanzadas del editor (recorte de persona con PyTorch, Whisper local, caras con OpenCV).
