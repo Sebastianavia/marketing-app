@@ -204,11 +204,28 @@ export async function assembleFinal(id: string, opts: { pulirConClaude?: boolean
         }
       }
       const dur = (await probeMedia(voz.ruta)).duration ?? escenas.reduce((t, s) => t + s.duracionSeg, 0);
-      const { starts, total } = computeSceneStarts(
-        escenas.map((s) => s.dialogo.trim() || '…'),
-        alignment,
-        dur
-      );
+      let starts: number[];
+      let total: number;
+      if (escenas.every((s) => s.dialogo.trim())) {
+        // Cada escena empieza donde empieza su frase en la voz
+        ({ starts, total } = computeSceneStarts(
+          escenas.map((s) => s.dialogo.trim()),
+          alignment,
+          dur
+        ));
+      } else {
+        // Hay escenas sin diálogo: no tienen frase que buscar en la voz, así que los cortes siguen
+        // las duraciones planeadas, ajustadas a lo que dura la voz de verdad
+        const planned = escenas.reduce((t, s) => t + s.duracionSeg, 0) || 1;
+        const k = dur / planned;
+        starts = [];
+        let t = 0;
+        for (const s of escenas) {
+          starts.push(Number(t.toFixed(3)));
+          t += s.duracionSeg * k;
+        }
+        total = dur;
+      }
       await stitchScenes({ clips: clips.map((c) => ({ path: c })), starts, total, audioPath: voz.ruta, output, width, height, crossfade: safeCrossfade(starts, total, 0.3) });
     } else {
       // Avatar: a cada toma de apoyo se le pone su locución antes de unir
