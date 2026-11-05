@@ -94,7 +94,8 @@ export interface ClaudeCodeStatus {
 }
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-const MAX_CONCURRENT = 2;
+// 4: el Estudio Claude usa el editor (otro Claude) y este a su vez hace consultas internas
+const MAX_CONCURRENT = 4;
 
 // En globalThis: las rutas pueden cargar copias distintas de este módulo en desarrollo
 const g = globalThis as unknown as {
