@@ -77,12 +77,4 @@ export const STUDIO_SERVICES: StudioService[] = [
     costo: '—',
     herramientas: [],
   },
-  {
-    id: 'buzzy',
-    nombre: 'Buzzy',
-    estado: 'en_construccion',
-    hace: 'Plataforma externa de video. Falta la conexión (URL y clave del MCP).',
-    costo: '—',
-    herramientas: [],
-  },
 ];

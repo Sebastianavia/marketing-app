@@ -1,15 +1,28 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Check, Download, FolderOpen, ImagePlus, Loader2, Plus, UserRound, X } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  Coins,
+  Download,
+  FolderOpen,
+  ImagePlus,
+  Loader2,
+  Plus,
+  Sparkles,
+  UserRound,
+  X,
+} from 'lucide-react';
 import type { AvatarDto } from '@/lib/avatars/avatar-dto';
 import { useNavStore } from '@/store/useNavStore';
 import {
   DEFAULT_IMAGE_MODEL,
-  IMAGE_ASPECTS,
   IMAGE_MODELS,
   REALISM_SUFFIX,
   getImageModel,
+  getModelAspectRatios,
+  getModelPixelDimensions,
 } from '@/config/image-models';
 
 /**
@@ -28,13 +41,40 @@ interface Result {
   url: string;
   path: string;
   costUSD: number;
+  creditsCost?: number;
+  estimated?: boolean;
+  taskId?: string;
+  actualTimeSec?: number;
+  resolution?: string;
+  aspectRatio?: string;
+  pixelDimensions?: string | null;
   prompt: string;
   /** Qué se envió de verdad al modelo (lo confirma el servidor). */
   sent?: string;
 }
 
-const usd = (n: number) => `$${n.toFixed(3)}`;
+const usd = (n: number) => `$${n.toFixed(n < 0.1 ? 4 : 3)}`;
+const creditsFmt = (n: number) => `${n.toFixed(4)} créd.`;
 const LAST_AVATAR_KEY = 'lulo.imageStudio.avatarId';
+
+const ASPECT_LABELS: Record<string, string> = {
+  '9:16': '9:16 (Vertical · Redes Sociales)',
+  '16:9': '16:9 (Horizontal)',
+  '1:1': '1:1 (Cuadrada)',
+  '4:5': '4:5 (Vertical · Feed IG)',
+  '5:4': '5:4 (Horizontal)',
+  '4:3': '4:3 (Horizontal)',
+  '3:4': '3:4 (Vertical)',
+  '3:2': '3:2 (Horizontal)',
+  '2:3': '2:3 (Vertical)',
+  '2:1': '2:1 (Panorámica H)',
+  '1:2': '1:2 (Panorámica V)',
+  '3:1': '3:1 (Ultra ancha H)',
+  '1:3': '1:3 (Ultra alta V)',
+  '21:9': '21:9 (Cine)',
+  '9:21': '9:21 (Cine vertical)',
+  auto: 'auto (Automático)',
+};
 
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -46,11 +86,12 @@ function readAsDataUrl(file: File): Promise<string> {
 }
 
 export function ImageStudioView() {
+  const initialSpec = getImageModel(DEFAULT_IMAGE_MODEL);
   const [refs, setRefs] = useState<RefImage[]>([]);
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState(DEFAULT_IMAGE_MODEL);
-  const [aspect, setAspect] = useState<string>('1:1');
-  const [resolution, setResolution] = useState('1K');
+  const [aspect, setAspect] = useState<string>(initialSpec.defaultAspectRatio ?? '9:16');
+  const [resolution, setResolution] = useState(initialSpec.defaultResolution ?? '2K');
   const [count, setCount] = useState(1);
   const [realism, setRealism] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -58,6 +99,7 @@ export function ImageStudioView() {
   const [results, setResults] = useState<Result[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const [avatars, setAvatars] = useState<AvatarDto[] | null>(null);
+
   // Si venimos de "Crear imágenes con este avatar", arranca con ese avatar elegido.
   const [avatarId, setAvatarIdState] = useState<string | null>(() => {
     const pending = useNavStore.getState().pendingAvatarId;
@@ -68,6 +110,7 @@ export function ImageStudioView() {
       return null;
     }
   });
+
   /** El avatar elegido se recuerda aunque recargues la página o cierres la app. */
   const setAvatarId = (id: string | null) => {
     setAvatarIdState(id);
@@ -78,6 +121,7 @@ export function ImageStudioView() {
       // sin almacenamiento: solo se pierde el recuerdo
     }
   };
+
   const takePendingAvatar = useNavStore((s) => s.takePendingAvatar);
   const openTool = useNavStore((s) => s.openTool);
 
@@ -90,12 +134,33 @@ export function ImageStudioView() {
   }, [takePendingAvatar]);
 
   const spec = getImageModel(model);
+  const modelAspects = getModelAspectRatios(spec);
+  const effectiveAspect = modelAspects.includes(aspect) ? aspect : spec.defaultAspectRatio ?? modelAspects[0] ?? '9:16';
   const avatar = avatars?.find((a) => a.id === avatarId) ?? null;
   /** Con avatar se reserva al menos un hueco para sus fotos. */
   const maxExtra = avatar ? spec.maxRefs - 1 : spec.maxRefs;
   const avatarUsed = avatar ? Math.min(avatar.photos.length, spec.maxRefs - refs.length) : 0;
-  const res = spec.resolutions.includes(resolution) ? resolution : spec.resolutions[0];
+  const res = spec.resolutions.includes(resolution) ? resolution : spec.defaultResolution ?? spec.resolutions[0];
   const unit = spec.pricePerImage[res] ?? 0;
+  const unitCredits = spec.creditsPerImage?.[res];
+  const pixelDims = getModelPixelDimensions(spec, effectiveAspect, res);
+  const maxFileMB = spec.maxRefSizeMB ?? (spec.provider === 'apimart' ? 20 : 10);
+
+  const handleModelChange = (nextModelId: string) => {
+    setModel(nextModelId);
+    const nextSpec = getImageModel(nextModelId);
+    if (nextSpec.defaultAspectRatio) {
+      setAspect(nextSpec.defaultAspectRatio);
+    } else {
+      const nextAspects = getModelAspectRatios(nextSpec);
+      if (!nextAspects.includes(aspect)) {
+        setAspect(nextAspects[0] ?? '9:16');
+      }
+    }
+    if (!nextSpec.resolutions.includes(resolution)) {
+      setResolution(nextSpec.defaultResolution ?? nextSpec.resolutions[0]);
+    }
+  };
 
   const addFiles = async (files: FileList | null) => {
     if (!files) return;
@@ -103,8 +168,8 @@ export function ImageStudioView() {
     const next: RefImage[] = [];
     for (const f of Array.from(files)) {
       if (!f.type.startsWith('image/')) continue;
-      if (f.size > 10 * 1024 * 1024) {
-        setError(`${f.name} pesa más de 10 MB.`);
+      if (f.size > maxFileMB * 1024 * 1024) {
+        setError(`${f.name} pesa más de ${maxFileMB} MB.`);
         continue;
       }
       next.push({ id: Math.random().toString(36).slice(2), name: f.name, dataUrl: await readAsDataUrl(f) });
@@ -119,7 +184,8 @@ export function ImageStudioView() {
   const generate = async () => {
     setError(null);
     if (prompt.trim().length < 3) return setError('Escribe qué imagen quieres.');
-    if (refs.length > maxExtra) return setError(`${spec.name} acepta hasta ${spec.maxRefs} imágenes en total; quita ${refs.length - maxExtra} referencia(s) extra.`);
+    if (refs.length > maxExtra)
+      return setError(`${spec.name} acepta hasta ${spec.maxRefs} imágenes en total; quita ${refs.length - maxExtra} referencia(s) extra.`);
     setBusy(true);
     try {
       const r = await fetch('/api/images/generate', {
@@ -129,7 +195,7 @@ export function ImageStudioView() {
           model,
           prompt,
           references: refs.map((x) => x.dataUrl),
-          aspectRatio: aspect,
+          aspectRatio: effectiveAspect,
           resolution: res,
           count,
           realism,
@@ -185,7 +251,9 @@ export function ImageStudioView() {
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Cargando avatares…
           </p>
         ) : avatars.length === 0 ? (
-          <p className="text-[12px] text-fg-subtle">Aún no tienes avatares con fotos. Créalos en «Creación de avatar» para generar siempre a la misma persona.</p>
+          <p className="text-[12px] text-fg-subtle">
+            Aún no tienes avatares con fotos. Créalos en «Creación de avatar» para generar siempre a la misma persona.
+          </p>
         ) : (
           <div className="flex gap-3 overflow-x-auto pb-1">
             {avatars.map((a) => {
@@ -229,7 +297,9 @@ export function ImageStudioView() {
         <div className="flex items-center justify-between">
           <h2 className="text-[13px] font-semibold text-fg">
             2. {avatar ? 'Referencias extra' : 'Imágenes de referencia'}{' '}
-            <span className="font-normal text-fg-subtle">({refs.length}/{maxExtra}, opcional)</span>
+            <span className="font-normal text-fg-subtle">
+              ({refs.length}/{maxExtra}, opcional · máx. {maxFileMB} MB c/u)
+            </span>
           </h2>
           <input ref={input} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
           <button type="button" onClick={() => input.current?.click()} className="btn-secondary h-8 px-3 text-[12px]">
@@ -271,8 +341,15 @@ export function ImageStudioView() {
       </section>
 
       {/* Prompt y ajustes */}
-      <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
-        <h2 className="text-[13px] font-semibold text-fg">3. ¿Qué imagen quieres?</h2>
+      <section className="space-y-4 rounded-xl border border-line bg-surface p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[13px] font-semibold text-fg">3. ¿Qué imagen quieres?</h2>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 py-0.5 text-[11px] text-fg-muted">
+            <Sparkles className="h-3 w-3 text-accent" />
+            Proveedor: <strong className="text-fg">{spec.provider === 'apimart' ? 'Apimart API' : 'OpenRouter API'}</strong>
+          </span>
+        </div>
+
         <textarea
           rows={4}
           value={prompt}
@@ -284,6 +361,7 @@ export function ImageStudioView() {
           }
           className="input-clean w-full resize-y p-3 text-[13px] leading-relaxed"
         />
+
         <label className="flex cursor-pointer items-start gap-2 text-[12px] text-fg-muted">
           <input type="checkbox" checked={realism} onChange={(e) => setRealism(e.target.checked)} className="mt-0.5" />
           <span>
@@ -294,7 +372,7 @@ export function ImageStudioView() {
         <div className="grid gap-3 sm:grid-cols-4">
           <label className="space-y-1 text-[12px] text-fg-muted sm:col-span-2">
             <span className="block">Modelo</span>
-            <select value={model} onChange={(e) => setModel(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
+            <select value={model} onChange={(e) => handleModelChange(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
               {IMAGE_MODELS.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
@@ -303,11 +381,11 @@ export function ImageStudioView() {
             </select>
           </label>
           <label className="space-y-1 text-[12px] text-fg-muted">
-            <span className="block">Formato</span>
-            <select value={aspect} onChange={(e) => setAspect(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
-              {IMAGE_ASPECTS.map((a) => (
+            <span className="block">Relación de aspecto (size)</span>
+            <select value={effectiveAspect} onChange={(e) => setAspect(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
+              {modelAspects.map((a) => (
                 <option key={a} value={a}>
-                  {a}
+                  {ASPECT_LABELS[a] || a}
                 </option>
               ))}
             </select>
@@ -317,13 +395,45 @@ export function ImageStudioView() {
             <select value={res} onChange={(e) => setResolution(e.target.value)} className="input-clean h-9 w-full px-2 text-[13px]">
               {spec.resolutions.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {r} {spec.pixelDimensions?.[effectiveAspect]?.[r] ? `(${spec.pixelDimensions[effectiveAspect][r]})` : ''}
                 </option>
               ))}
             </select>
           </label>
         </div>
+
         <p className="text-[11px] text-fg-subtle">{spec.note}</p>
+
+        {/* Desglose transparente de tarifas y resolución */}
+        <div className="rounded-lg border border-line bg-surface-2/60 p-3 text-[12px]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-fg">
+              <Coins className="h-4 w-4 text-accent" />
+              <span className="font-medium">Desglose de tarifa ({spec.name})</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 tabular-nums">
+              <span className="text-fg-muted">
+                Unitario ({res}): <strong className="text-fg">{usd(unit)}</strong>
+                {typeof unitCredits === 'number' && <span className="text-fg-subtle"> ({creditsFmt(unitCredits)})</span>}
+              </span>
+              <span className="text-fg-muted">
+                Total ({count} {count === 1 ? 'imagen' : 'imágenes'}): <strong className="text-fg">{usd(unit * count)}</strong>
+                {typeof unitCredits === 'number' && <span className="text-fg-subtle"> ({creditsFmt(unitCredits * count)})</span>}
+              </span>
+            </div>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-fg-subtle">
+            <span>
+              Formato seleccionado: <strong className="text-fg-muted">{effectiveAspect}</strong>
+              {pixelDims ? ` → salida ${pixelDims} px` : ''} · Referencias: hasta {spec.maxRefs}
+            </span>
+            {spec.provider === 'apimart' && (
+              <span>
+                Se liquida y registra el costo exacto devuelto por Apimart (<code>cost</code> / <code>credits_cost</code>) al completar la tarea.
+              </span>
+            )}
+          </div>
+        </div>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
           <label className="flex items-center gap-2 text-[12px] text-fg-muted">
@@ -336,7 +446,10 @@ export function ImageStudioView() {
               ))}
             </select>
           </label>
-          <span className="text-[12px] tabular-nums text-fg-muted">≈ {usd(unit * count)}</span>
+          <span className="text-[12px] tabular-nums text-fg-muted">
+            ≈ {usd(unit * count)}
+            {typeof unitCredits === 'number' ? ` (${creditsFmt(unitCredits * count)})` : ''}
+          </span>
           <span className={`text-[12px] ${avatar || refs.length ? 'text-fg-muted' : 'text-amber-600 dark:text-amber-400'}`}>
             {avatar
               ? `Con ${avatar.name} (${avatarUsed} fotos)${refs.length ? ` + ${refs.length} ref.` : ''}`
@@ -346,7 +459,13 @@ export function ImageStudioView() {
           </span>
           <button type="button" onClick={generate} disabled={busy} className="btn-primary ml-auto h-10 px-5 text-[13px]">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {busy ? 'Generando…' : count > 1 ? `Generar ${count} imágenes` : 'Generar imagen'}
+            {busy
+              ? spec.provider === 'apimart'
+                ? 'Procesando tarea en Apimart…'
+                : 'Generando…'
+              : count > 1
+                ? `Generar ${count} imágenes`
+                : 'Generar imagen'}
           </button>
         </div>
       </section>
@@ -368,7 +487,21 @@ export function ImageStudioView() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={r.url} alt={r.prompt} className="w-full bg-surface-2 object-contain" />
                 <figcaption className="flex flex-wrap items-center gap-2 p-3 text-[11px] text-fg-muted">
-                  <span className="tabular-nums">{usd(r.costUSD)}</span>
+                  <span className="font-medium tabular-nums text-fg" title={r.estimated ? 'Costo estimado de catálogo' : 'Costo real liquidado por la API'}>
+                    {usd(r.costUSD)}
+                  </span>
+                  {typeof r.creditsCost === 'number' && (
+                    <span className="tabular-nums text-fg-subtle">({creditsFmt(r.creditsCost)})</span>
+                  )}
+                  {r.aspectRatio && r.resolution && (
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-fg-subtle">
+                      {r.aspectRatio} · {r.resolution}
+                      {r.pixelDimensions ? ` (${r.pixelDimensions})` : ''}
+                    </span>
+                  )}
+                  {typeof r.actualTimeSec === 'number' && (
+                    <span className="text-fg-subtle">· {r.actualTimeSec}s</span>
+                  )}
                   {r.sent && <span>· {r.sent}</span>}
                   <a href={r.url} download className="ml-auto flex items-center gap-1 hover:text-fg">
                     <Download className="h-3.5 w-3.5" /> Descargar

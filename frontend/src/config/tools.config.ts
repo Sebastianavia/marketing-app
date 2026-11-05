@@ -4,15 +4,14 @@ import {
   FolderOpen,
   LayoutGrid,
   ScanFace,
-  UserRound,
+  SquareUserRound,
   Megaphone,
-  Sparkles,
+  WandSparkles,
   Receipt,
   ImagePlus,
   Scissors,
-  Contact,
+  UsersRound,
   BookOpenText,
-  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,7 +29,6 @@ export type ToolId =
   | 'voice-studio'
   | 'image-studio'
   | 'avatars'
-  | 'buzzy'
   | 'prompt-library'
   | 'projects'
   | 'costs';
@@ -57,7 +55,7 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     formula: 'Pídele un video → Claude lo hace',
     description:
       'Un chat a pantalla completa: Claude elige las herramientas de la app, te muestra el plan y los costos, pide tu aprobación antes de gastar y te entrega el video ahí mismo.',
-    icon: MessagesSquare,
+    icon: WandSparkles,
     engines: 'Claude (tu suscripción) · UGC Studio · Edición de video',
   },
   'avatar-studio': {
@@ -66,7 +64,7 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     formula: 'Foto + voz → video hablado',
     description:
       'Convierte un retrato y una locución en un presentador con sincronización labial, listo para anuncios verticales.',
-    icon: UserRound,
+    icon: SquareUserRound,
     engines: 'ElevenLabs · HeyGen Avatar IV',
     shortcut: '1',
   },
@@ -108,6 +106,7 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
       'Sube un video hablando a cámara: la IA quita pausas, errores y repeticiones, pone subtítulos con tu perfil y te lo devuelve listo para publicar.',
     icon: Scissors,
     engines: 'ElevenLabs Scribe · IA del selector · FFmpeg',
+    shortcut: '6',
   },
   'voice-studio': {
     id: 'voice-studio',
@@ -132,18 +131,8 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
     title: 'Creación de avatar',
     formula: 'Nombre + 8–14 fotos → avatar reutilizable',
     description: 'Guarda personas (reales o creadas) con varias fotos para generarlas idénticas en cualquier escena.',
-    icon: Contact,
+    icon: UsersRound,
     engines: 'Guardado local · carpeta Avatares',
-  },
-  buzzy: {
-    id: 'buzzy',
-    title: 'Buzzy',
-    formula: 'Idea → escenas consistentes',
-    description: 'Videos largos y anuncios UGC con Seedance 2.5, Wan 3.0 y MiniMax H3 a través de Buzzy.',
-    icon: Sparkles,
-    engines: 'Buzzy · MCP',
-    preview: true,
-    shortcut: '6',
   },
   'prompt-library': {
     id: 'prompt-library',
@@ -173,7 +162,7 @@ export const TOOLS: Record<ToolId, ToolDefinition> = {
 };
 
 /** Identificadores antiguos que pueden venir de proyectos guardados o atajos viejos. */
-export const LEGACY_TOOL_IDS: Record<string, ToolId> = { busi: 'buzzy' };
+export const LEGACY_TOOL_IDS: Record<string, ToolId> = {};
 
 export function normalizeToolId(id: string): ToolId | null {
   if (id in TOOLS) return id as ToolId;
@@ -183,20 +172,21 @@ export function normalizeToolId(id: string): ToolId | null {
 /** Herramientas principales del dashboard (tarjetas grandes). */
 export const PRIMARY_TOOLS: ToolId[] = ['avatar-studio', 'deep-swap', 'ugc-generator', 'text-to-video', 'image-studio', 'avatars'];
 
-/** Orden de la barra lateral. */
-export const NAV_ORDER: ToolId[] = [
-  'claude-studio',
-  'avatar-studio',
-  'deep-swap',
-  'ugc-generator',
-  'text-to-video',
-  'video-editor',
-  'image-studio',
-  'avatars',
-  'voice-studio',
-  'buzzy',
-  'prompt-library',
+/**
+ * Barra lateral en grupos (se separan con una línea): asistente, crear video, edición, imagen, voz y recursos.
+ * Proyectos y Costos van abajo, aparte.
+ */
+export const NAV_GROUPS: ToolId[][] = [
+  ['claude-studio'],
+  ['text-to-video', 'avatar-studio', 'ugc-generator', 'deep-swap'],
+  ['video-editor'],
+  ['image-studio', 'avatars'],
+  ['voice-studio'],
+  ['prompt-library'],
 ];
+
+/** Orden de la barra lateral, en una sola lista. */
+export const NAV_ORDER: ToolId[] = NAV_GROUPS.flat();
 
 export const HOME_ICON = LayoutGrid;
 

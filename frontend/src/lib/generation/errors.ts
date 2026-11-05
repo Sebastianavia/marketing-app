@@ -13,3 +13,11 @@ export function assertOpenRouterKey(message = 'Falta OPENROUTER_API_KEY en .env.
   if (!key) throw new GenerationError(message, 400);
   return key;
 }
+
+export function assertApimartKey(message = 'Falta APIMART_API_KEY en .env.local.'): string {
+  const key = process.env.APIMART_API_KEY?.trim();
+  if (!key || key === 'am_live_xxxxxxxxxxxxxxxxxxxx') {
+    throw new GenerationError(message, 400);
+  }
+  return key;
+}

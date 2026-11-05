@@ -14,7 +14,6 @@ import { VoiceStudioView } from '@/components/tools/VoiceStudioView';
 import { ImageStudioView } from '@/components/tools/ImageStudioView';
 import { AvatarsView } from '@/components/tools/AvatarsView';
 import { useNavStore } from '@/store/useNavStore';
-import { BuzzyView } from '@/components/tools/BuzzyView';
 import { PromptLibraryView } from '@/components/tools/PromptLibraryView';
 import { CostsView } from '@/components/costs/CostsView';
 import { VideoEditorView } from '@/components/editor/VideoEditorView';
@@ -134,7 +133,6 @@ export default function Home() {
               {activeTool === 'voice-studio' && <VoiceStudioView />}
               {activeTool === 'image-studio' && <ImageStudioView />}
               {activeTool === 'avatars' && <AvatarsView />}
-              {activeTool === 'buzzy' && <BuzzyView />}
               {activeTool === 'prompt-library' && <PromptLibraryView />}
               {activeTool === 'video-editor' && <VideoEditorView />}
               {activeTool === 'costs' && <CostsView />}

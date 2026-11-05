@@ -4,18 +4,17 @@ import { DailyLimitError } from '@/lib/usage/usage-store';
 import { errorMessage } from '@/lib/errors';
 import { AvatarError } from '@/lib/avatars/avatar-store';
 import { generateImages, ImageRequestSchema } from '@/lib/generation/image';
-import { GenerationError, assertOpenRouterKey } from '@/lib/generation/errors';
+import { GenerationError } from '@/lib/generation/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 /**
- * Genera imágenes con la Image API de OpenRouter. La lógica vive en lib/generation/image.ts
- * (la comparte el Director); aquí solo se valida la entrada y se traducen los errores a HTTP.
+ * Genera imágenes con Apimart (GPT-Image-2) o la Image API de OpenRouter.
+ * La lógica vive en lib/generation/image.ts (la comparte el Director); aquí solo se valida la entrada y se traducen los errores a HTTP.
  */
 export async function POST(req: NextRequest) {
   try {
-    assertOpenRouterKey();
     const body = ImageRequestSchema.parse(await req.json());
     return NextResponse.json(await generateImages(body, { tool: 'image-studio', saveProject: true }));
   } catch (err) {

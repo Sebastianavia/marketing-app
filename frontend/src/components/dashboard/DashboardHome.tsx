@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Image from 'next/image';
-import { ArrowUpRight, Plus, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Plus, Scissors, Sparkles } from 'lucide-react';
 import { TOOLS, type ToolId } from '@/config/tools.config';
 
 /**
@@ -34,6 +34,17 @@ const SCENES = [
   { label: 'Avatar · problema', src: '/dashboard/presenter.jpg', pos: 'center 30%', grow: 2 },
   { label: 'Toma de apoyo', src: '/dashboard/super.jpg', pos: 'center 35%', grow: 3 },
   { label: 'Llamado a la acción', src: '/dashboard/presenter.jpg', pos: 'center 25%', grow: 2 },
+];
+
+/** Línea de tiempo del editor: tramos que se quedan y tramos que la IA corta (pausas, errores). */
+const EDIT_TRACK: { grow: number; cut?: 'pausa' | 'error' }[] = [
+  { grow: 5 },
+  { grow: 2, cut: 'pausa' },
+  { grow: 7 },
+  { grow: 3, cut: 'error' },
+  { grow: 6 },
+  { grow: 2, cut: 'pausa' },
+  { grow: 4 },
 ];
 
 const AVATAR_PHOTOS = ['av1', 'av2', 'av3', 'av4', 'av5', 'av6', 'av7'];
@@ -248,8 +259,42 @@ export function DashboardHome({ onOpen }: DashboardHomeProps) {
           </div>
         </BentoCard>
 
-        {/* 05 Creación de imágenes */}
-        <BentoCard id="image-studio" index={4} onOpen={onOpen} className="md:col-span-6">
+        {/* 05 Edición de video */}
+        <BentoCard id="video-editor" index={4} onOpen={onOpen} className="md:col-span-5">
+          <div className="flex w-full gap-4">
+            <div className="relative h-[220px] w-[124px] shrink-0 overflow-hidden rounded-[14px] border border-line bg-surface-2">
+              <Photo src="/dashboard/podcast.jpg" alt="Video en bruto hablando a cámara" position="40% center" />
+              <span className={`absolute left-2.5 top-2.5 ${OVERLAY_TAG}`}>EN BRUTO</span>
+              <span className="absolute inset-x-2 bottom-3 rounded-md bg-black/80 px-1.5 py-1 text-center text-[11px] font-black uppercase leading-tight text-[#c6ff3d]">
+                Esto lo cambia todo
+              </span>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col justify-center gap-3">
+              <span className="font-mono text-[11px] uppercase text-fg-subtle">La IA corta y subtitula</span>
+              <div className="flex h-9 gap-1" aria-hidden>
+                {EDIT_TRACK.map((t, i) => (
+                  <span
+                    key={i}
+                    className={`rounded-[5px] ${t.cut ? 'border border-dashed border-line-strong bg-transparent' : 'bg-accent/80'}`}
+                    style={{ flex: `${t.grow} 1 0` }}
+                  />
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+                <span className="flex items-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-1.5 py-1 text-fg-muted">
+                  <Scissors className="h-3 w-3" /> − pausas
+                </span>
+                <span className="flex items-center gap-1 whitespace-nowrap rounded-md border border-line-strong px-1.5 py-1 text-fg-muted">
+                  <Scissors className="h-3 w-3" /> − errores
+                </span>
+                <span className="whitespace-nowrap rounded-md bg-fg px-1.5 py-1 font-semibold text-bg">Subtítulos</span>
+              </div>
+            </div>
+          </div>
+        </BentoCard>
+
+        {/* 06 Creación de imágenes */}
+        <BentoCard id="image-studio" index={5} onOpen={onOpen} className="md:col-span-7">
           <div className="grid w-full grid-cols-3 gap-2">
             <div className="relative row-span-2 flex min-h-[220px] items-end overflow-hidden rounded-[14px] border border-line bg-surface-2 p-2.5">
               <Photo src="/dashboard/super.jpg" alt="Imagen generada: supermercado" sizes="260px" />
@@ -270,8 +315,8 @@ export function DashboardHome({ onOpen }: DashboardHomeProps) {
           </div>
         </BentoCard>
 
-        {/* 06 Creación de avatar */}
-        <BentoCard id="avatars" index={5} onOpen={onOpen} className="md:col-span-6">
+        {/* 07 Creación de avatar */}
+        <BentoCard id="avatars" index={6} onOpen={onOpen} className="md:col-span-7">
           <div className="flex w-full flex-col justify-center gap-3.5">
             <div className="grid grid-cols-7 gap-2">
               {Array.from({ length: 14 }, (_, i) => {
@@ -296,8 +341,8 @@ export function DashboardHome({ onOpen }: DashboardHomeProps) {
           </div>
         </BentoCard>
 
-        {/* 07 Voice Studio */}
-        <BentoCard id="voice-studio" index={6} onOpen={onOpen} compact className="md:col-span-4">
+        {/* 08 Voice Studio */}
+        <BentoCard id="voice-studio" index={7} onOpen={onOpen} compact className="md:col-span-5">
           <div className="flex w-full flex-col justify-center gap-4">
             <div className="flex h-[90px] items-center gap-[3px] overflow-hidden" aria-hidden>
               {VOICE_WAVE.map((h, i) => (
@@ -316,8 +361,8 @@ export function DashboardHome({ onOpen }: DashboardHomeProps) {
           </div>
         </BentoCard>
 
-        {/* 08 Proyectos */}
-        <BentoCard id="projects" index={7} onOpen={onOpen} compact className="md:col-span-4">
+        {/* 09 Proyectos */}
+        <BentoCard id="projects" index={8} onOpen={onOpen} compact className="md:col-span-6">
           <div className="w-full rounded-[14px] border border-line bg-surface-2 px-4 py-3 font-mono text-[12px] leading-8 text-fg-muted">
             <div className="text-fg">▾ LuloStudio_Projects/</div>
             <div className="pl-4">
@@ -335,8 +380,8 @@ export function DashboardHome({ onOpen }: DashboardHomeProps) {
           </div>
         </BentoCard>
 
-        {/* 09 Costos */}
-        <BentoCard id="costs" index={8} onOpen={onOpen} compact className="md:col-span-4">
+        {/* 10 Costos */}
+        <BentoCard id="costs" index={9} onOpen={onOpen} compact className="md:col-span-6">
           <div className="flex w-full flex-col justify-end gap-2.5" aria-hidden>
             <div className="flex h-20 items-end gap-2">
               {COST_BARS.map((h, i) => (

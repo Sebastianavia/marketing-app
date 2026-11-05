@@ -3,13 +3,13 @@ import { cloudinaryStorageService } from '@/services/storage/cloudinary.service'
 import { errorMessage } from '@/lib/errors';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
-    const type = (formData.get('type') as 'image' | 'audio') || 'image';
+    const type = (formData.get('type') as 'image' | 'audio' | 'video') || 'image';
 
     if (!file) {
       return NextResponse.json(
@@ -26,6 +26,12 @@ export async function POST(req: NextRequest) {
       result = await cloudinaryStorageService.uploadImage(
         buffer,
         file.name || `portrait_${Date.now()}.jpg`
+      );
+    } else if (type === 'video') {
+      result = await cloudinaryStorageService.uploadVideo(
+        buffer,
+        file.name || `video_${Date.now()}.mp4`,
+        'lulo-studio/seedance-refs'
       );
     } else {
       result = await cloudinaryStorageService.uploadAudio(

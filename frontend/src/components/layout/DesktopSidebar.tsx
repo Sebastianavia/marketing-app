@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { LogOut } from 'lucide-react';
-import { HOME_ICON, NAV_ORDER, TOOLS, type ToolId } from '@/config/tools.config';
+import { HOME_ICON, NAV_GROUPS, TOOLS, type ToolId } from '@/config/tools.config';
 import { useAuthStore } from '@/store/useAuthStore';
 
 interface DesktopSidebarProps {
@@ -65,20 +65,25 @@ export function DesktopSidebar({ activeTool, onSelectTool }: DesktopSidebarProps
           onClick={() => onSelectTool(null)}
         />
         <div className="my-2 h-px w-6 bg-line" />
-        {NAV_ORDER.map((id) => {
-          const tool = TOOLS[id];
-          return (
-            <NavButton
-              key={id}
-              label={tool.title}
-              shortcut={tool.shortcut}
-              icon={tool.icon}
-              preview={tool.preview}
-              active={activeTool === id}
-              onClick={() => onSelectTool(id)}
-            />
-          );
-        })}
+        {NAV_GROUPS.map((group, g) => (
+          <React.Fragment key={g}>
+            {g > 0 && <div className="my-1.5 h-px w-5 bg-line" aria-hidden />}
+            {group.map((id) => {
+              const tool = TOOLS[id];
+              return (
+                <NavButton
+                  key={id}
+                  label={tool.title}
+                  shortcut={tool.shortcut}
+                  icon={tool.icon}
+                  preview={tool.preview}
+                  active={activeTool === id}
+                  onClick={() => onSelectTool(id)}
+                />
+              );
+            })}
+          </React.Fragment>
+        ))}
       </nav>
 
       <div className="flex w-full flex-col items-center gap-1">
