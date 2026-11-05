@@ -224,9 +224,32 @@ function describeStep(e: ToolUseEvent): ClaudeChatStep {
   return { herramienta: m ? `lulo: ${m[1]}` : e.name, detalle };
 }
 
+/** Comandos y archivos que ningún Claude de la app puede tocar (además de lo que impida el sandbox). */
+const AGENT_DENY = [
+  'Bash(*approve*)',
+  'Bash(*approvals*)',
+  'Bash(*reject*)',
+  'Bash(*director-token*)',
+  'Bash(*.env.local*)',
+  'Bash(*localhost:3000*)',
+  'Bash(*127.0.0.1:3000*)',
+  'Read(**/.env.local)',
+  'Read(**/director-token)',
+  'WebFetch(domain:localhost)',
+  'WebFetch(domain:127.0.0.1)',
+];
+
 function sandboxSettings(spec: AgentSpec, dirs: { tools: string; fuentes: string; modelos: string }, mode: SandboxMode) {
   const settings: Record<string, unknown> = {
-    permissions: { deny: spec.protectedFiles.flatMap((f) => [`Edit(./${f})`, `Write(./${f})`]) },
+    permissions: {
+      deny: [
+        ...spec.protectedFiles.flatMap((f) => [`Edit(./${f})`, `Write(./${f})`]),
+        // Aprobar gastos es solo de la persona en la app. En macOS/Linux el sandbox ya bloquea
+        // localhost; en Windows (sin sandbox) esto evita que Claude se apruebe a sí mismo con un
+        // comando o lea el token del Director o las claves.
+        ...AGENT_DENY,
+      ],
+    },
   };
   if (mode === 'aislado') {
     settings.sandbox = {
