@@ -400,6 +400,23 @@ const AVATAR_MODEL = 'heygen/avatar-iv';
 /** ElevenLabs habla ~15 caracteres por segundo en español: para estimar antes de generar la voz. */
 const CHARS_PER_SEC = 15;
 
+/**
+ * Foto lista para subir: Cloudinary gratis no acepta imágenes de más de 10 MB y HeyGen no necesita
+ * más de 2048 px. Se reduce con sharp si pesa más de 8 MB (si sharp no está, se sube tal cual).
+ */
+async function photoForUpload(file: string): Promise<{ buffer: Buffer; name: string }> {
+  const raw = await fs.readFile(file);
+  if (raw.length <= 8 * 1024 * 1024) return { buffer: raw, name: path.basename(file) };
+  try {
+    type SharpFn = (b: Buffer) => { rotate: () => { resize: (o: object) => { jpeg: (o: object) => { toBuffer: () => Promise<Buffer> } } } };
+    const sharp = ((await import('sharp')) as unknown as { default: SharpFn }).default;
+    const out = await sharp(raw).rotate().resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+    return { buffer: out, name: `${path.parse(file).name}.jpg` };
+  } catch {
+    return { buffer: raw, name: path.basename(file) };
+  }
+}
+
 const AvatarInput = z.object({
   avatarId: z.string().optional().describe('Avatar guardado (avatares_y_voces). Se usa su foto de portada.'),
   foto: z.string().optional().describe('O una foto de tu carpeta (p. ej. adjuntos/cara.jpg) con la persona de frente.'),
@@ -491,10 +508,16 @@ const avatarVideo = tool({
     const videoUSD = Number((seconds * videoRate(AVATAR_MODEL)).toFixed(4));
     assertBudget(await getStudioProject(id), input.aprobacionId, vozUSD + videoUSD);
 
+    const pic = await photoForUpload(photo);
     const [img, aud] = await Promise.all([
-      cloudinaryStorageService.uploadImage(await fs.readFile(photo), path.basename(photo), 'lulo-studio/portraits'),
+      cloudinaryStorageService.uploadImage(pic.buffer, pic.name, 'lulo-studio/portraits'),
       cloudinaryStorageService.uploadAudio(await fs.readFile(audioPath), path.basename(audioPath), 'lulo-studio/audio'),
     ]);
+    // Los archivos en Cloudinary solo hacen falta durante el render (plan gratis: 25 créditos/mes)
+    const cleanup = () =>
+      Promise.all([cloudinaryStorageService.deleteAsset(img.publicId, 'image'), cloudinaryStorageService.deleteAsset(aud.publicId, 'video')]).catch(
+        () => undefined
+      );
     const job = await createRenderJob({
       tool: 'claude-studio',
       title: `Estudio Claude · avatar · ${p.titulo}`,
@@ -515,6 +538,8 @@ const avatarVideo = tool({
       await sleep(5000);
       done = await getJob(job.id);
     }
+    // Terminado (bien o mal): ya no hacen falta en Cloudinary. Si sigue en curso, se dejan.
+    if (!done || done.status === 'completed' || done.status === 'failed') void cleanup();
     if (!done || done.status === 'failed') throw new StudioError(`El render del avatar falló: ${done?.error ?? 'sin detalle'}`, 502);
     if (done.status !== 'completed' || !done.outputPath) throw new StudioError(`El avatar sigue renderizándose (trabajo ${job.id}); vuelve a mirar más tarde.`, 504);
 
