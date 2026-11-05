@@ -12,6 +12,7 @@ import {
   Scissors,
   Contact,
   BookOpenText,
+  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -20,6 +21,7 @@ import {
  * los atajos de teclado y el encabezado del modo enfoque.
  */
 export type ToolId =
+  | 'claude-studio'
   | 'avatar-studio'
   | 'deep-swap'
   | 'ugc-generator'
@@ -49,6 +51,15 @@ export interface ToolDefinition {
 }
 
 export const TOOLS: Record<ToolId, ToolDefinition> = {
+  'claude-studio': {
+    id: 'claude-studio',
+    title: 'Estudio Claude',
+    formula: 'Pídele un video → Claude lo hace',
+    description:
+      'Un chat a pantalla completa: Claude elige las herramientas de la app, te muestra el plan y los costos, pide tu aprobación antes de gastar y te entrega el video ahí mismo.',
+    icon: MessagesSquare,
+    engines: 'Claude (tu suscripción) · UGC Studio · Edición de video',
+  },
   'avatar-studio': {
     id: 'avatar-studio',
     title: 'Avatar Studio',
@@ -174,6 +185,7 @@ export const PRIMARY_TOOLS: ToolId[] = ['avatar-studio', 'deep-swap', 'ugc-gener
 
 /** Orden de la barra lateral. */
 export const NAV_ORDER: ToolId[] = [
+  'claude-studio',
   'avatar-studio',
   'deep-swap',
   'ugc-generator',

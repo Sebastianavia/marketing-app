@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Paperclip,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -78,7 +79,17 @@ export interface ClaudeAgentChatProps {
   refreshOnStep?: boolean;
   /** Ocupa todo el alto del contenedor (panel lateral) en vez de ser una tarjeta. */
   fill?: boolean;
+  /** Dibuja un medio cuando Claude escribe [[media:ID]] en una línea (Estudio Claude). */
+  renderMedia?: (id: string) => React.ReactNode;
+  /** Contenido fijo sobre el campo de texto (p. ej. tarjetas de aprobación). */
+  topSlot?: React.ReactNode;
+  /** Adjuntar archivos: los guarda y devuelve sus rutas, que se añaden al mensaje. */
+  onAttach?: (files: File[]) => Promise<string[]>;
 }
+
+/** Quién dibuja los [[media:ID]] dentro de los mensajes. */
+const MediaContext = createContext<((id: string) => React.ReactNode) | null>(null);
+const MEDIA_LINE = /^\s*\[\[media:([a-z0-9_]+)\]\]\s*$/;
 
 export function ClaudeAgentChat({
   endpoint,
@@ -91,7 +102,12 @@ export function ClaudeAgentChat({
   stepNames = {},
   refreshOnStep = false,
   fill = false,
+  renderMedia,
+  topSlot,
+  onAttach,
 }: ClaudeAgentChatProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [attaching, setAttaching] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [modo, setModo] = useState<SandboxMode | null>(null);
   const [input, setInput] = useState('');
@@ -126,7 +142,7 @@ export function ClaudeAgentChat({
           setLive((prev) => applyEvent(prev ?? { texto: '', pasos: [] }, e));
         },
         ac.signal,
-        () => setLive((prev) => prev ?? { texto: '', pasos: [] })
+        () => setLive((prev) => prev ?? { texto: '', pasos: [] }),
       );
       if (!r.activo) {
         if (r.modo) setModo(r.modo);
@@ -207,94 +223,133 @@ export function ClaudeAgentChat({
   const busy = Boolean(live) || sending;
 
   return (
-    <section className={fill ? 'flex h-full min-h-0 flex-col gap-3 p-4' : 'space-y-3 rounded-xl border border-line bg-surface p-5'}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-accent" />
-          <h3 className="text-[14px] font-semibold text-fg">{title}</h3>
-          {info && (
-            <span
-              title={info.hint}
-              className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                info.safe ? 'border-line text-fg-muted' : 'border-amber-500/40 text-amber-600 dark:text-amber-400'
-              }`}
-            >
-              {info.safe ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
-              {info.label}
-            </span>
-          )}
-        </div>
-        {mensajes.length > 0 && !busy && (
-          <button type="button" onClick={reset} className="btn-secondary h-7 px-2.5 text-[11px]">
-            <RotateCcw className="h-3 w-3" /> Nueva conversación
-          </button>
-        )}
-      </div>
-      {intro && <p className="text-[12px] text-fg-subtle">{intro}</p>}
-
-      {(mensajes.length > 0 || live) && (
-        <div ref={listRef} className={`desktop-scroll space-y-3 overflow-y-auto pr-1 ${fill ? 'min-h-0 flex-1' : 'max-h-[460px]'}`}>
-          {mensajes.map((m) => (
-            <Message key={m.id} m={m} names={names} />
-          ))}
-          {live && <LiveMessage live={live} names={names} />}
-          {waiting && (
-            <p className="flex items-center gap-1.5 text-[11px] text-fg-subtle">
-              <Loader2 className="h-3 w-3 animate-spin" /> Claude se está preparando…
-            </p>
-          )}
-        </div>
-      )}
-      {fill && mensajes.length === 0 && !live && <div className="flex-1" />}
-
-      {error && (
-        <p className="flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-[12px] text-rose-600 dark:text-rose-400">
-          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
-        </p>
-      )}
-
-      {mensajes.length === 0 && !live && suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setInput(s)}
-              className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg-muted hover:bg-surface-2 hover:text-fg"
-            >
-              {s}
+    <MediaContext.Provider value={renderMedia ?? null}>
+      <section className={fill ? 'flex h-full min-h-0 flex-col gap-3 p-4' : 'space-y-3 rounded-xl border border-line bg-surface p-5'}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-accent" />
+            <h3 className="text-[14px] font-semibold text-fg">{title}</h3>
+            {info && (
+              <span
+                title={info.hint}
+                className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                  info.safe ? 'border-line text-fg-muted' : 'border-amber-500/40 text-amber-600 dark:text-amber-400'
+                }`}
+              >
+                {info.safe ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
+                {info.label}
+              </span>
+            )}
+          </div>
+          {mensajes.length > 0 && !busy && (
+            <button type="button" onClick={reset} className="btn-secondary h-7 px-2.5 text-[11px]">
+              <RotateCcw className="h-3 w-3" /> Nueva conversación
             </button>
-          ))}
+          )}
         </div>
-      )}
+        {intro && <p className="text-[12px] text-fg-subtle">{intro}</p>}
 
-      <div className="flex items-end gap-2">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send(input);
-            }
-          }}
-          rows={2}
-          disabled={busy}
-          placeholder={busy ? 'Claude está trabajando…' : placeholder}
-          className="input-clean min-h-[44px] flex-1 resize-y px-3 py-2 text-[13px]"
-          aria-label="Mensaje para Claude"
-        />
-        {live ? (
-          <button type="button" onClick={stop} className="btn-secondary h-10 px-3 text-[12px]">
-            <Square className="h-3.5 w-3.5" /> Detener
-          </button>
-        ) : (
-          <button type="button" onClick={() => void send(input)} disabled={busy || !input.trim()} className="btn-primary h-10 px-4 text-[12px]">
-            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Enviar
-          </button>
+        {(mensajes.length > 0 || live) && (
+          <div ref={listRef} className={`desktop-scroll space-y-3 overflow-y-auto pr-1 ${fill ? 'min-h-0 flex-1' : 'max-h-[460px]'}`}>
+            {mensajes.map((m) => (
+              <Message key={m.id} m={m} names={names} />
+            ))}
+            {live && <LiveMessage live={live} names={names} />}
+            {waiting && (
+              <p className="flex items-center gap-1.5 text-[11px] text-fg-subtle">
+                <Loader2 className="h-3 w-3 animate-spin" /> Claude se está preparando…
+              </p>
+            )}
+          </div>
         )}
-      </div>
-    </section>
+        {fill && mensajes.length === 0 && !live && <div className="flex-1" />}
+
+        {error && (
+          <p className="flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-[12px] text-rose-600 dark:text-rose-400">
+            <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+          </p>
+        )}
+
+        {mensajes.length === 0 && !live && suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setInput(s)}
+                className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg-muted hover:bg-surface-2 hover:text-fg"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {topSlot}
+
+        <div className="flex items-end gap-2">
+          {onAttach && (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                hidden
+                accept="image/*,video/*,audio/*,application/pdf"
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = '';
+                  if (!files.length) return;
+                  setAttaching(true);
+                  try {
+                    const rutas = await onAttach(files);
+                    setInput((t) => `${t ? `${t.trim()}\n` : ''}Adjunté: ${rutas.join(', ')}`);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'No se pudieron adjuntar.');
+                  } finally {
+                    setAttaching(false);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={attaching}
+                className="btn-secondary h-10 w-10 shrink-0 px-0"
+                aria-label="Adjuntar fotos, videos o audio"
+                title="Adjuntar fotos, videos o audio"
+              >
+                {attaching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              </button>
+            </>
+          )}
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void send(input);
+              }
+            }}
+            rows={2}
+            disabled={busy}
+            placeholder={busy ? 'Claude está trabajando…' : placeholder}
+            className="input-clean min-h-[44px] flex-1 resize-y px-3 py-2 text-[13px]"
+            aria-label="Mensaje para Claude"
+          />
+          {live ? (
+            <button type="button" onClick={stop} className="btn-secondary h-10 px-3 text-[12px]">
+              <Square className="h-3.5 w-3.5" /> Detener
+            </button>
+          ) : (
+            <button type="button" onClick={() => void send(input)} disabled={busy || !input.trim()} className="btn-primary h-10 px-4 text-[12px]">
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Enviar
+            </button>
+          )}
+        </div>
+      </section>
+    </MediaContext.Provider>
   );
 }
 
@@ -391,21 +446,29 @@ const LIST_ITEM = /^\s*([-*]|\d+\.)\s+/;
 
 /** Markdown mínimo: párrafos, listas con "-" o "1.", **negrita** y `código`. */
 function RichText({ text }: { text: string }) {
+  const renderMedia = useContext(MediaContext);
   const blocks = text.split(/\n{2,}/);
   return (
     <div className="space-y-1.5 text-[13px] leading-relaxed text-fg">
       {blocks.flatMap((b, i) => {
         // Dentro de un bloque, las líneas seguidas que empiezan con "-", "*" o "1." forman una lista
         // (aunque vengan justo debajo de un título sin línea en blanco)
-        const groups: Array<{ list: boolean; lines: string[] }> = [];
+        const groups: Array<{ list: boolean; media?: string; lines: string[] }> = [];
         for (const line of b.split('\n')) {
+          const media = renderMedia ? MEDIA_LINE.exec(line)?.[1] : undefined;
+          if (media) {
+            groups.push({ list: false, media, lines: [] });
+            continue;
+          }
           const list = LIST_ITEM.test(line);
           const last = groups[groups.length - 1];
-          if (last && last.list === list) last.lines.push(line);
+          if (last && !last.media && last.list === list) last.lines.push(line);
           else groups.push({ list, lines: [line] });
         }
         return groups.map((g, j) =>
-          g.list ? (
+          g.media && renderMedia ? (
+            <div key={`${i}-${j}`}>{renderMedia(g.media)}</div>
+          ) : g.list ? (
             <ul key={`${i}-${j}`} className="list-disc space-y-0.5 pl-5">
               {g.lines.map((l, k) => (
                 <li key={k}>{inline(l.replace(LIST_ITEM, ''))}</li>
@@ -415,7 +478,7 @@ function RichText({ text }: { text: string }) {
             <p key={`${i}-${j}`} className="whitespace-pre-wrap">
               {inline(g.lines.join('\n'))}
             </p>
-          )
+          ),
         );
       })}
     </div>

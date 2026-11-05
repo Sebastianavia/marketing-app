@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { TitleBar } from '@/components/layout/TitleBar';
 import { DesktopSidebar } from '@/components/layout/DesktopSidebar';
+import { ClaudeStudioView } from '@/components/studio/ClaudeStudioView';
 import { DashboardHome } from '@/components/dashboard/DashboardHome';
 import { AvatarStudioView } from '@/components/tools/AvatarStudioView';
 import { UgcGeneratorView } from '@/components/tools/UgcGeneratorView';
@@ -95,7 +96,14 @@ export default function Home() {
             </div>
           )}
 
-          {tool && tool.id !== 'ugc-generator' && (
+          {/* Estudio Claude: chat a pantalla completa */}
+          {tool?.id === 'claude-studio' && (
+            <div key={tool.id} className="animate-view-enter h-full">
+              <ClaudeStudioView onExit={() => setActiveTool(null)} />
+            </div>
+          )}
+
+          {tool && tool.id !== 'ugc-generator' && tool.id !== 'claude-studio' && (
             <div key={tool.id} className="animate-view-enter mx-auto w-full max-w-[1440px] px-4 pb-16 pt-5 sm:px-8">
               {/* Encabezado del modo enfoque */}
               <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
