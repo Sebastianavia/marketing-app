@@ -363,12 +363,18 @@ function claudeJsonSchema(schema: z.ZodType): object {
   return json;
 }
 
+/** JSON de una respuesta de texto: tal cual, dentro de un bloque ```json o el primer {…} que aparezca. */
 function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
+  const tries = [text, /```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1], text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)];
+  for (const t of tries) {
+    if (!t?.trim()) continue;
+    try {
+      return JSON.parse(t);
+    } catch {
+      // probar la siguiente forma
+    }
   }
+  return undefined;
 }
 
 /**

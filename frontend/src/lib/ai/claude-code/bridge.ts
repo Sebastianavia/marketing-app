@@ -538,7 +538,17 @@ export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeR
       '--setting-sources', 'local',
       '--no-session-persistence',
     ];
-    if (req.jsonSchema) args.push('--json-schema', JSON.stringify(req.jsonSchema));
+    if (req.jsonSchema) {
+      const schema = JSON.stringify(req.jsonSchema);
+      // claude.cmd (instalación con npm en Windows) pasa por cmd.exe, que corta la orden a 8191
+      // caracteres: un esquema largo va en el mensaje y la app valida la respuesta con zod
+      const viaCmd = /\.cmd$/i.test(resolveClaudeCli() ?? '');
+      if (viaCmd && schema.length > 4000) {
+        prompt += `\n\nResponde ÚNICAMENTE con un objeto JSON válido (sin texto alrededor ni bloques de código) que cumpla este JSON Schema:\n${schema}`;
+      } else {
+        args.push('--json-schema', schema);
+      }
+    }
 
     const r = await execClaude({
       args,
