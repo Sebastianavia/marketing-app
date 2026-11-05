@@ -12,6 +12,7 @@
  * stdout es el canal del protocolo: los mensajes de diagnóstico van a stderr.
  */
 import crypto from 'node:crypto';
+import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -99,25 +100,55 @@ class AppOfflineError extends Error {}
 const TOOL_TIMEOUT_MS = 5 * 60_000;
 const LIST_TIMEOUT_MS = 60_000;
 
+/**
+ * Petición a la app con node:http y no con fetch: el fetch de Node (undici) corta a los 300 s si la
+ * respuesta no empieza, y herramientas como el storyboard de UGC, un render o una edición tardan más.
+ * El tiempo máximo lo pone `timeoutMs`.
+ */
+function request(url, { method = 'GET', headers = {}, body } = {}, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(url, { method, headers }, (res) => {
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => (data += c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text: data }));
+      res.on('error', reject);
+    });
+    req.setTimeout(timeoutMs, () => {
+      const err = new Error('timeout');
+      err.name = 'TimeoutError';
+      req.destroy(err);
+    });
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
 async function callApp(pathname, init = {}, timeoutMs = LIST_TIMEOUT_MS) {
   const token = await readOrCreateToken();
   let res;
   try {
-    res = await fetch(`${APP_URL}${pathname}`, {
-      ...init,
-      headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token, ...init.headers },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    res = await request(
+      `${APP_URL}${pathname}`,
+      { ...init, headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token, ...init.headers } },
+      timeoutMs,
+    );
   } catch (err) {
     if (err?.name === 'TimeoutError') {
       throw new Error(
-        `Lulo Studio no respondió en ${Math.round(timeoutMs / 1000)} s. La tarea puede seguir en la app: revisa con ver_produccion antes de repetirla (no la lances dos veces).`,
+        `Lulo Studio no respondió en ${Math.round(timeoutMs / 1000)} s. La tarea puede seguir en la app: revisa el estado antes de repetirla (no la lances dos veces).`,
       );
     }
     throw new AppOfflineError(OFFLINE_MESSAGE);
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `La app respondió ${res.status}.`);
+  let data = {};
+  try {
+    data = JSON.parse(res.text);
+  } catch {
+    // respuesta no JSON
+  }
+  if (res.status < 200 || res.status >= 300) throw new Error(data.error || `La app respondió ${res.status}.`);
   return data;
 }
 

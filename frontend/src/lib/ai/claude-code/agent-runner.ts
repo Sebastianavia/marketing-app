@@ -364,6 +364,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       XDG_CACHE_HOME: path.join(dirs.tools, 'cache'),
       TORCH_HOME: path.join(dirs.tools, 'cache', 'torch'),
       LULO_HERRAMIENTAS: dirs.tools,
+      // Herramientas largas (storyboard, render, edición): que Claude Code no las corte antes
+      MCP_TOOL_TIMEOUT: String(40 * 60_000),
     });
 
     const exec = (stdin: string) =>
