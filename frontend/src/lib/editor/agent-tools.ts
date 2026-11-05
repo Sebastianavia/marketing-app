@@ -11,6 +11,7 @@ import { ffmpeg, probeVideo } from './media';
 import { keptIntervals, phraseText, subtitleWords } from './timeline';
 import { snapToFrames } from './render';
 import { ACTIVE_STATUSES, type EditProject } from './types';
+import { isInside } from '@/lib/fs/inside';
 
 /**
  * Herramientas de Claude sobre UNA edición (chat "Claude" de la pantalla de Edición).
@@ -98,8 +99,7 @@ async function waitForRender(editId: string, timeoutMs: number) {
 /** Ruta dentro de la carpeta de la edición (nunca fuera de ella). */
 function insideFolder(p: EditProject, rel: string): string {
   const abs = path.resolve(/*turbopackIgnore: true*/ p.carpeta, rel);
-  const root = path.resolve(/*turbopackIgnore: true*/ p.carpeta) + path.sep;
-  if (!abs.startsWith(root)) throw new AgentToolError('El archivo tiene que estar dentro de la carpeta de la edición.');
+  if (!isInside(p.carpeta, abs) || abs === path.resolve(/*turbopackIgnore: true*/ p.carpeta)) throw new AgentToolError('El archivo tiene que estar dentro de la carpeta de la edición.');
   return abs;
 }
 

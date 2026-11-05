@@ -18,6 +18,7 @@ import { defaultAppUrl } from '@/lib/ai/claude-code/agent-runner';
 import { ffmpeg, probeVideo } from '@/lib/editor/media';
 import { StudioError, getStudioProject, insideStudio, newApprovalId, newMediaId, updateStudioProject, type StudioProject } from './store';
 import { STUDIO_SERVICES } from './services';
+import { isInside } from '@/lib/fs/inside';
 
 /**
  * Herramientas de Claude en el Estudio Claude (MCP lulo-studio-chat, LULO_TOOLSET=studio).
@@ -39,8 +40,7 @@ const token = (id: string) => `[[media:${id}]]`;
 /** Una ruta que puede venir relativa a la carpeta del proyecto o absoluta dentro de la carpeta de proyectos. */
 async function resolveFile(p: StudioProject, file: string): Promise<string> {
   if (path.isAbsolute(file)) {
-    const base = path.resolve(/*turbopackIgnore: true*/ await getStorageBasePath()) + path.sep;
-    if (!path.resolve(file).startsWith(base)) throw new StudioError('Solo se pueden usar archivos de la carpeta de proyectos.');
+    if (!isInside(await getStorageBasePath(), file)) throw new StudioError('Solo se pueden usar archivos de la carpeta de proyectos.');
     return path.resolve(file);
   }
   return insideStudio(p, file);

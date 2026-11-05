@@ -6,6 +6,7 @@ import { ensureDataDir, readJson, writeJsonAtomic } from '@/lib/data/data-dir';
 import { getStorageBasePath, sanitizeProjectName } from '@/lib/storage/project-storage';
 import type { ClaudeChatState } from '@/lib/ai/claude-code/agent-types';
 import type { Storyboard, StudioSettings, UgcReference } from '@/types/ugc-studio.types';
+import { isInside } from '@/lib/fs/inside';
 
 /**
  * Estudio Claude: un chat a pantalla completa donde Claude hace el video usando las herramientas
@@ -134,8 +135,7 @@ export async function listStudioProjects(): Promise<StudioProject[]> {
 /** Ruta dentro de la carpeta del proyecto (nunca fuera). */
 export function insideStudio(p: StudioProject, rel: string): string {
   const abs = path.resolve(/*turbopackIgnore: true*/ p.carpeta, rel);
-  const root = path.resolve(/*turbopackIgnore: true*/ p.carpeta) + path.sep;
-  if (!abs.startsWith(root)) throw new StudioError('El archivo tiene que estar dentro de la carpeta del proyecto.');
+  if (!isInside(p.carpeta, abs) || abs === path.resolve(/*turbopackIgnore: true*/ p.carpeta)) throw new StudioError('El archivo tiene que estar dentro de la carpeta del proyecto.');
   return abs;
 }
 
