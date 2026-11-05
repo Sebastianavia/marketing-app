@@ -159,6 +159,8 @@ const ENV_ALLOW = new Set([
   'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE',
   'CLAUDE_CONFIG_DIR', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
   'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+  // Windows: Claude Code usa Git Bash para la herramienta Bash
+  'CLAUDE_CODE_GIT_BASH_PATH', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'ALLUSERSPROFILE', 'PUBLIC', 'COMPUTERNAME',
 ]);
 
 export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
@@ -166,7 +168,15 @@ export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv 
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && (ENV_ALLOW.has(k) || k.startsWith('LC_') || k.startsWith('XDG_'))) env[k] = v;
   }
-  return { ...env, ...extra } as NodeJS.ProcessEnv;
+  for (const [k, v] of Object.entries(extra)) {
+    // En Windows los nombres no distinguen mayúsculas ("Path" y "PATH" son la misma): se quita la
+    // copia anterior para que el proceso no reciba dos y se quede con la vieja
+    if (process.platform === 'win32') {
+      for (const old of Object.keys(env)) if (old.toLowerCase() === k.toLowerCase()) delete env[old];
+    }
+    env[k] = v;
+  }
+  return env as NodeJS.ProcessEnv;
 }
 
 function runQuick(cli: string, args: string[], timeoutMs = 15_000): Promise<{ code: number | null; stdout: string; stderr: string }> {
