@@ -239,6 +239,19 @@ const AGENT_DENY = [
   'WebFetch(domain:127.0.0.1)',
 ];
 
+/**
+ * Ruta absoluta en el formato de las reglas de permisos de Claude Code ("//ruta"). En Windows
+ * Claude Code compara rutas en forma POSIX: C:\\Users\\ana → /c/Users/ana.
+ */
+function rulePath(p: string): string {
+  if (process.platform === 'win32') {
+    const m = /^([a-zA-Z]):[\\/](.*)$/.exec(p);
+    if (m) return `/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`.replace(/\/+$/, '');
+    return p.replace(/\\/g, '/');
+  }
+  return p.replace(/\/+$/, '');
+}
+
 function sandboxSettings(spec: AgentSpec, dirs: { tools: string; fuentes: string; modelos: string }, mode: SandboxMode) {
   const settings: Record<string, unknown> = {
     permissions: {
@@ -270,7 +283,7 @@ function sandboxSettings(spec: AgentSpec, dirs: { tools: string; fuentes: string
 }
 
 function allowedTools(spec: AgentSpec, dirs: { tools: string; fuentes: string; modelos: string }, mode: SandboxMode): string[] {
-  const abs = (d: string) => `//${d.replace(/^\/+/, '')}/**`;
+  const abs = (d: string) => `/${rulePath(d)}/**`;
   const list = [
     'Read(./**)',
     'Write(./**)',
@@ -348,6 +361,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     await fsp.mkdir(workDir, { recursive: true });
     const systemFile = path.join(/*turbopackIgnore: true*/ workDir, '.sistema.txt');
     await fsp.writeFile(systemFile, spec.systemPrompt(ctx), 'utf8');
+    // Configuración en archivos y no en la línea de comandos: con claude.cmd (npm) Windows corta la
+    // orden a 8191 caracteres
 
     const mcpConfig = {
       mcpServers: {
@@ -360,6 +375,11 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       },
     };
 
+    const mcpFile = path.join(/*turbopackIgnore: true*/ workDir, '.mcp.json');
+    const settingsFile = path.join(/*turbopackIgnore: true*/ workDir, '.ajustes.json');
+    await fsp.writeFile(mcpFile, JSON.stringify(mcpConfig), 'utf8');
+    await fsp.writeFile(settingsFile, JSON.stringify(sandboxSettings(spec, dirs, mode)), 'utf8');
+
     const model = process.env.CLAUDE_CODE_MODEL?.trim() || CLAUDE_SUBSCRIPTION_MODEL;
     const args = [
       '-p',
@@ -368,9 +388,9 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       '--include-partial-messages',
       '--model', model,
       '--system-prompt-file', systemFile,
-      '--mcp-config', JSON.stringify(mcpConfig),
+      '--mcp-config', mcpFile,
       '--strict-mcp-config',
-      '--settings', JSON.stringify(sandboxSettings(spec, dirs, mode)),
+      '--settings', settingsFile,
       '--setting-sources', 'local',
       '--permission-mode', 'dontAsk',
       '--allowedTools', ...allowedTools(spec, dirs, mode),
