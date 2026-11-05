@@ -75,6 +75,9 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: ugc_montar': 'UGC: montando el video',
   'lulo: editar_video': 'Edición: el editor trabaja el video',
   'lulo: editar_mas': 'Edición: aplicando cambios',
+  'lulo: avatares_y_voces': 'Avatar: mirando avatares y voces',
+  'lulo: avatar_costo': 'Avatar: calculando el costo',
+  'lulo: avatar_video': 'Avatar: generando la voz y el video',
 };
 
 const SUGGESTIONS = [

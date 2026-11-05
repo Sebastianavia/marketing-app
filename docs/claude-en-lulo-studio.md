@@ -30,7 +30,7 @@ El detalle técnico de cada pieza está en `CLAUDE.md` (sección "Decisiones de 
 
 | Herramienta | Quién hace qué |
 |---|---|
-| **Estudio Claude** (nuevo, primera de la barra lateral) | Chat a pantalla completa: le pides un video y Claude elige y encadena las herramientas (UGC, edición), te muestra el plan, los costos, pide aprobación y te entrega el video en el chat. |
+| **Estudio Claude** (nuevo, primera de la barra lateral) | Chat a pantalla completa: le pides un video y Claude elige y encadena las herramientas (UGC, avatar que habla, edición), te muestra el plan, los costos, pide aprobación y te entrega el video en el chat. |
 | **Edición de video** | La app transcribe (ElevenLabs, ≈ $0,004/min) y **Claude hace la edición completa desde el principio**: mira el video, corta, pone gancho, subtítulos, zooms, efectos, pantalla dividida, color… El chat «Claude · editor» queda para pedir cambios. |
 | **UGC Studio** | **Gemini** (gratis) arma el storyboard con sus 14 agentes; **Claude** lo revisa como jefe de producción, manda corregir escenas y corrige erratas directamente; decide en el chat; al montar, el video pasa solo al editor y Claude lo pule. Renderizar pide tu confirmación. |
 | **Guion a video · Director** | Claude arma el proyecto desde la idea (ajustes, guion, prompts) y te guía. La generación del video (voz + tomas + montaje) está hecha pero **sin probar con dinero** (ver pendientes). |
@@ -121,7 +121,8 @@ oficiales de FFmpeg. Más dominios: `LULO_CLAUDE_DOMINIOS=dominio1.com,dominio2.
 | Edición de video con Claude | ✅ Probado (videos de 10–15 s): primer pase, cambios por chat, pantalla dividida, efectos. |
 | Estudio Claude | 🟡 Probado hasta la aprobación del render; falta render + montaje + edición desde el estudio. |
 | Director · generación | 🟡 Preparar y aprobar probados; generar y montar sin probar (≈ $0,61 del proyecto de zapatillas). |
-| Avatar, Voz, Imágenes desde el Estudio | 🧪 Funcionan en su pantalla; aún no se pueden usar desde el Estudio. |
+| Avatar Studio desde el Estudio | 🟡 Conectado (2026-11-05): Claude elige avatar o foto, voz y texto, pide aprobación y genera. Costo y listas probados; el video sin probar con dinero. |
+| Voz, Imágenes desde el Estudio | 🧪 Funcionan en su pantalla; aún no se pueden usar desde el Estudio (la voz sí se usa dentro del avatar). |
 | Genjutsu, Buzzy | 🚧 En construcción. |
 
 Pendiente: probar todo en Windows; un video real hablando a cámara de 30–60 s en el editor;

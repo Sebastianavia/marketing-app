@@ -18,6 +18,16 @@ import { defaultAppUrl } from '@/lib/ai/claude-code/agent-runner';
 import { ffmpeg, probeVideo } from '@/lib/editor/media';
 import { StudioError, getStudioProject, insideStudio, newApprovalId, newMediaId, updateStudioProject, type StudioProject } from './store';
 import { STUDIO_SERVICES } from './services';
+import { getAvatar, avatarPhotoPath, listAvatars } from '@/lib/avatars/avatar-store';
+import { getStoredVoices } from '@/lib/storage/voice-storage';
+import { getConfiguredVoiceId } from '@/services/elevenlabs/elevenlabs.service';
+import { synthesizeSpeech } from '@/lib/generation/voice';
+import { createRenderJob } from '@/lib/jobs/create-job';
+import { getJob } from '@/lib/jobs/job-store';
+import { probeMedia } from '@/lib/video/ffmpeg';
+import { ttsCost, videoRate } from '@/config/cost-rates';
+import { DEFAULT_ELEVEN_MODEL } from '@/config/elevenlabs-models';
+
 import { isInside } from '@/lib/fs/inside';
 
 /**
@@ -383,6 +393,142 @@ const editarMas = tool({
   },
 });
 
+
+// ── Avatar Studio (foto + voz → persona hablando, HeyGen Avatar IV) ─────────
+
+const AVATAR_MODEL = 'heygen/avatar-iv';
+/** ElevenLabs habla ~15 caracteres por segundo en español: para estimar antes de generar la voz. */
+const CHARS_PER_SEC = 15;
+
+const AvatarInput = z.object({
+  avatarId: z.string().optional().describe('Avatar guardado (avatares_y_voces). Se usa su foto de portada.'),
+  foto: z.string().optional().describe('O una foto de tu carpeta (p. ej. adjuntos/cara.jpg) con la persona de frente.'),
+  texto: z.string().max(3000).optional().describe('Lo que dice: se genera la voz con ElevenLabs.'),
+  audio: z.string().optional().describe('O un audio de tu carpeta (adjuntos/voz.mp3) en vez de texto.'),
+  vozId: z.string().optional().describe('Voz de ElevenLabs (avatares_y_voces). Vacío = la configurada por defecto.'),
+  formato: z.enum(['9:16', '16:9', '1:1']).default('9:16'),
+  movimiento: z.string().max(400).optional().describe('Gestos y cuerpo en inglés, p. ej. "smiles, nods, natural hand gestures"'),
+  expresividad: z.enum(['low', 'medium', 'high']).default('medium'),
+});
+
+async function avatarEstimate(p: StudioProject, input: z.infer<typeof AvatarInput>) {
+  if (!input.texto?.trim() && !input.audio) throw new StudioError('Indica `texto` (se genera la voz) o `audio`.');
+  let seconds: number;
+  let vozUSD = 0;
+  if (input.audio) {
+    seconds = (await probeMedia(await resolveFile(p, input.audio))).duration ?? 0;
+    if (!seconds) throw new StudioError('No pude medir ese audio.');
+  } else {
+    const chars = input.texto!.trim().length;
+    seconds = Math.max(2, chars / CHARS_PER_SEC);
+    vozUSD = ttsCost(DEFAULT_ELEVEN_MODEL, chars);
+  }
+  const videoUSD = seconds * videoRate(AVATAR_MODEL);
+  return { segundos: Number(seconds.toFixed(1)), vozUSD: Number(vozUSD.toFixed(4)), videoUSD: Number(videoUSD.toFixed(4)), totalUSD: Number((vozUSD + videoUSD).toFixed(4)) };
+}
+
+const avataresYVoces = tool({
+  name: 'avatares_y_voces',
+  description: 'Avatares guardados en la app (persona con sus fotos) y voces de ElevenLabs disponibles (clonadas y la predeterminada), para avatar_video.',
+  schema: z.object({}),
+  run: async () => {
+    const avatars = await listAvatars().catch(() => []);
+    const voces = await getStoredVoices().catch(() => []);
+    return {
+      avatares: avatars.map((a) => ({ id: a.id, nombre: a.name, descripcion: a.description, fotos: a.photos.length })),
+      voces: voces.map((v) => ({ id: v.id, nombre: v.name })),
+      vozPredeterminada: getConfiguredVoiceId(),
+    };
+  },
+});
+
+const avatarCosto = tool({
+  name: 'avatar_costo',
+  description: 'Avatar Studio: cuánto costaría un video de una persona hablando (voz ElevenLabs + HeyGen Avatar IV ≈ $0,05/s). No gasta.',
+  schema: AvatarInput,
+  run: async (id, input) => avatarEstimate(await getStudioProject(id), input),
+});
+
+const avatarVideo = tool({
+  name: 'avatar_video',
+  description:
+    'Avatar Studio: video de una persona (foto de un avatar guardado o adjunta) diciendo un texto o un audio, con labios sincronizados (HeyGen Avatar IV). GASTA: necesita una aprobación aprobada con saldo (usa avatar_costo antes). Espera a que termine (unos minutos) y devuelve un token para mostrarlo.',
+  schema: AvatarInput.extend({ aprobacionId: z.string().min(3) }),
+  run: async (id, input) => {
+    const p = await getStudioProject(id);
+    const est = await avatarEstimate(p, input);
+    assertBudget(p, input.aprobacionId, est.totalUSD);
+
+    // Foto: portada del avatar (o su primera foto) o un archivo de la carpeta
+    let photo: string;
+    if (input.avatarId) {
+      const a = await getAvatar(input.avatarId).catch(() => null);
+      const file = a?.cover ?? a?.photos[0]?.file;
+      if (!a || !file) throw new StudioError('Ese avatar no existe o no tiene fotos (avatares_y_voces).', 404);
+      photo = await avatarPhotoPath(a.id, file);
+    } else if (input.foto) {
+      photo = await resolveFile(p, input.foto);
+    } else {
+      throw new StudioError('Indica `avatarId` o `foto`.');
+    }
+
+    // Voz: ElevenLabs con el texto, o el audio adjunto
+    let audioPath: string;
+    let vozUSD = 0;
+    if (input.audio) {
+      audioPath = await resolveFile(p, input.audio);
+    } else {
+      const voice = await synthesizeSpeech({ text: input.texto!.trim(), voiceId: input.vozId || undefined, modelId: DEFAULT_ELEVEN_MODEL, tool: 'claude-studio' });
+      vozUSD = voice.costUSD;
+      if (voice.filePath) audioPath = voice.filePath;
+      else {
+        audioPath = path.join(/*turbopackIgnore: true*/ p.carpeta, 'claude', `voz-${Date.now()}.mp3`);
+        await fs.mkdir(path.dirname(audioPath), { recursive: true });
+        await fs.writeFile(audioPath, Buffer.from(voice.result.buffer));
+      }
+    }
+    const seconds = (await probeMedia(audioPath)).duration ?? est.segundos;
+    const videoUSD = Number((seconds * videoRate(AVATAR_MODEL)).toFixed(4));
+    assertBudget(await getStudioProject(id), input.aprobacionId, vozUSD + videoUSD);
+
+    const [img, aud] = await Promise.all([
+      cloudinaryStorageService.uploadImage(await fs.readFile(photo), path.basename(photo), 'lulo-studio/portraits'),
+      cloudinaryStorageService.uploadAudio(await fs.readFile(audioPath), path.basename(audioPath), 'lulo-studio/audio'),
+    ]);
+    const job = await createRenderJob({
+      tool: 'claude-studio',
+      title: `Estudio Claude · avatar · ${p.titulo}`,
+      model: AVATAR_MODEL,
+      kind: 'avatar',
+      input: {
+        imageUrl: img.publicUrl,
+        audioUrl: aud.publicUrl,
+        aspectRatio: input.formato,
+        ...(input.movimiento ? { motionPrompt: input.movimiento } : {}),
+        expressiveness: input.expresividad,
+      },
+      estimatedCostUSD: videoUSD,
+    });
+
+    let done = await getJob(job.id);
+    for (let i = 0; i < 240 && done && done.status !== 'completed' && done.status !== 'failed'; i++) {
+      await sleep(5000);
+      done = await getJob(job.id);
+    }
+    if (!done || done.status === 'failed') throw new StudioError(`El render del avatar falló: ${done?.error ?? 'sin detalle'}`, 502);
+    if (done.status !== 'completed' || !done.outputPath) throw new StudioError(`El avatar sigue renderizándose (trabajo ${job.id}); vuelve a mirar más tarde.`, 504);
+
+    const cost = Number((vozUSD + (done.costUSD ?? videoUSD)).toFixed(4));
+    await updateStudioProject(id, (x) => {
+      const a = x.aprobaciones.find((y) => y.id === input.aprobacionId)!;
+      a.usadoUSD = Number((a.usadoUSD + cost).toFixed(4));
+      x.gastoUSD = Number((x.gastoUSD + cost).toFixed(4));
+    });
+    const mediaId = await registerMedia(id, done.outputPath, `Avatar · ${p.titulo}`);
+    return { video: done.outputPath, segundos: Number(seconds.toFixed(1)), costoUSD: cost, token: token(mediaId) };
+  },
+});
+
 export const STUDIO_TOOLS: StudioTool[] = [
   servicios,
   verProyecto,
@@ -396,6 +542,9 @@ export const STUDIO_TOOLS: StudioTool[] = [
   ugcMontar,
   editarVideo,
   editarMas,
+  avataresYVoces,
+  avatarCosto,
+  avatarVideo,
 ];
 
 export function studioToolsManifest() {

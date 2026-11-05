@@ -48,10 +48,10 @@ export const STUDIO_SERVICES: StudioService[] = [
   {
     id: 'avatar',
     nombre: 'Avatar Studio',
-    estado: 'en_pruebas',
-    hace: 'Foto + voz → persona hablando con lip-sync (HeyGen Avatar IV). Funciona en su pantalla; aún no desde el estudio.',
-    costo: '≈ $0,05 por segundo',
-    herramientas: [],
+    estado: 'listo',
+    hace: 'Foto (avatar guardado o adjunta) + texto o audio → persona hablando con labios sincronizados (voz ElevenLabs + HeyGen Avatar IV).',
+    costo: 'Voz ≈ $0,04/1000 caracteres · video ≈ $0,05 por segundo',
+    herramientas: ['avatares_y_voces', 'avatar_costo', 'avatar_video'],
   },
   {
     id: 'voz',
