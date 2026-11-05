@@ -96,7 +96,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
     if (d) setProjects(d.proyectos);
   }, []);
 
-  const open = useCallback(async (id: string) => {
+  const open = useCallback(async (id: string, opts: { silent?: boolean } = {}) => {
     try {
       const d = await api<{ proyecto: Project }>(`/api/studio/${id}`);
       setCurrent(d.proyecto);
@@ -106,6 +106,15 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
         // solo no se recuerda
       }
     } catch (err) {
+      // El proyecto recordado ya no existe: se olvida sin mostrar error
+      if (opts.silent) {
+        try {
+          localStorage.removeItem('lulo_studio_activo');
+        } catch {
+          // nada que olvidar
+        }
+        return;
+      }
       setError(err instanceof Error ? err.message : 'No se pudo abrir.');
     }
   }, []);
@@ -119,7 +128,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
       } catch {
         last = null;
       }
-      if (last) void open(last);
+      if (last) void open(last, { silent: true });
     }, 0);
     return () => clearTimeout(t);
   }, [loadList, open]);
@@ -273,6 +282,28 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
 
       {/* Chat */}
       <section className="flex min-w-0 flex-1 flex-col">
+        {/* Ventana estrecha: la columna izquierda se oculta, así que aquí van volver, nuevo y la lista */}
+        <div className="flex items-center gap-2 border-b border-line px-3 py-2 lg:hidden">
+          <button type="button" onClick={onExit} className="btn-secondary h-8 w-8 shrink-0 px-0" aria-label="Volver al dashboard">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <select
+            value={current?.id ?? ''}
+            onChange={(e) => (e.target.value ? void open(e.target.value) : setCurrent(null))}
+            className="input-clean h-8 min-w-0 flex-1 px-2 text-[12px]"
+            aria-label="Tus videos con Claude"
+          >
+            <option value="">Nuevo video…</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.titulo}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => setCurrent(null)} className="btn-primary h-8 shrink-0 px-3 text-[12px]">
+            <Plus className="h-3.5 w-3.5" /> Nuevo
+          </button>
+        </div>
         {mode && mode !== 'claude-subscription' && (
           <p className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[12px] text-amber-800 dark:text-amber-200">
             El Estudio Claude usa tu suscripción de Claude. En el selector «IA» de arriba elige «Claude · mi suscripción» para que las herramientas también usen a Claude.
