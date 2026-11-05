@@ -222,11 +222,16 @@ const ugcCambiarEscena = tool({
     const scene = p.ugc.storyboard.scenes.find((s) => s.index === escena);
     if (!scene) throw new StudioError(`No existe la escena ${escena}.`, 404);
     const sb = await reviseScene({ storyboard: p.ugc.storyboard, references: p.ugc.references, settings: p.ugc.settings, sceneId: scene.id, feedback: instrucciones }, () => {});
-    sb.scenes = sb.scenes.map((s) => (s.index === escena ? { ...s, status: 'approved', render: undefined } : s));
+    // La escena cambiada y las que la continúan (parten de su último fotograma) hay que renderizarlas otra vez
+    const stale = new Set<number>([escena]);
+    for (const s of [...sb.scenes].sort((a, b) => a.index - b.index)) {
+      if (s.index > escena && s.transition.type === 'continua' && stale.has(s.index - 1)) stale.add(s.index);
+    }
+    sb.scenes = sb.scenes.map((s) => (stale.has(s.index) ? { ...s, status: 'approved', render: undefined } : s));
     await updateStudioProject(id, (x) => {
       x.ugc = { ...x.ugc!, storyboard: sb, finalPath: undefined };
     });
-    return ugcSummary(sb);
+    return { ...ugcSummary(sb), aRenderizarDeNuevo: [...stale].sort((x, y) => x - y) };
   },
 });
 
