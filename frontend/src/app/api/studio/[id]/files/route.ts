@@ -26,8 +26,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!ALLOWED.test(v.name)) throw new StudioError(`Tipo de archivo no admitido: ${v.name}`);
       const base = v.name.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(-80) || 'archivo';
       let name = base;
-      for (let n = 2; await fs.stat(path.join(dir, name)).then(() => true, () => false); n++) name = `${path.parse(base).name}-${n}${path.extname(base)}`;
-      await fs.writeFile(path.join(dir, name), Buffer.from(await v.arrayBuffer()));
+      for (let n = 2; await fs.stat(path.join(/*turbopackIgnore: true*/ dir, name)).then(() => true, () => false); n++) name = `${path.parse(base).name}-${n}${path.extname(base)}`;
+      await fs.writeFile(path.join(/*turbopackIgnore: true*/ dir, name), Buffer.from(await v.arrayBuffer()));
       saved.push(`adjuntos/${name}`);
     }
     return NextResponse.json({ archivos: saved });
