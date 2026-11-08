@@ -38,7 +38,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 }
 
 const Body = z.discriminatedUnion('accion', [
-  z.object({ accion: z.literal('enviar'), mensaje: z.string().trim().min(1).max(4000) }),
+  z.object({ accion: z.literal('enviar'), mensaje: z.string().trim().min(1, 'Escribe un mensaje.').max(20000, 'El mensaje es muy largo (máx. 20.000 caracteres).') }),
   z.object({ accion: z.literal('detener') }),
   z.object({ accion: z.literal('nueva_conversacion') }),
   /** Proyecto recién creado (ya con sus referencias): Claude lo arma desde la idea. Solo si el chat está vacío. */
@@ -51,7 +51,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     assertAppUiRequest(req);
     const { id } = await params;
     const parsed = Body.safeParse(await req.json().catch(() => null));
-    if (!parsed.success) return NextResponse.json({ error: 'Acción no válida.' }, { status: 400 });
+    if (!parsed.success) {
+      const issue = parsed.error.issues.find((i) => i.path[0] === 'mensaje');
+      return NextResponse.json({ error: issue?.message ?? 'Acción no válida.' }, { status: 400 });
+    }
     const a = parsed.data;
     if (a.accion === 'detener') return NextResponse.json({ ok: stopDirectorTurn(id) });
     if (a.accion === 'nueva_conversacion') {

@@ -1,4 +1,4 @@
-import { DEFAULT_BROLL_MODEL, type VoiceMode } from '@/config/broll-models';
+import { DEFAULT_BROLL_MODEL, DEFAULT_NATIVE_BROLL_MODEL, type VoiceMode } from '@/config/broll-models';
 
 /**
  * Skills del modo Director (plantillas basadas en los skills de Buzzy: ai-story, ugc-ads, faceless-reels).
@@ -29,6 +29,8 @@ export interface DirectorSkill {
   formaGuion: string;
   /** Para la IA: matiz de los prompts de video. */
   notaPrompts: string;
+  /** Para Claude · director: qué modelo de clip conviene en este tipo de video. */
+  notaModelos: string;
 }
 
 export const DIRECTOR_SKILLS: DirectorSkill[] = [
@@ -37,7 +39,7 @@ export const DIRECTOR_SKILLS: DirectorSkill[] = [
     nombre: 'Película corta',
     descripcion: 'Una historia con personajes que hablan.',
     icono: '🎬',
-    ajustes: { formato: '9:16', duracionSeg: 45, modoVoz: 'native', modeloBroll: DEFAULT_BROLL_MODEL },
+    ajustes: { formato: '9:16', duracionSeg: 45, modoVoz: 'native', modeloBroll: DEFAULT_NATIVE_BROLL_MODEL },
     ejemplos: [
       'Una abuela enseña a su nieto la receta secreta de la familia antes de mudarse.',
       'Dos amigos encuentran una cámara vieja con un último rollo sin revelar.',
@@ -48,6 +50,7 @@ export const DIRECTOR_SKILLS: DirectorSkill[] = [
     formaGuion:
       'Historia con arco: inicio que presenta al personaje y su deseo, conflicto, cierre. Personajes con rasgos fijos (edad, aspecto, ropa) repetidos igual en cada escena. Diálogos cortos y naturales, nada de narrador.',
     notaPrompts: 'Encuadres de cine (plano general para situar, medio para diálogo, detalle para emoción), siempre con los mismos rasgos de cada personaje.',
+    notaModelos: 'Los personajes hablan: Gemini Omni 1.1 Flash (con audio, clips de 4/6/8/10 s, $0.31–$0.50 por clip a 720p). Grok solo para planos sin diálogo (más barato, 6–15 s, sin voz).',
   },
   {
     id: 'ugc',
@@ -65,6 +68,7 @@ export const DIRECTOR_SKILLS: DirectorSkill[] = [
     formaGuion:
       'Anuncio UGC: gancho en los primeros 3 segundos → problema que la persona reconoce → demostración del producto en uso → prueba (resultado, testimonio) → llamado a la acción claro. Tono de persona real hablando a su celular, frases cortas.',
     notaPrompts: 'Estilo grabado con celular: cámara en mano, luz de casa, producto real en primer plano en las tomas de apoyo.',
+    notaModelos: 'Presentador con HeyGen y tomas de apoyo con Grok Imagine 1.5 a 720p (el más barato, 6–15 s). Gemini Omni solo si una toma necesita sonido propio.',
   },
   {
     id: 'presentador',
@@ -82,6 +86,7 @@ export const DIRECTOR_SKILLS: DirectorSkill[] = [
     formaGuion:
       'La primera y la última escena son de la persona hablando a cámara. Entre medio, cortes a tomas de apoyo que muestran lo que se explica, alternando con la persona. Un solo mensaje claro.',
     notaPrompts: 'Tomas de apoyo que ilustran literalmente lo que se dice en esa escena.',
+    notaModelos: 'Presentador con HeyGen y tomas de apoyo con Grok Imagine 1.5 a 720p (el más barato, 6–15 s).',
   },
   {
     id: 'explicativo',
@@ -99,6 +104,7 @@ export const DIRECTOR_SKILLS: DirectorSkill[] = [
     formaGuion:
       'Video explicativo sin rostro: gancho con pregunta o dato en la primera escena → de 3 a 5 puntos, uno por escena → cierre con resumen o llamado. Todo con voz en off; nadie habla a cámara.',
     notaPrompts: 'Tomas visuales y concretas de cada punto (objetos, manos, lugares), sin personas hablando.',
+    notaModelos: 'Voz en off encima: Grok Imagine 1.5 a 720p para todo (sin audio, 6–15 s). Si una escena dura menos de 6 s, el clip se pide de 6 y se recorta al montar.',
   },
 ];
 

@@ -15,7 +15,7 @@ export interface RenderJob {
   id: string;
   tool: string;
   title: string;
-  provider: 'openrouter';
+  provider: 'openrouter' | 'apimart';
   model: string;
   /** 'avatar' = foto + audio con labios sincronizados; 'broll' = imagen→video con prompt. */
   kind?: 'avatar' | 'broll';
@@ -30,6 +30,8 @@ export interface RenderJob {
     resolution?: string;
     /** El modelo genera su propio audio (voz). */
     generateAudio?: boolean;
+    /** Solo B-roll de Apimart: referencias extra (fotos del avatar) además del fotograma inicial. */
+    referenceImageUrls?: string[];
     /** Solo avatar (HeyGen): movimiento y expresividad. */
     motionPrompt?: string;
     expressiveness?: 'low' | 'medium' | 'high';

@@ -1,5 +1,5 @@
 import { getBrollModel, pickBrollDuration } from '@/config/broll-models';
-import { HEYGEN_MAX_SEG, HEYGEN_MIN_SEG } from './durations';
+import { HEYGEN_MAX_SEG, HEYGEN_MIN_SEG, sceneSettings } from './durations';
 import type { DirectorScene, DirectorSceneType, DirectorSettings, VoiceoverPhrase } from './types';
 
 /**
@@ -210,7 +210,7 @@ export function buildAlignedScenes(
 
 /** Con otro modelo de video solo cambia el clip de cada escena; los tiempos los manda el audio. */
 export function refitAlignedClips(escenas: DirectorScene[], ajustes: Pick<DirectorSettings, 'modeloBroll'>) {
-  for (const s of escenas) if (s.audio) s.clipSeg = clipFor(s.tipo, ajustes, s.duracionSeg);
+  for (const s of escenas) if (s.audio) s.clipSeg = clipFor(s.tipo, sceneSettings(s, ajustes), s.duracionSeg);
 }
 
 /** El guion está alineado a la locución. */

@@ -174,6 +174,7 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
   const rit = <K extends keyof ProfileInput['ritmo']>(k: K, v: ProfileInput['ritmo'][K]) => set('ritmo', { ...p.ritmo, [k]: v });
   const gra = <K extends keyof ProfileInput['graficos']>(k: K, v: ProfileInput['graficos'][K]) => set('graficos', { ...p.graficos, [k]: v });
   const son = <K extends keyof ProfileInput['sonido']>(k: K, v: ProfileInput['sonido'][K]) => set('sonido', { ...p.sonido, [k]: v });
+  const fir = <K extends keyof ProfileInput['firma']>(k: K, v: ProfileInput['firma'][K]) => set('firma', { ...p.firma, [k]: v });
 
   const save = async () => {
     setBusy(true);
@@ -279,6 +280,7 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
             <div className="grid gap-3 sm:grid-cols-2">
               <Range label="Grosor del borde" value={p.subtitulos.grosorBorde} min={0} max={12} step={1} unit="px" disabled={p.subtitulos.caja} onChange={(v) => sub('grosorBorde', v)} />
               <Range label="Tamaño de la palabra clave" value={p.subtitulos.escalaClave} min={100} max={250} step={5} unit="%" onChange={(v) => sub('escalaClave', v)} />
+              <Range label="Opacidad de la caja" value={p.subtitulos.opacidadCaja} min={30} max={100} step={5} unit="%" disabled={!p.subtitulos.caja} onChange={(v) => sub('opacidadCaja', v)} />
               <div className="flex flex-wrap items-end gap-4 pb-1">
                 <Check label="Caja detrás del texto" checked={p.subtitulos.caja} onChange={(v) => sub('caja', v)} />
                 <Check label="MAYÚSCULAS" checked={p.subtitulos.mayusculas} onChange={(v) => sub('mayusculas', v)} />
@@ -293,6 +295,14 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
             <ColorField label="Fondo" value={p.gancho.colorFondo} onChange={(v) => hook('colorFondo', v)} />
             <Range label="Tamaño" value={p.gancho.tamano} min={30} max={140} step={2} unit="px" onChange={(v) => hook('tamano', v)} />
             <Range label="Duración" value={p.gancho.duracionSeg} min={1} max={10} step={0.5} unit="s" onChange={(v) => hook('duracionSeg', v)} />
+            <div className="sm:col-span-2">
+              <Field label="Fuente del gancho (vacío = la de los subtítulos)">
+                <input list="lulo-editor-fonts" value={p.gancho.fuente} placeholder={p.subtitulos.fuente} onChange={(e) => hook('fuente', e.target.value)} className="input-clean h-9 w-full px-3 text-[13px]" />
+              </Field>
+            </div>
+            <div className="flex items-end pb-1 sm:col-span-2">
+              <Check label="MAYÚSCULAS" checked={p.gancho.mayusculas} onChange={(v) => hook('mayusculas', v)} />
+            </div>
           </fieldset>
           <p className="text-[11px] text-fg-subtle">La IA propone el texto en cada video y tú lo puedes cambiar antes de crear el video.</p>
         </Section>
@@ -338,8 +348,13 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
         <Section title="Sonido">
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             <Check label="Limpiar la voz (graves, ruido y compresor suave)" checked={p.sonido.limpiarVoz} onChange={(v) => son('limpiarVoz', v)} />
-            <Check label="Efectos: golpe en el gancho y whoosh en los cortes" checked={p.sonido.efectos} onChange={(v) => son('efectos', v)} />
+            <Check label="Efectos de sonido" checked={p.sonido.efectos} onChange={(v) => son('efectos', v)} />
           </div>
+          <fieldset disabled={!p.sonido.efectos} className="flex flex-wrap gap-x-5 gap-y-2 pl-1 disabled:opacity-50">
+            <Check label="Golpe al salir el gancho" checked={p.sonido.efectosGancho} onChange={(v) => son('efectosGancho', v)} />
+            <Check label="Whoosh en los cortes con zoom" checked={p.sonido.efectosCortes} onChange={(v) => son('efectosCortes', v)} />
+            <Check label="Sonido al entrar gráficos y palabras gigantes" checked={p.sonido.efectosGraficos} onChange={(v) => son('efectosGraficos', v)} />
+          </fieldset>
           <Field label="Música de fondo">
             <Segmented value={p.sonido.musica} options={MUSIC_CHOICES.map((m) => ({ id: m.id, label: m.label, hint: m.hint }))} onChange={(v) => son('musica', v)} />
           </Field>
@@ -370,6 +385,28 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
             <Range label="Efectos bajo la voz" value={p.sonido.efectosBajoVozDb} min={10} max={35} step={1} unit=" dB" disabled={!p.sonido.efectos} onChange={(v) => son('efectosBajoVozDb', v)} />
           </div>
           <p className="text-[11px] text-fg-subtle">Recomendado: música 12 dB bajo la voz, que baje 7 dB más cuando hablas, y efectos 20–25 dB bajo la voz.</p>
+        </Section>
+
+        <Section title="Firma en pantalla" toggle={{ on: p.firma.activo, set: (v) => fir('activo', v) }}>
+          <fieldset disabled={!p.firma.activo} className="space-y-3 disabled:opacity-50">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Texto (tu usuario o marca)">
+                <input value={p.firma.texto} maxLength={40} placeholder="@tuusuario" onChange={(e) => fir('texto', e.target.value)} className="input-clean h-9 w-full px-3 text-[13px]" />
+              </Field>
+              <Field label="Fuente (vacío = la de los subtítulos)">
+                <input list="lulo-editor-fonts" value={p.firma.fuente} placeholder={p.subtitulos.fuente} onChange={(e) => fir('fuente', e.target.value)} className="input-clean h-9 w-full px-3 text-[13px]" />
+              </Field>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <ColorField label="Color" value={p.firma.color} onChange={(v) => fir('color', v)} />
+              <Range label="Tamaño" value={p.firma.tamano} min={20} max={80} step={2} unit="px" onChange={(v) => fir('tamano', v)} />
+              <Range label="Opacidad" value={p.firma.opacidad} min={20} max={100} step={5} unit="%" onChange={(v) => fir('opacidad', v)} />
+              <Field label="Posición">
+                <Segmented value={p.firma.posicion} options={[{ id: 'arriba' as const, label: 'Arriba' }, { id: 'abajo' as const, label: 'Abajo' }]} onChange={(v) => fir('posicion', v)} />
+              </Field>
+            </div>
+          </fieldset>
+          <p className="text-[11px] text-fg-subtle">Se ve todo el video, pequeña y dentro de la zona segura de la red.</p>
         </Section>
 
         {error && (

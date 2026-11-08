@@ -100,6 +100,10 @@ export const SettingsBody = z.object({
   duracionSeg: z.number().int().min(5).max(180),
   modoVoz: z.enum(['voiceover', 'native', 'avatar']),
   modeloBroll: z.string().min(1).max(100),
+  /** Resolución de los clips (480p, 720p…); sin valor = la del modelo. */
+  resolucionBroll: z.string().max(10).optional(),
+  /** Imagen inicial antes de cada toma de apoyo (sin valor = sí). */
+  imagenInicial: z.boolean().optional(),
   avatarId: z.string().max(100).nullable(),
   presupuestoUSD: z.number().min(0.1).max(100),
 });
@@ -128,6 +132,14 @@ export const ActionBody = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('rehacer_prompt'), escenaId: z.string().max(20), indicacion: z.string().max(1000).default('') }),
   z.object({ accion: z.literal('editar_prompt'), escenaId: z.string().max(20), texto: z.string().min(1).max(4000) }),
   z.object({ accion: z.literal('aprobar'), etapa: Stage }),
+  // Clip de UNA escena: modelo, resolución e imagen inicial ($0). null = volver a lo de los ajustes.
+  z.object({
+    accion: z.literal('ajustar_clip'),
+    escenaId: z.string().max(20),
+    modelo: z.string().max(100).nullable().optional(),
+    resolucion: z.string().max(10).nullable().optional(),
+    imagenInicial: z.boolean().nullable().optional(),
+  }),
   // Referencias y etiquetas (paso 2). Subir archivos va por /api/director-mode/[id]/referencias (multipart).
   z.object({ accion: z.literal('proponer_etiquetas'), refIds: z.array(RefId).max(40).optional() }),
   z.object({

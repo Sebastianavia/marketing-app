@@ -17,7 +17,7 @@ import { LayoutGrid } from 'lucide-react';
 import { useThemeStore } from '@/store/useThemeStore';
 import type { DirectorState } from '@/lib/director-mode/types';
 import { buildGraph, type DirectorNode, type PaidSceneLite } from './build-graph';
-import { nodeTypes } from './nodes';
+import { CanvasActionsContext, nodeTypes, type CanvasActions } from './nodes';
 
 /**
  * Lienzo del modo Director: lo que ya existe (idea, dirección, escenas, prompts) y lo que viene, en gris.
@@ -62,12 +62,16 @@ interface Props {
   paid?: PaidSceneLite[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /** Cambiar modelo, calidad o imagen inicial de un clip (nodo Clip). */
+  onClip?: CanvasActions['onClip'];
+  busy?: boolean;
 }
 
-function CanvasInner({ productionId, d, paid, selectedId, onSelect }: Props) {
+function CanvasInner({ productionId, d, paid, selectedId, onSelect, onClip, busy }: Props) {
   const theme = useThemeStore((s) => s.theme);
   const { fitView } = useReactFlow();
   const graph = useMemo(() => buildGraph(d, productionId, paid), [d, productionId, paid]);
+  const actions = useMemo<CanvasActions>(() => ({ onClip, busy }), [onClip, busy]);
   const [nodes, setNodes] = useState<DirectorNode[]>(() => place(graph.nodes, [], readPositions(productionId)));
   const [prevGraph, setPrevGraph] = useState(graph);
 
@@ -96,6 +100,7 @@ function CanvasInner({ productionId, d, paid, selectedId, onSelect }: Props) {
   };
 
   return (
+    <CanvasActionsContext.Provider value={actions}>
     <ReactFlow<DirectorNode>
       className="lulo-flow"
       nodes={shown}
@@ -124,6 +129,7 @@ function CanvasInner({ productionId, d, paid, selectedId, onSelect }: Props) {
         </button>
       </div>
     </ReactFlow>
+    </CanvasActionsContext.Provider>
   );
 }
 

@@ -58,6 +58,11 @@ function applyFailed(scene: ProductionScene, job: RenderJob, message: string) {
   if (scene.jobId !== job.id || scene.estado !== 'generando') return;
   scene.estado = 'fallida';
   scene.error = message;
+  // Algunos proveedores cobran tareas fallidas: se anota y el reintento pedirá aprobación nueva
+  if (job.costUSD && job.costUSD > 0) {
+    scene.gastoUSD = roundUSD(scene.gastoUSD + job.costUSD);
+    scene.falloConCobro = true;
+  }
 }
 
 export async function onProductionJobCompleted(job: RenderJob) {

@@ -6,6 +6,7 @@ import { getDirectorSkill } from '@/config/director-skills';
 import { DirectorCanvas } from './canvas/DirectorCanvas';
 import { DirectorChat } from './chat/DirectorChat';
 import { DirectorModeView } from './DirectorModeView';
+import { ProductionBar } from './ProductionBar';
 import { StartBox } from './StartBox';
 import { useDirectorMode } from './useDirectorMode';
 import { ClaudeAgentChat } from '@/components/claude/ClaudeAgentChat';
@@ -22,6 +23,10 @@ type View = 'lienzo' | 'lista';
 const CLAUDE_STEP_NAMES: Record<string, string> = {
   'lulo: ver_proyecto': 'Mirando el proyecto',
   'lulo: accion': 'Trabajando en el proyecto',
+  'lulo: preparar_produccion': 'Preparando el presupuesto',
+  'lulo: generar': 'Generando imágenes y clips',
+  'lulo: estado_produccion': 'Revisando la generación',
+  'lulo: montar_video': 'Montando el video',
 };
 
 const CLAUDE_SUGGESTIONS = ['Hazlo más corto, de 20 segundos', 'Que la escena 2 sea de noche', 'Cambia el tono a más divertido', 'Revisa los prompts'];
@@ -136,6 +141,8 @@ export function DirectorStudio() {
   }
 
   const d = production.director;
+  // Nodo Clip del lienzo: modelo, calidad e imagen inicial de una escena ($0)
+  const onClip = (body: { accion: 'ajustar_clip'; escenaId: string }) => void dm.act(body, `ajustar_clip:${body.escenaId}`);
   const skill = getDirectorSkill(d.skill);
 
   return (
@@ -203,6 +210,10 @@ export function DirectorStudio() {
       </div>
 
       {banners}
+
+      {d.etapas.prompts.estado === 'aprobada' || d.produccion ? (
+        <ProductionBar dm={dm} production={production} pulirConClaude={claudeMode} />
+      ) : null}
 
       {view === 'lienzo' ? (
         <div className="grid h-[calc(100vh-290px)] min-h-[560px] grid-rows-[1fr_minmax(0,1fr)] gap-3 lg:grid-cols-[360px_1fr] lg:grid-rows-1">
@@ -283,7 +294,15 @@ export function DirectorStudio() {
               setPendingFiles(Array.from(e.dataTransfer.files));
             }}
           >
-            <DirectorCanvas productionId={production.id} d={d} paid={production.escenas} selectedId={focusId} onSelect={setFocusId} />
+            <DirectorCanvas
+              productionId={production.id}
+              d={d}
+              paid={production.escenas}
+              selectedId={focusId}
+              onSelect={setFocusId}
+              onClip={onClip}
+              busy={!!busy}
+            />
             {dragging && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-bg/60 text-[13px] text-fg">
                 Suelta para añadir referencias{' '}

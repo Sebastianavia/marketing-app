@@ -4,7 +4,7 @@ import path from 'path';
 import type { z } from 'zod';
 import { orchestrateObject } from '@/lib/ai/orchestrator';
 import { getAvatar } from '@/lib/avatars/avatar-store';
-import { BROLL_MODELS, DEFAULT_BROLL_MODEL } from '@/config/broll-models';
+import { BROLL_MODELS, DEFAULT_BROLL_MODEL, clipChoiceProblem, getBrollModel, isBrollModel } from '@/config/broll-models';
 import { sttCost } from '@/config/cost-rates';
 import { getDirectorSkill } from '@/config/director-skills';
 import { normalizeWords } from '@/lib/scenes/scene-plan';
@@ -18,7 +18,7 @@ import {
   updateProduction,
   type Production,
 } from '@/lib/director/production-store';
-import { brollModelsFor, retimeScenes } from './durations';
+import { brollModelsFor, retimeScenes, sceneClipChoice } from './durations';
 import { alignedScriptPrompt, promptsPrompt, questionsPrompt, redoPromptPrompt, redoScenePrompt, scriptPrompt, tagProposalPrompt } from './prompts';
 import { renameMention, tagSignature, uniqueMention } from './mentions';
 import { ChatBody, ChatReplySchema, chatPrompt, planChatAction, type ChatPlan } from './chat';
@@ -308,6 +308,8 @@ async function dispatch(id: string, a: ActionInput, orchestrator: unknown): Prom
       return editPrompt(id, a.escenaId, a.texto);
     case 'aprobar':
       return approve(id, a.etapa);
+    case 'ajustar_clip':
+      return adjustClip(id, a);
     case 'proponer_etiquetas':
       return proposeTags(id, a.refIds, orchestrator);
     case 'guardar_etiqueta':
@@ -414,6 +416,10 @@ async function saveSettings(id: string, s: SettingsInput): Promise<ActionResult>
         : `Ese modelo no admite el formato ${s.formato}.`
     );
   }
+  if (s.resolucionBroll) {
+    const problem = clipChoiceProblem(getBrollModel(s.modeloBroll), { formato: s.formato, resolucion: s.resolucionBroll });
+    if (problem) throw new ProductionError(problem);
+  }
   let avatarNombre: string | undefined;
   if (s.avatarId) {
     avatarNombre = (await getAvatar(s.avatarId).catch(() => null))?.name;
@@ -449,6 +455,52 @@ async function saveSettings(id: string, s: SettingsInput): Promise<ActionResult>
     unlockNext(d, 'ajustes');
   });
   return { production };
+}
+
+// ----- Clip de una escena (modelo, resolución, imagen inicial) -----
+
+async function adjustClip(id: string, a: Extract<ActionInput, { accion: 'ajustar_clip' }>): Promise<ActionResult> {
+  let aviso: string | undefined;
+  const { production } = await updateProduction(id, (p) => {
+    const d = needDirector(p);
+    const s = d.guion?.escenas.find((x) => x.id === a.escenaId);
+    if (!s) throw new ProductionError('No encuentro esa escena.', 404);
+    if (s.tipo === 'avatar') throw new ProductionError('Esa escena es de la persona hablando (HeyGen): el modelo de clip solo se elige en las tomas de apoyo.');
+    const next = { ...(s.clipOpciones ?? {}) };
+    if (a.modelo !== undefined) {
+      if (a.modelo === null || a.modelo === d.ajustes.modeloBroll) delete next.modelo;
+      else if (!isBrollModel(a.modelo)) throw new ProductionError(`No existe el modelo "${a.modelo}".`);
+      else next.modelo = a.modelo;
+      // Al cambiar de modelo, la resolución anterior puede no valer
+      if (a.resolucion === undefined) delete next.resolucion;
+    }
+    if (a.resolucion !== undefined) {
+      if (a.resolucion === null) delete next.resolucion;
+      else next.resolucion = a.resolucion.toLowerCase();
+    }
+    if (a.imagenInicial !== undefined) {
+      if (a.imagenInicial === null) delete next.imagenInicial;
+      else next.imagenInicial = a.imagenInicial;
+    }
+    const choice = sceneClipChoice({ clipOpciones: next }, d.ajustes);
+    const problem = clipChoiceProblem(choice.model, {
+      formato: d.ajustes.formato,
+      resolucion: next.resolucion,
+      conAudio: d.ajustes.modoVoz === 'native' && Boolean(s.dialogo.trim()),
+      // Con locución propia la escena no se puede acortar: el clip debe cubrirla
+      duracionSeg: s.audio ? s.duracionSeg : undefined,
+    });
+    if (problem) throw new ProductionError(problem);
+    remember(d, `clip.${s.id}`, s.clipOpciones ?? null);
+    const before = s.duracionSeg;
+    s.clipOpciones = Object.keys(next).length ? next : undefined;
+    retime(d.guion!.escenas, d.ajustes);
+    if (s.duracionSeg !== before) aviso = `La escena ${s.orden} pasa de ${before} s a ${s.duracionSeg} s: ${choice.model.name} solo hace clips de ${choice.model.durations.join(', ')} s.`;
+    if (d.produccion && !d.produccion.final) {
+      aviso = `${aviso ? `${aviso} ` : ''}La producción ya estaba preparada: vuelve a prepararla para que el presupuesto use este cambio.`;
+    }
+  });
+  return { production, ...(aviso ? { aviso } : {}) };
 }
 
 // ----- 5. Guion -----

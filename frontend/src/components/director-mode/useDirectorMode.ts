@@ -229,5 +229,38 @@ export function useDirectorMode(enabled = true) {
     [run]
   );
 
-  return { production, drafts, busy, error, aviso, loading, open, create, act, run, ask, uploadRefs, setError };
+  /**
+   * Generación: preparar (presupuesto + aprobación en la barra), generar (solo lo aprobado),
+   * estado o montar. Devuelve el resultado del servidor (o null si falló; el error queda en `error`).
+   */
+  const produce = useCallback(
+    async (accion: 'preparar' | 'generar' | 'estado' | 'montar', extra: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> => {
+      const current = prodRef.current;
+      if (!current) return null;
+      if (accion !== 'estado') {
+        setBusy(`produccion:${accion}`);
+        setError(null);
+      }
+      try {
+        const r = await fetch(`/api/director-mode/${current.id}/produccion`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accion, ...extra }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'No se pudo completar.');
+        // Si mientras tanto se abrió otro borrador, no se pisa
+        if (prodRef.current?.id === current.id && d.production) setProduction(d.production);
+        return d.resultado ?? {};
+      } catch (err) {
+        if (accion !== 'estado') setError(err instanceof Error ? err.message : 'No se pudo completar.');
+        return null;
+      } finally {
+        if (accion !== 'estado') setBusy(null);
+      }
+    },
+    [setProduction]
+  );
+
+  return { production, drafts, busy, error, aviso, loading, open, create, act, run, ask, uploadRefs, produce, setError };
 }

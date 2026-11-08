@@ -19,6 +19,12 @@ export const REALISM_BLOCK =
 
 export const NO_MUSIC = 'No background music.';
 
+/** La parte del bloque de realismo que sirve para una foto fija (sin velocidad ni movimiento de cámara). */
+export const REALISM_STILL =
+  'Visible film grain and sensor noise, limited dynamic range, real depth of field (not everything in focus). ' +
+  'Only light sources that exist in the location, no rim light, no bloom, no teal-and-orange grade, moderate saturation. ' +
+  'Skin with pores, imperfections and asymmetry. Places with wear, clutter and dirt. Slightly off-center framing.';
+
 /** Lo mismo en español, para la interfaz. */
 export const REALISM_SUMMARY_ES =
   'Velocidad real sin cámara lenta · cámara en mano · grano y desenfoque real · solo luces del lugar, sin bloom ni colores saturados · ' +
@@ -50,6 +56,28 @@ export function composeVideoPrompt(scene: DirectorScene, d: Pick<DirectorState, 
   }
   parts.push(REALISM_BLOCK, NO_MUSIC);
   return parts.join(' ');
+}
+
+/**
+ * Prompt de la imagen inicial (primer fotograma) de una toma de apoyo, para GPT Image 2.
+ * Parte del prompt de video de la escena, con las etiquetas que usa y el realismo de foto fija.
+ */
+export function composeImagePrompt(scene: DirectorScene, d: Pick<DirectorState, 'ajustes' | 'etiquetas' | 'referencias'>): string {
+  // Tope: el prompt de imagen admite 4000 caracteres y la app añade la identidad del avatar delante
+  const base = (scene.prompt?.texto.trim() || scene.queSeVe.trim()).slice(0, 2400).replace(/\.?\s*$/, '.');
+  const tags = sceneTags(d, scene)
+    .filter((t) => t.descripcion.trim())
+    .map((t) => `@${t.mencion}: ${t.descripcion.trim()}`);
+  const orientation = d.ajustes.formato === '16:9' ? 'horizontal' : d.ajustes.formato === '1:1' ? 'square' : 'vertical';
+  return [
+    `Still photo: the very first frame of a ${orientation} (${d.ajustes.formato}) social media video. Show the opening moment of this shot, before any movement:`,
+    base,
+    tags.length ? `Elements: ${tags.join('; ')}.` : '',
+    'No text, captions, logos or watermarks added.',
+    REALISM_STILL,
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 const ROLE = `Eres director creativo de videos de marketing cortos (TikTok, Reels, Shorts) en español neutro.

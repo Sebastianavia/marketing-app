@@ -1,5 +1,25 @@
-import { BROLL_MODELS, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { BROLL_MODELS, brollResolution, getBrollModel, pickBrollDuration } from '@/config/broll-models';
 import type { Aspect, DirectorScene, DirectorSceneType, DirectorSettings } from './types';
+
+/** Ajustes con el modelo propio de la escena, si lo tiene (para calcular sus duraciones). */
+export function sceneSettings<T extends Pick<DirectorSettings, 'modeloBroll'>>(s: Pick<DirectorScene, 'clipOpciones'>, ajustes: T): T {
+  const m = s.clipOpciones?.modelo;
+  return m && m !== ajustes.modeloBroll ? { ...ajustes, modeloBroll: m } : ajustes;
+}
+
+/** Modelo, resolución e imagen inicial que usará el clip de una escena. */
+export function sceneClipChoice(s: Pick<DirectorScene, 'clipOpciones'>, ajustes: Pick<DirectorSettings, 'modeloBroll' | 'resolucionBroll' | 'imagenInicial'>) {
+  const o = s.clipOpciones ?? {};
+  const model = getBrollModel(o.modelo || ajustes.modeloBroll);
+  // La resolución de los ajustes solo vale si la escena usa el mismo modelo
+  const res = o.resolucion ?? (model.id === ajustes.modeloBroll ? ajustes.resolucionBroll : undefined);
+  return {
+    model,
+    resolucion: brollResolution(model, res),
+    imagenInicial: o.imagenInicial ?? ajustes.imagenInicial ?? true,
+    propia: Boolean(o.modelo || o.resolucion || o.imagenInicial !== undefined),
+  };
+}
 
 /**
  * Duraciones por escena según el modelo de video previsto (sirve en cliente y servidor).
@@ -57,7 +77,7 @@ export function retimeScenes(escenas: DirectorScene[], ajustes: Pick<DirectorSet
   let t = 0;
   escenas.forEach((s, i) => {
     const pedida = s.duracionPedidaSeg ?? s.duracionSeg;
-    const fit = fitSceneDuration(s.tipo, ajustes, pedida);
+    const fit = fitSceneDuration(s.tipo, sceneSettings(s, ajustes), pedida);
     s.orden = i + 1;
     s.duracionSeg = fit.duracionSeg;
     s.duracionPedidaSeg = fit.ajustada ? pedida : undefined;

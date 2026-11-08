@@ -1,4 +1,4 @@
-import { BROLL_MODELS, DEFAULT_BROLL_MODEL, brollRate, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { BROLL_MODELS, DEFAULT_BROLL_MODEL, billedClipSeconds, brollResolution, clipCostUSD, getBrollModel } from '@/config/broll-models';
 import { IMAGE_MODELS, DEFAULT_IMAGE_MODEL } from '@/config/image-models';
 import { ELEVEN_MODELS, DEFAULT_ELEVEN_MODEL } from '@/config/elevenlabs-models';
 import { ttsCost, videoRate } from '@/config/cost-rates';
@@ -117,28 +117,31 @@ function estimateBroll(scene: SceneInput, n: number, assumptions: string[]): Sce
   }
 
   // Se cobra la duración del clip que se pide, no la que se usa en el montaje.
-  const billed = (m: typeof model) => {
+  const billed = (m: typeof model, res?: string) => {
     const max = m.durations[m.durations.length - 1];
     const clips = Math.ceil(needed / max);
-    const per = pickBrollDuration(m, Math.min(needed, max));
-    return { clips, seconds: clips * per };
+    const per = billedClipSeconds(m, Math.min(needed, max));
+    return { clips, seconds: clips * per, cost: clips * clipCostUSD(m, per, { withAudio, resolution: res }) };
   };
-  const b = billed(model);
-  if (b.seconds !== needed) {
+  const res = brollResolution(model, scene.resolucion);
+  const b = billed(model, res);
+  if (model.durationByModel) {
+    assumptions.push(`Escena ${n}: ${model.name} decide la duración (3 a 10 s); se estima el peor caso, ${b.seconds} s.`);
+  } else if (b.seconds !== needed) {
     assumptions.push(`Escena ${n}: ${model.name} cobra ${b.seconds} s (${b.clips > 1 ? `${b.clips} clips` : 'duración admitida más cercana'}) para cubrir ${needed} s.`);
   }
-  const cost = b.seconds * brollRate(model, withAudio);
+  const cost = b.cost;
 
   const candidates = BROLL_MODELS.filter((m) => !withAudio || m.audio).map((m) => ({
     m,
-    cost: billed(m).seconds * brollRate(m, withAudio),
+    cost: billed(m).cost,
   }));
   const cheapest = candidates.sort((a, c) => a.cost - c.cost)[0];
 
   return {
     escena: n,
     tipo: 'toma_de_apoyo',
-    detalle: `${model.name} ${b.seconds} s${withAudio ? ' con audio' : ''} (${model.resolution})`,
+    detalle: `${model.name} ${b.seconds} s${withAudio ? ' con audio' : ''} (${res})`,
     costoUSD: usd(cost),
     costoMasBaratoUSD: usd(Math.min(cost, cheapest.cost)),
     alternativa: cheapest.cost < cost ? cheapest.m.name : undefined,

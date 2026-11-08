@@ -5,6 +5,9 @@ import type { ProjectCategory } from '@/config/project-categories';
 import { mp4DurationSeconds } from '@/lib/video/mp4-duration';
 import { recordUsage } from '@/lib/usage/usage-store';
 import { videoRate } from '@/config/cost-rates';
+import { clipCostUSD, getBrollModel } from '@/config/broll-models';
+import { ApiMartClient, ApiMartError } from '@/lib/ai/apimart';
+import { ClipRequestError, buildApimartVideoBody } from '@/lib/ai/apimart-video';
 import { listJobs, updateJob, type RenderJob } from './job-store';
 import { errorMessage } from '@/lib/errors';
 import { onProductionJobCompleted, onProductionJobFailed } from '@/lib/director/production-jobs';
@@ -18,7 +21,8 @@ import { onProductionJobCompleted, onProductionJobFailed } from '@/lib/director/
  */
 
 const TICK_MS = 5_000;
-const MAX_PARALLEL = 3;
+/** Clips a la vez en el proveedor (todas las herramientas juntas). */
+const MAX_PARALLEL = 4;
 const MAX_ATTEMPTS = 3;
 const JOB_TIMEOUT_MS = 30 * 60 * 1000;
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -67,6 +71,7 @@ async function tick() {
 }
 
 async function submitJob(job: RenderJob) {
+  if (job.provider === 'apimart') return submitApimartJob(job);
   try {
     const service = new OpenRouterVideoService();
     const task =
@@ -100,6 +105,51 @@ async function submitJob(job: RenderJob) {
   }
 }
 
+/** Apimart: arma el cuerpo según el modelo (Grok / Gemini Omni) y crea la tarea. */
+async function submitApimartJob(job: RenderJob) {
+  try {
+    const body = buildApimartVideoBody({
+      model: job.model,
+      prompt: job.input.prompt || '',
+      durationSec: job.input.durationSec || 6,
+      aspectRatio: job.input.aspectRatio,
+      resolution: job.input.resolution,
+      firstFrameUrl: job.input.imageUrl || undefined,
+      referenceImageUrls: job.input.referenceImageUrls,
+    });
+    const { taskId } = await new ApiMartClient().createVideoTask(body);
+    await updateJob(job.id, {
+      status: 'processing',
+      providerTaskId: taskId,
+      startedAt: new Date().toISOString(),
+      phase: 'Generando el video en Apimart…',
+      attempts: job.attempts + 1,
+    });
+  } catch (err: unknown) {
+    const message = errorMessage(err, 'No se pudo enviar el trabajo a Apimart.');
+    // Petición inválida, sin clave o sin saldo: reintentar no sirve (y no se cobró nada)
+    if (err instanceof ClipRequestError || (err instanceof ApiMartError && [400, 401, 402, 403].includes(err.status))) {
+      await markFailed({ ...job, attempts: job.attempts + 1 }, message);
+      return;
+    }
+    // Límite de velocidad: se vuelve a intentar en la siguiente vuelta sin gastar un intento
+    if (err instanceof ApiMartError && err.status === 429) {
+      await updateJob(job.id, { phase: 'Apimart pide esperar un momento; se reintentará solo…' });
+      return;
+    }
+    await failOrRetry({ ...job, attempts: job.attempts + 1 }, message);
+  }
+}
+
+type ProviderStatus = { status: 'processing' | 'completed' | 'failed'; videoUrl?: string; error?: string; costUSD?: number };
+
+async function fetchApimartStatus(taskId: string): Promise<ProviderStatus> {
+  const t = await new ApiMartClient().getVideoTaskStatus(taskId);
+  if (t.status === 'failed') return { status: 'failed', error: t.errorMessage || 'Apimart no pudo generar el video.', costUSD: t.costUSD };
+  if (t.status === 'completed' && t.videoUrl) return { status: 'completed', videoUrl: t.videoUrl, costUSD: t.costUSD };
+  return { status: 'processing' };
+}
+
 async function checkJob(job: RenderJob) {
   if (!job.providerTaskId) {
     await updateJob(job.id, { status: 'queued', phase: 'En cola' });
@@ -112,9 +162,9 @@ async function checkJob(job: RenderJob) {
     return;
   }
 
-  let result: { status: 'processing' | 'completed' | 'failed'; videoUrl?: string; error?: string };
+  let result: ProviderStatus;
   try {
-    result = await fetchOpenRouterStatus(job.providerTaskId);
+    result = job.provider === 'apimart' ? await fetchApimartStatus(job.providerTaskId) : await fetchOpenRouterStatus(job.providerTaskId);
     // Justo después de crear el trabajo, OpenRouter puede tardar en registrarlo: un 404 temprano no es un fallo
     if (result.status === 'failed' && result.error === NOT_FOUND && Date.now() - started < 3 * 60 * 1000) {
       return;
@@ -126,6 +176,11 @@ async function checkJob(job: RenderJob) {
   }
 
   if (result.status === 'failed') {
+    // Si la tarea fallida cobró algo, no se reintenta solo: hay que volver a aprobar
+    if (result.costUSD && result.costUSD > 0) {
+      await markFailed(job, `${result.error || 'El proveedor rechazó el render.'} (cobró $${result.costUSD.toFixed(3)})`, result.costUSD);
+      return;
+    }
     await failOrRetry(job, result.error || 'El proveedor rechazó el render.');
     return;
   }
@@ -137,10 +192,18 @@ async function checkJob(job: RenderJob) {
     return;
   }
 
-  await finishJob(job, result.videoUrl);
+  await finishJob(job, result.videoUrl, result.costUSD);
 }
 
-async function finishJob(job: RenderJob, videoUrl: string) {
+/** Costo estimado si el proveedor no da el real (OpenRouter: tarifa × segundos; Apimart: tabla del catálogo). */
+function estimatedCost(job: RenderJob, durationSec: number): number {
+  if (job.provider === 'apimart') {
+    return clipCostUSD(getBrollModel(job.model), durationSec || job.input.durationSec || 6, { withAudio: job.input.generateAudio, resolution: job.input.resolution });
+  }
+  return durationSec * videoRate(job.model, job.input.generateAudio);
+}
+
+async function finishJob(job: RenderJob, videoUrl: string, realCostUSD?: number) {
   await updateJob(job.id, { phase: 'Guardando el video en tu biblioteca…' });
   try {
     // Las URLs de contenido de OpenRouter exigen la clave (docs de Video generation)
@@ -149,7 +212,9 @@ async function finishJob(job: RenderJob, videoUrl: string) {
       : undefined;
     const { path: outputPath, bytes } = await downloadToLibrary(videoUrl, 'video', 'mp4', job.id, auth);
     const durationSec = mp4DurationSeconds(bytes) || job.input.durationSec || 0;
-    const costUSD = Math.round(durationSec * videoRate(job.model, job.input.generateAudio) * 10000) / 10000;
+    // Apimart da el costo real de la tarea (data.cost); si no viene, se estima
+    const hasReal = typeof realCostUSD === 'number' && realCostUSD >= 0;
+    const costUSD = Math.round((hasReal ? realCostUSD : estimatedCost(job, durationSec)) * 10000) / 10000;
 
     await updateJob(job.id, {
       status: 'completed',
@@ -169,7 +234,7 @@ async function finishJob(job: RenderJob, videoUrl: string) {
       units: durationSec,
       unit: 'segundos',
       costUSD,
-      estimated: durationSec === 0,
+      estimated: job.provider === 'apimart' ? !hasReal : durationSec === 0,
       filePath: outputPath,
       jobId: job.id,
       productionId: job.productionId,
@@ -218,7 +283,7 @@ const IMAGE_POLICY_RE = /usage guidelines|violates|policy|safety|prohibited|not 
 
 async function failOrRetry(job: RenderJob, message: string) {
   // Clave inválida/expirada o sin saldo: reintentar no sirve hasta que la persona lo arregle
-  if (/OPENROUTER_API_KEY|no tiene saldo/.test(message)) {
+  if (/OPENROUTER_API_KEY|APIMART_API_KEY|no tiene saldo/.test(message)) {
     await markFailed(job, message);
     return;
   }
@@ -248,8 +313,8 @@ async function failOrRetry(job: RenderJob, message: string) {
   }
 }
 
-async function markFailed(job: RenderJob, message: string) {
-  await updateJob(job.id, { status: 'failed', phase: 'Falló', error: message, completedAt: new Date().toISOString() });
+async function markFailed(job: RenderJob, message: string, costUSD = 0) {
+  await updateJob(job.id, { status: 'failed', phase: 'Falló', error: message, completedAt: new Date().toISOString(), ...(costUSD ? { costUSD } : {}) });
   await recordUsage({
     tool: job.tool,
     kind: 'video',
@@ -258,13 +323,13 @@ async function markFailed(job: RenderJob, message: string) {
     description: `${job.title} · falló: ${message.slice(0, 80)}`,
     units: 0,
     unit: 'segundos',
-    costUSD: 0,
+    costUSD,
     estimated: false,
     jobId: job.id,
     productionId: job.productionId,
     status: 'failed',
   });
-  if (job.productionId) await onProductionJobFailed(job, message);
+  if (job.productionId) await onProductionJobFailed({ ...job, ...(costUSD ? { costUSD } : {}) }, message);
 }
 
 async function fetchOpenRouterStatus(taskId: string) {

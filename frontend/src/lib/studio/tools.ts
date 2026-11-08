@@ -26,9 +26,16 @@ import { createRenderJob } from '@/lib/jobs/create-job';
 import { getJob } from '@/lib/jobs/job-store';
 import { probeMedia } from '@/lib/video/ffmpeg';
 import { ttsCost, videoRate } from '@/config/cost-rates';
-import { DEFAULT_ELEVEN_MODEL } from '@/config/elevenlabs-models';
+import { DEFAULT_ELEVEN_MODEL, ELEVEN_MODELS, isKnownElevenModel } from '@/config/elevenlabs-models';
+import { generateImages, imageUnitPrice } from '@/lib/generation/image';
+import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS, getImageModel, isValidImageModelId } from '@/config/image-models';
 
 import { isInside } from '@/lib/fs/inside';
+import { SEEDANCE_MODELS, transformVideoSeedance, validateAndBuildSeedancePayload } from '@/services/faceswap.service';
+import type { SeedanceModelId, SeedanceResolution, SeedanceSize, SeedanceTransformInput } from '@/types/faceswap.types';
+import { downloadToLibrary } from '@/lib/storage/generated-library';
+import { assertWithinDailyLimit, recordUsage } from '@/lib/usage/usage-store';
+import { getSettings } from '@/lib/data/settings';
 
 /**
  * Herramientas de Claude en el Estudio Claude (MCP lulo-studio-chat, LULO_TOOLSET=studio).
@@ -554,6 +561,321 @@ const avatarVideo = tool({
   },
 });
 
+// ── Voice Studio (ElevenLabs) ───────────────────────────────────────────────
+
+const VozInput = z.object({
+  texto: z.string().trim().min(1).max(5000).describe('Lo que se dice. Puede llevar etiquetas de emoción de ElevenLabs v3/v4 como [laughs] o [whispers].'),
+  vozId: z.string().optional().describe('Voz de ElevenLabs (avatares_y_voces). Vacío = la configurada por defecto.'),
+  modelo: z
+    .string()
+    .optional()
+    .describe(`Modelo de ElevenLabs. Vacío = ${DEFAULT_ELEVEN_MODEL}. Opciones: ${ELEVEN_MODELS.map((m) => m.id).join(', ')}`),
+});
+
+function vozModel(m?: string) {
+  if (m && !isKnownElevenModel(m)) throw new StudioError(`Modelo de voz desconocido: "${m}". Usa uno de: ${ELEVEN_MODELS.map((x) => x.id).join(', ')}.`);
+  return m || DEFAULT_ELEVEN_MODEL;
+}
+
+function vozEstimate(input: z.infer<typeof VozInput>) {
+  const modelo = vozModel(input.modelo);
+  const chars = input.texto.length;
+  return { modelo, caracteres: chars, segundosAprox: Number(Math.max(1, chars / CHARS_PER_SEC).toFixed(1)), totalUSD: Number(ttsCost(modelo, chars).toFixed(4)) };
+}
+
+const vozCosto = tool({
+  name: 'voz_costo',
+  description: 'Voice Studio: cuánto costaría convertir un texto en voz con ElevenLabs. No gasta.',
+  schema: VozInput,
+  run: async (_id, input) => vozEstimate(input),
+});
+
+const vozGenerar = tool({
+  name: 'voz_generar',
+  description:
+    'Voice Studio: genera un audio MP3 con ElevenLabs (voz clonada o la predeterminada). GASTA: necesita una aprobación aprobada con saldo (usa voz_costo antes). Devuelve la ruta del audio y un token para mostrarlo; el audio sirve luego para avatar_video (campo audio).',
+  schema: VozInput.extend({ aprobacionId: z.string().min(3) }),
+  run: async (id, input) => {
+    const p = await getStudioProject(id);
+    const est = vozEstimate(input);
+    assertBudget(p, input.aprobacionId, est.totalUSD);
+    const voice = await synthesizeSpeech({ text: input.texto, voiceId: input.vozId || undefined, modelId: est.modelo, tool: 'claude-studio' });
+    // Copia dentro de la carpeta del proyecto: así avatar_video y la edición la encuentran por ruta relativa
+    const rel = path.join('claude', `voz-${Date.now()}.mp3`);
+    const dest = path.join(/*turbopackIgnore: true*/ p.carpeta, rel);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    if (voice.filePath && fsSync.existsSync(voice.filePath)) await fs.copyFile(voice.filePath, dest);
+    else await fs.writeFile(dest, Buffer.from(voice.result.buffer));
+    const cost = Number(voice.costUSD.toFixed(4));
+    await updateStudioProject(id, (x) => {
+      const a = x.aprobaciones.find((y) => y.id === input.aprobacionId)!;
+      a.usadoUSD = Number((a.usadoUSD + cost).toFixed(4));
+      x.gastoUSD = Number((x.gastoUSD + cost).toFixed(4));
+    });
+    const seconds = (await probeMedia(dest).catch(() => null))?.duration;
+    const mediaId = await registerMedia(id, dest, `Voz · ${input.texto.slice(0, 40)}${input.texto.length > 40 ? '…' : ''}`);
+    return { audio: rel.replace(/\\/g, '/'), modelo: voice.effectiveModel ?? est.modelo, segundos: seconds ? Number(seconds.toFixed(1)) : est.segundosAprox, costoUSD: cost, token: token(mediaId) };
+  },
+});
+
+// ── Creación de imágenes ────────────────────────────────────────────────────
+
+const ImagenBase = z.object({
+  modelo: z
+    .string()
+    .optional()
+    .describe(
+      `Vacío = ${DEFAULT_IMAGE_MODEL}. ` +
+        IMAGE_MODELS.map((m) => `${m.id} (${m.name}; hasta ${m.maxRefs} referencias; resoluciones ${m.resolutions.join('/')}; ≈$${Object.values(m.pricePerImage)[0]}/imagen)`).join(' · ')
+    ),
+  resolucion: z.enum(['1K', '2K', '4K']).default('2K'),
+  cantidad: z.number().int().min(1).max(4).default(1),
+});
+
+function imagenModel(m?: string) {
+  if (m && !isValidImageModelId(m)) throw new StudioError(`Modelo de imagen desconocido: "${m}".`);
+  return m || DEFAULT_IMAGE_MODEL;
+}
+
+function imagenEstimate(input: z.infer<typeof ImagenBase>) {
+  const modelo = imagenModel(input.modelo);
+  const { spec, resolution, unit } = imageUnitPrice(modelo, input.resolucion);
+  return { modelo: spec.id, nombre: spec.name, resolucion: resolution, cantidad: input.cantidad, porImagenUSD: unit, totalUSD: Number((unit * input.cantidad).toFixed(4)) };
+}
+
+async function fileToDataUrl(file: string): Promise<string> {
+  const ext = path.extname(file).toLowerCase();
+  if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) throw new StudioError(`${path.basename(file)}: usa JPG, PNG o WEBP como referencia.`);
+  const pic = await photoForUpload(file);
+  const mime = pic.name.toLowerCase().endsWith('.png') ? 'png' : pic.name.toLowerCase().endsWith('.webp') ? 'webp' : 'jpeg';
+  return `data:image/${mime};base64,${pic.buffer.toString('base64')}`;
+}
+
+const imagenCosto = tool({
+  name: 'imagen_costo',
+  description: 'Creación de imágenes: cuánto costarían N imágenes con un modelo y resolución. No gasta.',
+  schema: ImagenBase,
+  run: async (_id, input) => imagenEstimate(input),
+});
+
+const imagenCrear = tool({
+  name: 'imagen_crear',
+  description:
+    'Creación de imágenes: genera imágenes realistas a partir de un prompt, opcionalmente con un avatar guardado (sus fotos van como referencia de identidad) y fotos de referencia de tu carpeta (producto, ropa, lugar, estilo). GASTA: necesita una aprobación aprobada con saldo (usa imagen_costo antes). Devuelve rutas y tokens para mostrarlas; una imagen sirve luego como foto para avatar_video.',
+  schema: ImagenBase.extend({
+    prompt: z.string().trim().min(3).max(4000).describe('Qué se ve: persona, acción, lugar, luz, encuadre. Mejor en español o inglés, concreto.'),
+    avatarId: z.string().optional().describe('Avatar guardado (avatares_y_voces): la persona generada será esa.'),
+    referencias: z.array(z.string()).max(10).default([]).describe('Fotos de tu carpeta, p. ej. ["adjuntos/producto.png"].'),
+    formato: z.string().max(12).default('9:16').describe('9:16, 16:9, 1:1, 4:5 o 3:4'),
+    realismo: z.boolean().default(true).describe('Añade el bloque de realismo (piel real, luz natural, sin look de IA).'),
+    aprobacionId: z.string().min(3),
+  }),
+  run: async (id, input) => {
+    const p = await getStudioProject(id);
+    const est = imagenEstimate(input);
+    assertBudget(p, input.aprobacionId, est.totalUSD);
+    const spec = getImageModel(est.modelo);
+    if (input.referencias.length > spec.maxRefs - (input.avatarId ? 1 : 0)) {
+      throw new StudioError(`${spec.name} acepta hasta ${spec.maxRefs} referencias en total${input.avatarId ? ' (contando al menos 1 foto del avatar)' : ''}.`);
+    }
+    if (input.avatarId) await getAvatar(input.avatarId).catch(() => {
+      throw new StudioError('Ese avatar no existe (avatares_y_voces).', 404);
+    });
+    const references: string[] = [];
+    for (const r of input.referencias) references.push(await fileToDataUrl(await resolveFile(p, r)));
+
+    const res = await generateImages(
+      {
+        model: est.modelo,
+        prompt: input.prompt,
+        references,
+        aspectRatio: input.formato,
+        resolution: est.resolucion,
+        count: input.cantidad,
+        realism: input.realismo,
+        avatarId: input.avatarId,
+      },
+      { tool: 'claude-studio', saveProject: false }
+    );
+    const cost = Number(res.images.reduce((s, i) => s + (i.costUSD ?? 0), 0).toFixed(4));
+    if (cost > 0) {
+      await updateStudioProject(id, (x) => {
+        const a = x.aprobaciones.find((y) => y.id === input.aprobacionId)!;
+        a.usadoUSD = Number((a.usadoUSD + cost).toFixed(4));
+        x.gastoUSD = Number((x.gastoUSD + cost).toFixed(4));
+      });
+    }
+    if (!res.images.length) throw new StudioError(`No salió ninguna imagen: ${res.errors.join(' · ') || 'sin detalle'}`, 502);
+
+    // Copias en la carpeta del proyecto (para usarlas luego como foto o referencia)
+    const imagenes: { ruta: string; token: string }[] = [];
+    for (const [i, img] of res.images.entries()) {
+      const rel = path.join('claude', `imagen-${Date.now()}-${i + 1}${path.extname(img.path) || '.png'}`);
+      const dest = path.join(/*turbopackIgnore: true*/ p.carpeta, rel);
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.copyFile(img.path, dest);
+      const mediaId = await registerMedia(id, dest, `Imagen ${i + 1} · ${input.prompt.slice(0, 40)}${input.prompt.length > 40 ? '…' : ''}`);
+      imagenes.push({ ruta: rel.replace(/\\/g, '/'), token: token(mediaId) });
+    }
+    return {
+      imagenes,
+      enviado: { modelo: res.sent.model, formato: res.sent.aspectRatio, resolucion: res.sent.resolution, avatar: res.sent.avatar, fotosAvatar: res.sent.avatarPhotos, referenciasExtra: res.sent.extraRefs },
+      errores: res.errors,
+      costoUSD: cost,
+    };
+  },
+});
+
+// ── Clonación y reemplazo (Seedance 2.0 en Apimart) ─────────────────────────
+
+const ClonInput = z.object({
+  video: z.string().optional().describe('Video base de tu carpeta (adjuntos/clip.mp4), 1,8–15 s: de él se copian movimiento, cámara y pose.'),
+  avatarId: z.string().optional().describe('Avatar guardado cuya cara reemplaza al personaje (se usa su portada).'),
+  cara: z.string().optional().describe('O una foto de tu carpeta con la cara nueva.'),
+  objeto: z.string().optional().describe('Foto opcional de un producto/objeto que reemplaza al que sostiene.'),
+  extras: z.array(z.string()).max(6).default([]).describe('Más fotos de referencia (ropa, lugar, estilo).'),
+  audio: z.string().optional().describe('Audio opcional de tu carpeta (≤ 15 s) con la voz nueva; sincroniza la boca.'),
+  prompt: z.string().max(3000).optional().describe('Indicaciones extra en inglés (lo que debe cambiar o mantenerse).'),
+  modelo: z.enum(['seedance-2.0', 'seedance-2.0-fast', 'seedance-2.0-mini']).default('seedance-2.0-fast'),
+  formato: z.enum(['adaptive', '9:16', '16:9', '1:1', '4:3', '3:4', '21:9']).default('adaptive'),
+  resolucion: z.enum(['480p', '720p', '1080p', '4k']).default('720p'),
+  duracion: z.number().int().min(4).max(15).optional().describe('Segundos del resultado (4–15). Vacío = lo que dura el video base (mín. 4).'),
+  generarAudio: z.boolean().default(true),
+});
+
+async function clonPlan(p: StudioProject, input: z.infer<typeof ClonInput>) {
+  if (!input.avatarId && !input.cara && !input.video) throw new StudioError('Indica al menos el `video` base y la cara (`avatarId` o `cara`).');
+  let face: string | undefined;
+  if (input.avatarId) {
+    const a = await getAvatar(input.avatarId).catch(() => null);
+    const file = a?.cover ?? a?.photos[0]?.file;
+    if (!a || !file) throw new StudioError('Ese avatar no existe o no tiene fotos (avatares_y_voces).', 404);
+    face = await avatarPhotoPath(a.id, file);
+  } else if (input.cara) face = await resolveFile(p, input.cara);
+  const video = input.video ? await resolveFile(p, input.video) : undefined;
+  const audio = input.audio ? await resolveFile(p, input.audio) : undefined;
+  let videoSec: number | undefined;
+  if (video) {
+    videoSec = (await probeMedia(video)).duration ?? undefined;
+    if (!videoSec) throw new StudioError('No pude medir el video base.');
+    if (videoSec < 1.8 || videoSec > 15.2) throw new StudioError(`El video base dura ${videoSec.toFixed(1)} s y Seedance acepta 1,8–15 s: recórtalo antes (editar_video o pídeselo a la persona).`);
+  }
+  let audioSec: number | undefined;
+  if (audio) {
+    audioSec = (await probeMedia(audio)).duration ?? undefined;
+    if (audioSec && audioSec > 15) throw new StudioError(`El audio dura ${audioSec.toFixed(1)} s; Seedance acepta hasta 15 s.`);
+  }
+  const duration = input.duracion ?? Math.min(15, Math.max(4, Math.round(videoSec ?? 5)));
+  const spec = SEEDANCE_MODELS.find((m) => m.id === input.modelo)!;
+  if (!spec.resolutions.includes(input.resolucion)) throw new StudioError(`${spec.name} solo admite ${spec.resolutions.join(', ')}.`);
+  const totalUSD = Number((duration * spec.costPerSecondUSD).toFixed(4));
+  return { face, video, audio, videoSec, audioSec, duration, spec, totalUSD };
+}
+
+const clonacionCosto = tool({
+  name: 'clonacion_costo',
+  description:
+    'Clonación y reemplazo: cuánto costaría reemplazar la persona (y opcionalmente el objeto o la voz) de un video corto con Seedance 2.0. Fast ≈ $0,04/s, Mini ≈ $0,03/s, Estándar ≈ $0,066/s (hasta 4K). No gasta.',
+  schema: ClonInput,
+  run: async (id, input) => {
+    const plan = await clonPlan(await getStudioProject(id), input);
+    return { modelo: plan.spec.id, segundos: plan.duration, videoBaseSegundos: plan.videoSec, totalUSD: plan.totalUSD };
+  },
+});
+
+const clonacionVideo = tool({
+  name: 'clonacion_video',
+  description:
+    'Clonación y reemplazo (Seedance 2.0): toma el movimiento, la cámara y la pose de un video base y pone la cara de un avatar o foto (y opcionalmente un objeto y una voz nueva). GASTA: necesita una aprobación aprobada con saldo (usa clonacion_costo antes). Tarda unos minutos; devuelve un token para mostrarlo.',
+  schema: ClonInput.extend({ aprobacionId: z.string().min(3) }),
+  run: async (id, input) => {
+    const p = await getStudioProject(id);
+    const plan = await clonPlan(p, input);
+    assertBudget(p, input.aprobacionId, plan.totalUSD);
+    await assertWithinDailyLimit(plan.totalUSD, (await getSettings()).dailyLimitUSD);
+
+    const uploaded: { publicId: string; type: 'image' | 'video' }[] = [];
+    const upImg = async (file: string) => {
+      const pic = await photoForUpload(file);
+      const r = await cloudinaryStorageService.uploadImage(pic.buffer, pic.name, 'lulo-studio/portraits');
+      uploaded.push({ publicId: r.publicId, type: 'image' });
+      return r.publicUrl;
+    };
+    const cleanup = () => Promise.allSettled(uploaded.map((u) => cloudinaryStorageService.deleteAsset(u.publicId, u.type)));
+    try {
+      const faceUrl = plan.face ? await upImg(plan.face) : undefined;
+      const objectUrl = input.objeto ? await upImg(await resolveFile(p, input.objeto)) : undefined;
+      const extraUrls: string[] = [];
+      for (const e of input.extras) extraUrls.push(await upImg(await resolveFile(p, e)));
+      let videoUrl: string | undefined;
+      if (plan.video) {
+        const r = await cloudinaryStorageService.uploadVideo(await fs.readFile(plan.video), path.basename(plan.video), 'lulo-studio/deepswap');
+        uploaded.push({ publicId: r.publicId, type: 'video' });
+        videoUrl = r.publicUrl;
+      }
+      let audioUrl: string | undefined;
+      if (plan.audio) {
+        const r = await cloudinaryStorageService.uploadAudio(await fs.readFile(plan.audio), path.basename(plan.audio), 'lulo-studio/audio');
+        uploaded.push({ publicId: r.publicId, type: 'video' });
+        audioUrl = r.publicUrl;
+      }
+
+      const req: SeedanceTransformInput = {
+        videoUrl,
+        faceRefUrl: faceUrl,
+        objectRefUrl: objectUrl,
+        extraImageUrls: extraUrls,
+        audioUrl,
+        prompt: input.prompt,
+        options: {
+          model: input.modelo as SeedanceModelId,
+          size: input.formato as SeedanceSize,
+          resolution: input.resolucion as SeedanceResolution,
+          duration: plan.duration,
+          generateAudio: input.generarAudio,
+          videoDurationSec: plan.videoSec,
+          audioDurationSec: plan.audioSec,
+          waitForCompletion: true,
+          timeoutMs: 15 * 60_000,
+          pollIntervalMs: 5_000,
+        },
+      };
+      validateAndBuildSeedancePayload(req); // errores de reglas antes de gastar
+      const result = await transformVideoSeedance(req);
+      if (result.status !== 'completed' || !result.videoUrl) throw new StudioError(`Seedance no terminó: ${result.error ?? result.status}`, 502);
+
+      const saved = await downloadToLibrary(result.videoUrl, 'video', 'mp4', result.taskId);
+      const cost = Number((result.costUSD && result.costUSD > 0 ? result.costUSD : plan.totalUSD).toFixed(4));
+      await recordUsage({
+        tool: 'claude-studio',
+        kind: 'video',
+        provider: 'apimart',
+        model: input.modelo,
+        description: `Estudio Claude · clonación Seedance (${input.resolucion}, ${input.formato}, ${plan.duration}s) · ${p.titulo}`,
+        units: plan.duration,
+        unit: 'segundos',
+        costUSD: cost,
+        estimated: !(result.costUSD && result.costUSD > 0),
+        filePath: saved.path,
+        jobId: result.taskId,
+      });
+      await updateStudioProject(id, (x) => {
+        const a = x.aprobaciones.find((y) => y.id === input.aprobacionId)!;
+        a.usadoUSD = Number((a.usadoUSD + cost).toFixed(4));
+        x.gastoUSD = Number((x.gastoUSD + cost).toFixed(4));
+      });
+      const rel = path.join('claude', `clonacion-${Date.now()}.mp4`);
+      const dest = path.join(/*turbopackIgnore: true*/ p.carpeta, rel);
+      await fs.mkdir(path.dirname(dest), { recursive: true });
+      await fs.copyFile(saved.path, dest);
+      const mediaId = await registerMedia(id, dest, `Clonación · ${p.titulo}`);
+      return { video: rel.replace(/\\/g, '/'), segundos: plan.duration, costoUSD: cost, token: token(mediaId) };
+    } finally {
+      void cleanup();
+    }
+  },
+});
+
 export const STUDIO_TOOLS: StudioTool[] = [
   servicios,
   verProyecto,
@@ -570,6 +892,12 @@ export const STUDIO_TOOLS: StudioTool[] = [
   avataresYVoces,
   avatarCosto,
   avatarVideo,
+  vozCosto,
+  vozGenerar,
+  imagenCosto,
+  imagenCrear,
+  clonacionCosto,
+  clonacionVideo,
 ];
 
 export function studioToolsManifest() {

@@ -1,14 +1,15 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
-import { getAvatar, avatarPhotoPath } from '@/lib/avatars/avatar-store';
+import { getAvatar, avatarPhotoPath, avatarPhotoFiles, imageFileDataUrl } from '@/lib/avatars/avatar-store';
 import { getSettings, getPersonName } from '@/lib/data/settings';
 import { assertWithinDailyLimit } from '@/lib/usage/usage-store';
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
 import { getConfiguredVoiceId } from '@/services/elevenlabs/elevenlabs.service';
 import { DEFAULT_ELEVEN_MODEL } from '@/config/elevenlabs-models';
 import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
-import { DEFAULT_BROLL_MODEL, brollRate, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { DEFAULT_BROLL_MODEL, brollResolution, clipCostUSD, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { refAbsPath } from '@/lib/director-mode/references';
 import { videoRate } from '@/config/cost-rates';
 import { generateImages, ImageRequestSchema } from '@/lib/generation/image';
 import { synthesizeSpeechWithTimestamps } from '@/lib/generation/voice';
@@ -60,7 +61,7 @@ function toEstimateInput(spec: SceneSpec): SceneInput {
     case 'imagen':
       return { tipo: 'imagen', modelo: spec.modelo, resolucion: spec.resolucion, cantidad: spec.cantidad };
     case 'toma_de_apoyo':
-      return { tipo: 'toma_de_apoyo', duracionSeg: spec.duracionSeg, modelo: spec.modelo, conAudio: spec.conAudio };
+      return { tipo: 'toma_de_apoyo', duracionSeg: spec.duracionSeg, modelo: spec.modelo, conAudio: spec.conAudio, resolucion: spec.resolucion };
   }
 }
 
@@ -106,12 +107,23 @@ async function validateSpec(spec: SceneSpec, n: number, all: SceneSpec[]) {
     case 'imagen':
       if (!spec.prompt || spec.prompt.trim().length < 3) fail('una imagen necesita "prompt".');
       if ((spec.cantidad ?? 1) > 4) fail('máximo 4 imágenes por escena.');
+      if ((spec.referencias?.length ?? 0) > 14) fail('máximo 14 fotos de referencia por imagen.');
       break;
     case 'toma_de_apoyo': {
       if (!spec.prompt?.trim()) fail('una toma de apoyo necesita "prompt".');
       const model = getBrollModel(spec.modelo || DEFAULT_BROLL_MODEL);
       const max = model.durations[model.durations.length - 1];
       if ((spec.duracionSeg ?? 0) > max) fail(`${model.name} genera hasta ${max} s por clip; divide la toma en varias escenas.`);
+      if (spec.resolucion && !model.resolutions.includes(spec.resolucion.toLowerCase())) {
+        fail(`${model.name} no admite ${spec.resolucion} (admite ${model.resolutions.join(', ')}).`);
+      }
+      if (spec.avatarReferencias) {
+        try {
+          await getAvatar(spec.avatarReferencias);
+        } catch {
+          fail(`no existe el avatar "${spec.avatarReferencias}".`);
+        }
+      }
       break;
     }
   }
@@ -455,9 +467,16 @@ export async function runImageScene(productionId: string, sceneId: string) {
   const { production: p, scene: s } = await beginScene(productionId, sceneId, 'imagen');
   const spentBefore = s.gastoUSD;
   try {
+    // Fotos de referencia de la producción (producto, lugar, estilo…) como data URL reducida
+    const references: string[] = [];
+    for (const rel of s.spec.referencias ?? []) {
+      const url = await imageFileDataUrl(refAbsPath(p.carpeta, rel));
+      if (url) references.push(url);
+    }
     const body = ImageRequestSchema.parse({
       model: s.spec.modelo || DEFAULT_IMAGE_MODEL,
       prompt: s.spec.prompt,
+      references,
       aspectRatio: p.formato,
       resolution: s.spec.resolucion || '1K',
       count: s.spec.cantidad ?? 1,
@@ -607,7 +626,17 @@ export async function runBrollScene(productionId: string, sceneId: string) {
     const model = getBrollModel(s.spec.modelo || DEFAULT_BROLL_MODEL);
     const withAudio = !!s.spec.conAudio;
     const duration = pickBrollDuration(model, Math.ceil(s.spec.duracionSeg ?? 6));
+    const resolution = brollResolution(model, s.spec.resolucion);
     const imageUrl = frame ? await uploadTemp(productionId, sceneId, frame, 'image') : '';
+    // Fotos del avatar como referencias extra, hasta el máximo del modelo (los modelos no aceptan base64:
+    // se suben a Cloudinary como temporales y se borran al terminar). Omni 1.1 con fotograma inicial solo admite 1 imagen.
+    const referenceImageUrls: string[] = [];
+    const frameOnly = model.id === 'gemini-omni-1.1-flash-ext' && !!imageUrl;
+    const slots = model.provider === 'apimart' && !frameOnly ? model.maxImages - (imageUrl ? 1 : 0) : 0;
+    if (s.spec.avatarReferencias && slots > 0) {
+      const { files } = await avatarPhotoFiles(s.spec.avatarReferencias, slots);
+      for (const f of files) referenceImageUrls.push(await uploadTemp(productionId, sceneId, f, 'image'));
+    }
     const job = await createRenderJob({
       tool: DIRECTOR_TOOL,
       title: `${p.nombre} · escena ${s.orden} (apoyo)`,
@@ -618,10 +647,11 @@ export async function runBrollScene(productionId: string, sceneId: string) {
         aspectRatio: p.formato,
         prompt: s.spec.prompt,
         durationSec: duration,
-        resolution: model.resolution,
+        resolution,
         ...(withAudio ? { generateAudio: true } : {}),
+        ...(referenceImageUrls.length ? { referenceImageUrls } : {}),
       },
-      estimatedCostUSD: roundUSD(duration * brollRate(model, withAudio)),
+      estimatedCostUSD: roundUSD(clipCostUSD(model, duration, { withAudio, resolution })),
       productionId,
       productionSceneId: sceneId,
     });

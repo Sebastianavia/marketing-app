@@ -120,14 +120,16 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
   const marginL = 80;
   const marginR = Math.max(80, safe.right + 20);
   const box = sub.caja;
+  // Opacidad de la caja (100 % = opaca). En ASS el alfa va de 0 (opaco) a 255 (transparente).
+  const boxAlpha = Math.round(255 * (1 - Math.max(30, Math.min(100, sub.opacidadCaja ?? 100)) / 100));
   const subStyle = [
     'Sub',
     font,
     sub.tamano,
     assColor(sub.colorTexto),
     assColor(sub.colorResaltado),
-    assColor(box ? sub.colorCaja : sub.colorBorde),
-    box ? assColor(sub.colorCaja) : assColor('#000000', 140),
+    box ? assColor(sub.colorCaja, boxAlpha) : assColor(sub.colorBorde),
+    box ? assColor(sub.colorCaja, boxAlpha) : assColor('#000000', 140),
     -1, 0, 0, 0, 100, 100, 0, 0,
     box ? 3 : 1,
     box ? Math.round(sub.tamano * 0.22) : sub.grosorBorde,
@@ -138,9 +140,10 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
 
   // El gancho va arriba; si los subtítulos ya están arriba, va abajo para no taparse.
   const hookAlign = sub.posicion === 'arriba' ? 2 : 8;
+  const hookFont = (hook.fuente?.trim() || font).replace(/,/g, ' ');
   const hookStyle = [
     'Hook',
-    font,
+    hookFont,
     hook.tamano,
     assColor(hook.colorTexto),
     assColor(hook.colorTexto),
@@ -204,7 +207,31 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
   const hookText = gancho.trim();
   if (hook.activo && hookText) {
     const end = Math.min(hook.duracionSeg, Math.max(0.5, duracionFinal));
-    add(0, end, 'Hook', `{\\fad(120,200)}${escapeText(hookText.toLocaleUpperCase('es'))}`);
+    add(0, end, 'Hook', `{\\fad(120,200)}${escapeText(hook.mayusculas === false ? hookText : hookText.toLocaleUpperCase('es'))}`);
+  }
+
+  // Firma (usuario o marca) en pantalla todo el video, pequeña y dentro de la zona segura
+  const sig = perfil.firma;
+  const sigText = sig?.activo ? sig.texto.trim() : '';
+  let sigStyle: string | null = null;
+  if (sigText) {
+    const sigAlpha = Math.round(255 * (1 - Math.max(20, Math.min(100, sig.opacidad)) / 100));
+    const sigAlign = sig.posicion === 'abajo' ? 2 : 8;
+    const sigMargin = sig.posicion === 'abajo' ? Math.max(40, safe.bottom - Math.round(sig.tamano * 1.6)) : safe.top + 10;
+    sigStyle = [
+      'Firma',
+      (sig.fuente?.trim() || font).replace(/,/g, ' '),
+      sig.tamano,
+      assColor(sig.color, sigAlpha),
+      assColor(sig.color, sigAlpha),
+      assColor('#000000', Math.min(255, sigAlpha + 120)),
+      assColor('#000000', 255),
+      -1, 0, 0, 0, 100, 100, 1, 0,
+      1, 1, 0,
+      sigAlign,
+      marginL, marginR, sigMargin, 1,
+    ].join(',');
+    events.push(`Dialogue: 1,${assTime(0)},${assTime(Math.max(0.5, duracionFinal))},Firma,,0,0,0,,${escapeText(sigText)}`);
   }
 
   const ass = [
@@ -220,6 +247,7 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
     `Style: ${subStyle}`,
     `Style: ${hookStyle}`,
+    ...(sigStyle ? [`Style: ${sigStyle}`] : []),
     ...(cardStyle ? [`Style: ${cardStyle}`] : []),
     '',
     '[Events]',

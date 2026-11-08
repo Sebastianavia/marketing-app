@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { ensureDataDir, readJson, writeJsonAtomic } from '@/lib/data/data-dir';
-import { DEFAULT_GRAPHICS, DEFAULT_PROFILES, DEFAULT_SOUND, ProfileInputSchema, type EditProfile, type ProfileInput } from '@/config/editor-looks';
+import { DEFAULT_GRAPHICS, DEFAULT_PROFILES, DEFAULT_SIGNATURE, DEFAULT_SOUND, ProfileInputSchema, type EditProfile, type ProfileInput } from '@/config/editor-looks';
 
 /**
  * Biblioteca de perfiles de edición: <datos>/edit-profiles/<id>.json.
@@ -59,6 +59,7 @@ function normalize(p: EditProfile): EditProfile {
     ritmo: { ...base.ritmo, ...p.ritmo },
     sonido: { ...DEFAULT_SOUND, ...p.sonido },
     graficos: { ...DEFAULT_GRAPHICS, ...p.graficos },
+    firma: { ...DEFAULT_SIGNATURE, ...p.firma },
   };
 }
 

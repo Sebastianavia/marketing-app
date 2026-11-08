@@ -172,33 +172,47 @@ export async function avatarPhotoPath(id: string, file: string): Promise<string>
  * Fotos del avatar como data URLs para la API de imágenes, portada primero.
  * Se reducen a 1536 px por lado (si sharp está disponible) para no enviar fotos de 10 MB.
  */
-export async function avatarReferenceDataUrls(id: string, max: number): Promise<{ avatar: Avatar; urls: string[] }> {
-  const avatar = await getAvatar(id);
-  const ordered = [...avatar.photos].sort((x, y) => (x.file === avatar.cover ? -1 : y.file === avatar.cover ? 1 : 0));
-  type SharpFn = (input: Buffer) => {
-    rotate: () => { resize: (o: object) => { jpeg: (o: object) => { toBuffer: () => Promise<Buffer> } } };
-  };
+type SharpFn = (input: Buffer) => {
+  rotate: () => { resize: (o: object) => { jpeg: (o: object) => { toBuffer: () => Promise<Buffer> } } };
+};
+
+/** Foto local → data URL JPEG reducida a 1536 px (o la original si no hay sharp). null si no se puede leer. */
+export async function imageFileDataUrl(file: string): Promise<string | null> {
   let sharp: SharpFn | null = null;
   try {
     sharp = ((await import('sharp')) as unknown as { default: SharpFn }).default;
   } catch {
     sharp = null;
   }
-  const urls: string[] = [];
-  for (const p of ordered.slice(0, Math.max(0, max))) {
-    const raw = await fs.readFile(await avatarPhotoPath(id, p.file)).catch(() => null);
-    if (!raw) continue;
-    if (sharp) {
-      try {
-        const small = await sharp(raw).rotate().resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
-        urls.push(`data:image/jpeg;base64,${small.toString('base64')}`);
-        continue;
-      } catch {
-        // si falla el redimensionado se envía la original
-      }
+  const raw = await fs.readFile(file).catch(() => null);
+  if (!raw) return null;
+  if (sharp) {
+    try {
+      const small = await sharp(raw).rotate().resize({ width: 1536, height: 1536, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
+      return `data:image/jpeg;base64,${small.toString('base64')}`;
+    } catch {
+      // si falla el redimensionado se envía la original
     }
-    const ext = path.extname(p.file).slice(1).replace('jpg', 'jpeg');
-    urls.push(`data:image/${ext};base64,${raw.toString('base64')}`);
+  }
+  const ext = path.extname(file).slice(1).toLowerCase().replace('jpg', 'jpeg');
+  return `data:image/${ext};base64,${raw.toString('base64')}`;
+}
+
+/** Rutas locales de las fotos del avatar, portada primero. */
+export async function avatarPhotoFiles(id: string, max: number): Promise<{ avatar: Avatar; files: string[] }> {
+  const avatar = await getAvatar(id);
+  const ordered = [...avatar.photos].sort((x, y) => (x.file === avatar.cover ? -1 : y.file === avatar.cover ? 1 : 0));
+  const files: string[] = [];
+  for (const p of ordered.slice(0, Math.max(0, max))) files.push(await avatarPhotoPath(id, p.file));
+  return { avatar, files };
+}
+
+export async function avatarReferenceDataUrls(id: string, max: number): Promise<{ avatar: Avatar; urls: string[] }> {
+  const { avatar, files } = await avatarPhotoFiles(id, max);
+  const urls: string[] = [];
+  for (const f of files) {
+    const u = await imageFileDataUrl(f);
+    if (u) urls.push(u);
   }
   return { avatar, urls };
 }

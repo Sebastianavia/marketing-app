@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { listAvatars } from '@/lib/avatars/avatar-store';
-import { BROLL_MODELS, VOICE_MODES } from '@/config/broll-models';
+import { BROLL_MODELS, VOICE_MODES, brollPriceLabel, clipCostUSD } from '@/config/broll-models';
+import { imageUnitPrice } from '@/lib/generation/image';
+import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
+import { sceneClipChoice } from './durations';
+import type { DirectorScene, DirectorState } from './types';
 import { ProductionError } from '@/lib/director/production-store';
 import { errorMessage } from '@/lib/errors';
 import { getDirectorProduction, runDirectorAction } from './engine';
@@ -11,7 +15,8 @@ import type { Production } from '@/lib/director/production-store';
 /**
  * Herramientas de Claude sobre UNA producción del modo Director (chat "Claude · director").
  * Las ve por MCP (lulo-mcp.mjs con LULO_TOOLSET=director-mode); la producción la fija el servidor.
- * Todas son de texto ($0 con la suscripción): no hay herramientas que gasten. La única acción de
+ * Las de texto son $0 con la suscripción. Lo que gasta (imágenes, voces, clips) solo se ejecuta
+ * tras la aprobación de la persona en la app (preparar_produccion → aprobar → generar). La acción de
  * pago del motor (transcribir la locución con ElevenLabs) está bloqueada.
  */
 
@@ -56,6 +61,7 @@ function snapshot(p: Production) {
         queSeVe: s.queSeVe,
         dialogo: s.dialogo,
         prompt: s.prompt ? { texto: s.prompt.texto, desactualizado: s.prompt.deVersion !== s.version } : null,
+        ...(s.tipo === 'broll' ? { clip: clipSummary(s, d) } : {}),
       })),
     },
     etiquetas: (d.etiquetas ?? []).map((t) => ({ id: t.id, tipo: t.tipo, mencion: `@${t.mencion}`, descripcion: t.descripcion, confirmada: t.confirmada })),
@@ -64,6 +70,40 @@ function snapshot(p: Production) {
       ? { duracionSeg: d.locucion.duracionSeg, usarComoVoz: d.locucion.usarComoVoz, transcrita: Boolean(d.locucion.transcripcion) }
       : null,
   };
+}
+
+/** Modelo, resolución, imagen inicial y costo estimado del clip de una escena. */
+function clipSummary(s: DirectorScene, d: DirectorState) {
+  const c = sceneClipChoice(s, d.ajustes);
+  const seg = s.clipSeg ?? s.duracionSeg;
+  const conAudio = d.ajustes.modoVoz === 'native' && Boolean(s.dialogo.trim());
+  const imagenUSD = c.imagenInicial ? imageUnitPrice(DEFAULT_IMAGE_MODEL, '1K').unit : 0;
+  return {
+    modelo: c.model.id,
+    resolucion: c.resolucion,
+    imagenInicial: c.imagenInicial,
+    elegidoParaEstaEscena: c.propia,
+    estimadoUSD: Math.round((clipCostUSD(c.model, seg, { withAudio: conAudio, resolution: c.resolucion }) + imagenUSD) * 1000) / 1000,
+  };
+}
+
+/** Catálogo de modelos de clip para Claude: límites, precio y para qué sirve cada uno. */
+function clipModelsCatalog() {
+  return BROLL_MODELS.map((m) => ({
+    id: m.id,
+    nombre: m.name,
+    proveedor: m.provider,
+    duraciones: m.durationByModel ? `la decide el modelo (${m.durations[0]}–${m.durations[m.durations.length - 1]} s)` : m.durations,
+    resoluciones: m.resolutions,
+    resolucionPredeterminada: m.resolution,
+    formatos: m.aspectRatios,
+    audio: m.audio,
+    maxImagenes: m.maxImages,
+    videoDeReferencia: m.videoRef,
+    precio: brollPriceLabel(m),
+    nota: m.note,
+    ...(m.porConfirmar ? { porConfirmar: m.porConfirmar } : {}),
+  }));
 }
 
 const verProyecto = tool({
@@ -78,7 +118,8 @@ const verProyecto = tool({
       ...snapshot(p),
       opciones: {
         modosVoz: VOICE_MODES.map((m) => ({ id: m.id, nombre: m.label })),
-        modelosToma: BROLL_MODELS.map((m) => ({ id: m.id, nombre: m.name })),
+        modelosToma: clipModelsCatalog(),
+        imagenInicial: { modelo: DEFAULT_IMAGE_MODEL, resolucion: '1K', precioUSD: imageUnitPrice(DEFAULT_IMAGE_MODEL, '1K').unit },
         avatares: avatars.map((a) => ({ id: a.id, nombre: a.name, descripcion: a.description })),
         formatos: ['9:16', '16:9', '1:1'],
       },
@@ -90,7 +131,8 @@ const accion = tool({
   name: 'accion',
   description: `Ejecuta una acción del Director sobre el proyecto (las mismas que los botones de la app). Las principales:
 - {"accion":"responder_preguntas","respuestas":{"<idPregunta>":"respuesta"}} o {"accion":"saltar_preguntas"}
-- {"accion":"guardar_ajustes","ajustes":{formato, duracionSeg, modoVoz, modeloBroll, avatarId|null, presupuestoUSD}}
+- {"accion":"guardar_ajustes","ajustes":{formato, duracionSeg, modoVoz, modeloBroll, resolucionBroll?, imagenInicial?, avatarId|null, presupuestoUSD}}
+- {"accion":"ajustar_clip","escenaId":"e2","modelo":"gemini-omni-1.1-flash-ext"|null,"resolucion":"720p"|null,"imagenInicial":true|false|null} → modelo/resolución/imagen inicial SOLO de esa escena ($0; null = volver a lo de los ajustes). Valida formato, resolución y audio; si cambia la duración, avisa.
 - {"accion":"generar_guion","indicacion":"opcional"} → escribe el guion por escenas (las duraciones se ajustan solas al modelo)
 - {"accion":"rehacer_escena","escenaId":"e2","indicacion":"…"} / {"accion":"editar_escena","escenaId":"e2","cambios":{tipo?, duracionSeg?, queSeVe?, dialogo?}}
 - {"accion":"generar_prompts","soloFaltantes":false} / {"accion":"rehacer_prompt",…} / {"accion":"editar_prompt","escenaId":"e2","texto":"prompt en inglés"}
@@ -155,7 +197,7 @@ function unstringify(input: Record<string, unknown>): Record<string, unknown> {
 const prepararProduccion = tool({
   name: 'preparar_produccion',
   description:
-    'Con los prompts aprobados, convierte el guion en escenas de pago (voz de ElevenLabs, tomas de apoyo con el modelo de los ajustes, avatar HeyGen según el modo de voz) con su costo, y PIDE APROBACIÓN a la persona en la app. No gasta. Devuelve el costo por escena y el total. Si ya hay algo generado, no se puede volver a preparar.',
+    'Con los prompts aprobados, convierte el guion en escenas de pago con su costo y PIDE APROBACIÓN a la persona en la app (no gasta): voz de ElevenLabs, imagen inicial de cada toma con GPT Image 2 (si está activada), clip de cada toma con el modelo de su escena o de los ajustes (Grok, Gemini Omni… con la resolución elegida) y avatar HeyGen según el modo de voz. Devuelve el costo por escena, el total y las suposiciones (duraciones ajustadas al modelo). Si ya hay algo generado, no se puede volver a preparar.',
   schema: z.object({}),
   run: (id) => prepareGeneration(id),
 });
@@ -163,7 +205,7 @@ const prepararProduccion = tool({
 const generar = tool({
   name: 'generar',
   description:
-    'Genera SOLO las escenas que la persona ya aprobó en la app (voces primero y luego clips, que tardan unos minutos en segundo plano). Si algo espera aprobación, lo dice. Usa estado_produccion para seguir el avance.',
+    'Genera SOLO las escenas que la persona ya aprobó en la app: voces primero, luego las imágenes iniciales (espera a que estén, ~1 min) y por último los clips, que tardan unos minutos en segundo plano (máx. 4 a la vez). Si algo espera aprobación, lo dice. Usa estado_produccion para seguir el avance.',
   schema: z.object({}),
   run: (id) => runGeneration(id),
 });

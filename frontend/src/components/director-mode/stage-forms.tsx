@@ -2,13 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import { FileText, FileUp, Lightbulb, Loader2, Pencil, RotateCcw } from 'lucide-react';
-import { VOICE_MODES, getBrollModel, type VoiceMode } from '@/config/broll-models';
+import { VOICE_MODES, brollPriceLabel, brollResolution, getBrollModel, type VoiceMode } from '@/config/broll-models';
 import { brollModelsFor, durationRules } from '@/lib/director-mode/durations';
 import { REALISM_SUMMARY_ES } from '@/lib/director-mode/prompts';
 import { ACTIVE_ORDER, STAGES, promptIsStale } from '@/lib/director-mode/stages';
 import type { Aspect, ActiveStageId, DirectorSettings, DirectorState, InputKind } from '@/lib/director-mode/types';
 import type { Production } from '@/lib/director/production-store';
 import { ScriptSceneCard, TYPE_LABEL } from './ScriptSceneCard';
+import { ClipPicker } from './ClipPicker';
 import type { useDirectorMode } from './useDirectorMode';
 
 /**
@@ -371,6 +372,9 @@ export function SettingsStage({ d, busy, act }: { d: DirectorState; busy: string
       const next = { ...cur, ...patch };
       const valid = brollModelsFor(next.modoVoz, next.formato);
       if (!valid.some((m) => m.id === next.modeloBroll) && valid[0]) next.modeloBroll = valid[0].id;
+      // La resolución elegida puede no existir en el nuevo modelo
+      const model = getBrollModel(next.modeloBroll);
+      if (next.resolucionBroll && !model.resolutions.includes(next.resolucionBroll)) next.resolucionBroll = undefined;
       return next;
     });
 
@@ -431,10 +435,30 @@ export function SettingsStage({ d, busy, act }: { d: DirectorState; busy: string
           <select value={s.modeloBroll} onChange={(e) => set({ modeloBroll: e.target.value })} className="input-clean h-8 px-2 text-[12px]">
             {models.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.name} · ${(s.modoVoz === 'native' ? m.pricePerSecondAudio ?? m.pricePerSecond : m.pricePerSecond).toFixed(3)}/s
+                {m.name} · {brollPriceLabel(m, s.modoVoz === 'native', m.id === s.modeloBroll ? s.resolucionBroll : undefined)}
               </option>
             ))}
           </select>
+        </label>
+        {getBrollModel(s.modeloBroll).resolutions.length > 1 && (
+          <label className="space-y-1">
+            <span className="block">Calidad</span>
+            <select
+              value={brollResolution(getBrollModel(s.modeloBroll), s.resolucionBroll)}
+              onChange={(e) => set({ resolucionBroll: e.target.value })}
+              className="input-clean h-8 px-2 text-[12px]"
+            >
+              {getBrollModel(s.modeloBroll).resolutions.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="flex h-8 items-center gap-1.5 text-[12px] text-fg">
+          <input type="checkbox" checked={s.imagenInicial ?? true} onChange={(e) => set({ imagenInicial: e.target.checked })} />
+          Imagen inicial por escena
         </label>
         <label className="space-y-1">
           <span className="block">Avatar (opcional)</span>
@@ -461,6 +485,10 @@ export function SettingsStage({ d, busy, act }: { d: DirectorState; busy: string
         </label>
       </div>
       <p className="text-[11px] text-fg-subtle">Duraciones por escena: {durationRules(s)}. Las escenas se ajustan solas a estas duraciones.</p>
+      <p className="text-[11px] text-fg-subtle">
+        {getBrollModel(s.modeloBroll).note}
+        {(s.imagenInicial ?? true) && ' Cada toma parte de una imagen inicial hecha con GPT Image 2 (≈ $0.011), con tu avatar y tus referencias.'} Puedes cambiar el modelo de una escena en su nodo Clip.
+      </p>
       {!models.length && <p className="text-[11.5px] text-red-600 dark:text-red-400">Ningún modelo admite esta combinación de formato y voz.</p>}
       <div className="flex justify-end gap-2">
         {d.etapas.ajustes.estado === 'aprobada' && (
@@ -512,9 +540,8 @@ export function ScriptStage({ d, busy, act }: { d: DirectorState; busy: string |
     <div className="space-y-2">
       <StaleNote show={st.estado === 'desactualizada'} />
       {d.guion.escenas.map((s) => (
+        <React.Fragment key={`${s.id}-${d.guion!.generacion}-${s.version}-${s.duracionSeg}`}>
         <ScriptSceneCard
-          // La versión en la key reinicia el formulario cuando la escena cambia
-          key={`${s.id}-${d.guion!.generacion}-${s.version}-${s.duracionSeg}`}
           scene={s}
           ajustes={d.ajustes}
           ctx={d}
@@ -526,6 +553,12 @@ export function ScriptStage({ d, busy, act }: { d: DirectorState; busy: string |
           onRedo={(indicacion) => act({ accion: 'rehacer_escena', escenaId: s.id, indicacion }, `rehacer_escena:${s.id}`)}
           onSave={(cambios) => act({ accion: 'editar_escena', escenaId: s.id, cambios }, `editar_escena:${s.id}`)}
         />
+        {s.tipo === 'broll' && (
+          <div className="-mt-1 rounded-b-lg border border-t-0 border-line bg-surface-2/50 px-3 py-2">
+            <ClipPicker scene={s} d={d} disabled={!!busy} onChange={(body) => void act(body, `ajustar_clip:${s.id}`)} />
+          </div>
+        )}
+        </React.Fragment>
       ))}
       <div className="flex flex-wrap justify-end gap-2 pt-1">
         <button

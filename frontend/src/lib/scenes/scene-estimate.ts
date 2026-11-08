@@ -1,5 +1,5 @@
 import { ttsCost } from '@/config/cost-rates';
-import { brollRate, getBrollModel, pickBrollDuration, type VoiceMode } from '@/config/broll-models';
+import { billedClipSeconds, clipCostUSD, getBrollModel, type VoiceMode } from '@/config/broll-models';
 import { estimateSeconds } from './scene-plan';
 
 export interface EstimateInput {
@@ -18,12 +18,17 @@ export function estimateSceneProject(o: EstimateInput) {
   const voice = native ? 0 : ttsCost(o.voiceModelId, chars);
   let avatarSeconds = 0;
   let brollSeconds = 0;
+  let brollUSD = 0;
   for (const s of o.scenes) {
     const secs = estimateSeconds(s.narration) + 0.5;
     if (s.type === 'avatar' && mode === 'avatar') avatarSeconds += secs;
-    else brollSeconds += pickBrollDuration(broll, Math.ceil(secs + (native ? 0.5 : 0)));
+    else {
+      const need = Math.ceil(secs + (native ? 0.5 : 0));
+      brollSeconds += billedClipSeconds(broll, need);
+      brollUSD += clipCostUSD(broll, need, { withAudio: native });
+    }
   }
-  const clips = avatarSeconds * 0.05 + brollSeconds * brollRate(broll, native);
+  const clips = avatarSeconds * 0.05 + brollUSD;
   const totalSeconds = native
     ? brollSeconds
     : o.scenes.reduce((a, s) => a + estimateSeconds(s.narration), 0);

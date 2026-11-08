@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 }
 
 const Body = z.discriminatedUnion('accion', [
-  z.object({ accion: z.literal('enviar'), mensaje: z.string().trim().min(1).max(6000) }),
+  z.object({ accion: z.literal('enviar'), mensaje: z.string().trim().min(1, 'Escribe un mensaje.').max(20000, 'El mensaje es muy largo (máx. 20.000 caracteres).') }),
   z.object({ accion: z.literal('detener') }),
   z.object({ accion: z.literal('nueva_conversacion') }),
 ]);
@@ -34,7 +34,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     assertAppUiRequest(req);
     const { id } = await params;
     const parsed = Body.safeParse(await req.json().catch(() => null));
-    if (!parsed.success) return NextResponse.json({ error: 'Acción no válida.' }, { status: 400 });
+    if (!parsed.success) {
+      const issue = parsed.error.issues.find((i) => i.path[0] === 'mensaje');
+      return NextResponse.json({ error: issue?.message ?? 'Acción no válida.' }, { status: 400 });
+    }
     const a = parsed.data;
     if (a.accion === 'detener') return NextResponse.json({ ok: stopStudioTurn(id) });
     if (a.accion === 'nueva_conversacion') {

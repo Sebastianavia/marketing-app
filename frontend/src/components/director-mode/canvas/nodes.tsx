@@ -1,8 +1,8 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { createContext, memo, useContext } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { AudioLines, Clapperboard, FileText, Lock, Paperclip, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { AudioLines, Clapperboard, ExternalLink, FileText, ImageIcon, Lock, Paperclip, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { VOICE_MODES, getBrollModel } from '@/config/broll-models';
 import { getDirectorSkill } from '@/config/director-skills';
 import { formatTime } from '@/lib/director-mode/durations';
@@ -11,6 +11,14 @@ import type { DirectorState } from '@/lib/director-mode/types';
 import type { DirectorNode, NodeTone } from './build-graph';
 import { TYPE_LABEL } from '../ScriptSceneCard';
 import { MentionText, RefThumb, TagChip } from '../refs/ref-common';
+import { ClipPicker, IMAGE_START_USD, sceneClipEstimate } from '../ClipPicker';
+
+/** Acciones que los nodos pueden lanzar (el lienzo las recibe del estudio). */
+export interface CanvasActions {
+  onClip?: (body: { accion: 'ajustar_clip'; escenaId: string; modelo?: string | null; resolucion?: string | null; imagenInicial?: boolean | null }) => void;
+  busy?: boolean;
+}
+export const CanvasActionsContext = createContext<CanvasActions>({});
 
 /** Un solo tipo de nodo ("director") que se dibuja según `data.kind`. Colores con los tokens de la app. */
 
@@ -245,12 +253,27 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
       return (
         <Shell selected={false} tone={data.tone} width={data.compacto ? 170 : 220}>
           <Header icon={<Clapperboard className="h-3 w-3 text-fg-subtle" />} title={data.titulo} />
+          {data.thumb && (
+            <a href={data.thumb} target="_blank" rel="noreferrer" className="nodrag mt-1.5 block">
+              {/* eslint-disable-next-line @next/next/no-img-element -- archivo local servido por la app */}
+              <img src={data.thumb} alt="Imagen inicial" className="max-h-28 w-full rounded-md border border-line object-cover" />
+            </a>
+          )}
           <div className="mt-1">
             <Status tone={data.tone} label={data.estado} />
           </div>
           {data.detalle && <p className="mt-1 text-[10px] leading-snug text-fg-subtle">{data.detalle}</p>}
+          {data.href && (
+            <a href={data.href} target="_blank" rel="noreferrer" className="nodrag mt-1 inline-flex items-center gap-1 text-[10.5px] text-accent hover:underline">
+              <ExternalLink className="h-3 w-3" /> Ver video
+            </a>
+          )}
         </Shell>
       );
+    case 'imagen-config':
+      return <ImageConfigNode d={data.d} sceneId={data.scene.id} />;
+    case 'clip-config':
+      return <ClipConfigNode d={data.d} sceneId={data.scene.id} />;
     case 'futuro':
       return (
         <Shell selected={false} tone="future" width={data.compacto ? 150 : 200} dashed>
@@ -259,6 +282,37 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
         </Shell>
       );
   }
+}
+
+function ImageConfigNode({ d, sceneId }: { d: DirectorState; sceneId: string }) {
+  const s = d.guion?.escenas.find((x) => x.id === sceneId);
+  if (!s) return null;
+  const e = sceneClipEstimate(s, d);
+  return (
+    <Shell selected={false} tone="pending" width={170} dashed={!e.imagenInicial}>
+      <Header icon={<ImageIcon className="h-3 w-3 text-fg-subtle" />} title="Imagen inicial" />
+      <p className="mt-1 text-[10.5px] text-fg-muted">{e.imagenInicial ? `GPT Image 2 · ≈ $${IMAGE_START_USD.toFixed(3)}` : 'Desactivada: el clip parte solo del texto'}</p>
+      <p className="mt-0.5 text-[10px] text-fg-subtle">{e.imagenInicial ? 'Primer fotograma con tu avatar y tus referencias.' : 'Actívala en el clip.'}</p>
+    </Shell>
+  );
+}
+
+function ClipConfigNode({ d, sceneId }: { d: DirectorState; sceneId: string }) {
+  const { onClip, busy } = useContext(CanvasActionsContext);
+  const s = d.guion?.escenas.find((x) => x.id === sceneId);
+  if (!s) return null;
+  return (
+    <Shell selected={false} tone="pending" width={200}>
+      <Header icon={<Clapperboard className="h-3 w-3 text-fg-subtle" />} title="Clip" right={<span className="text-[10px] text-fg-subtle">{s.clipSeg ?? s.duracionSeg} s</span>} />
+      <div className="mt-1.5">
+        {onClip ? (
+          <ClipPicker scene={s} d={d} compact disabled={busy} onChange={onClip} />
+        ) : (
+          <p className="text-[10.5px] text-fg-muted">{sceneClipEstimate(s, d).model.name}</p>
+        )}
+      </div>
+    </Shell>
+  );
 }
 
 /** Etiquetas que usa la escena y cuántas referencias son solo suyas. */

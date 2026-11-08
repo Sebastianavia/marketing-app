@@ -28,7 +28,8 @@ const g = globalThis as unknown as { __luloVideoCatalog?: { at: number; result: 
 export function configuredVideoModels(): Array<{ id: string; usedIn: string; durations?: number[] }> {
   const list: Array<{ id: string; usedIn: string; durations?: number[] }> = [
     { id: 'heygen/avatar-iv', usedIn: 'Avatar Studio y escenas con la persona' },
-    ...BROLL_MODELS.map((m) => ({ id: m.id, usedIn: 'Tomas de apoyo (Guion a video)', durations: m.durations })),
+    // Solo los de OpenRouter: los de Apimart no están en su catálogo
+    ...BROLL_MODELS.filter((m) => m.provider === 'openrouter').map((m) => ({ id: m.id, usedIn: 'Tomas de apoyo (Guion a video)', durations: m.durations })),
   ];
   for (const m of UGC_MODELS_CATALOG) {
     if (m.provider === 'openrouter' && !list.some((x) => x.id === m.id)) {
@@ -93,6 +94,7 @@ export async function checkVideoCatalog(force = false): Promise<CatalogCheck> {
 
 /** Lanza un error claro si el modelo ya no está en OpenRouter (solo si el catálogo respondió). */
 export async function assertVideoModelAvailable(id: string) {
+  if (BROLL_MODELS.some((m) => m.id === id && m.provider !== 'openrouter')) return;
   const c = await checkVideoCatalog();
   if (c.unavailable) return;
   if (!c.liveIds.includes(id)) {

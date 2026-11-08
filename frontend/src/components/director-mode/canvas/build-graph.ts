@@ -23,8 +23,22 @@ export type DirectorNodeData =
   | { kind: 'sueltas'; tone: NodeTone; d: DirectorState; pid: string }
   | { kind: 'locucion'; tone: NodeTone; d: DirectorState; pid: string }
   | { kind: 'futuro'; tone: 'future'; titulo: string; fase: number; compacto?: boolean }
+  /** Antes de preparar: imagen inicial y clip de una toma de apoyo, con su selector. */
+  | { kind: 'imagen-config'; tone: NodeTone; d: DirectorState; scene: DirectorScene }
+  | { kind: 'clip-config'; tone: NodeTone; d: DirectorState; scene: DirectorScene }
   /** Generación (escenas de pago y video final): estado real de la producción. */
-  | { kind: 'produccion'; tone: NodeTone; titulo: string; estado: string; detalle?: string; compacto?: boolean };
+  | {
+      kind: 'produccion';
+      tone: NodeTone;
+      titulo: string;
+      estado: string;
+      detalle?: string;
+      compacto?: boolean;
+      /** Miniatura (imagen inicial lista). */
+      thumb?: string;
+      /** Enlace para ver el archivo (clip o video final). */
+      href?: string;
+    };
 
 /** Lo mínimo de una escena de pago (Production.escenas) que el lienzo necesita. */
 export interface PaidSceneLite {
@@ -112,8 +126,10 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
       type: 'director',
       position: { x, y },
       data,
-      // Los nodos futuros no se eligen ni se arrastran
-      ...(data.kind === 'futuro' || data.kind === 'produccion' ? { selectable: false, focusable: false } : {}),
+      // Los nodos futuros, de producción y de selector no se eligen (no enfocan el chat)
+      ...(data.kind === 'futuro' || data.kind === 'produccion' || data.kind === 'imagen-config' || data.kind === 'clip-config'
+        ? { selectable: false, focusable: false }
+        : {}),
     });
   const link = (source: string, target: string, future = false, cls?: string) =>
     edges.push({
@@ -181,31 +197,58 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
     add(nodeId.prompt(s.id), X.prompt, y, { kind: 'prompt', tone: promptTone, d, scene: s });
     link(nodeId.escena(s.id), nodeId.prompt(s.id));
 
-    // Con la producción preparada, el clip muestra su estado real (la generación no usa imagen inicial)
+    // Con la producción preparada, imagen y clip muestran su estado real
     const m = gen?.mapa.find((x) => x.escenaId === s.id);
     const clip = m && paidById.get(m.clip);
+    const media = (paidId: string, rol: 'imagen' | 'clip', v: number) => `/api/director-mode/${pid}/produccion?escena=${paidId}&rol=${rol}&v=${v}`;
+    const detail = (x: PaidSceneLite) => (x.estado === 'fallida' && x.error ? x.error.slice(0, 80) : x.gastoUSD > 0 ? `${usd(x.gastoUSD)} gastado` : `≈ ${usd(x.estimadoUSD)}`);
     if (gen && m && clip) {
       const st = PAID_STATE[clip.estado];
       const voz = m.voz ? paidById.get(m.voz) : undefined;
-      add(nodeId.clip(s.id), X.imagen + 60, y + 40, {
+      const img = m.imagen ? paidById.get(m.imagen) : undefined;
+      if (m.imagen && img) {
+        add(nodeId.imagen(s.id), X.imagen, y + 40, {
+          kind: 'produccion',
+          tone: PAID_STATE[img.estado].tone,
+          titulo: 'Imagen inicial',
+          estado: PAID_STATE[img.estado].label,
+          detalle: detail(img),
+          compacto: true,
+          ...(img.estado === 'lista' ? { thumb: media(img.id, 'imagen', Math.round(img.gastoUSD * 1e4)) } : {}),
+        });
+        link(nodeId.prompt(s.id), nodeId.imagen(s.id), img.estado !== 'lista');
+      }
+      add(nodeId.clip(s.id), m.imagen ? X.clip + 40 : X.imagen + 60, y + 40, {
         kind: 'produccion',
         tone: voz && voz.estado !== 'lista' && clip.estado === 'lista' ? PAID_STATE[voz.estado].tone : st.tone,
         titulo: 'Clip',
         estado: st.label,
-        detalle: clip.estado === 'fallida' && clip.error ? clip.error.slice(0, 80) : clip.gastoUSD > 0 ? `${usd(clip.gastoUSD)} gastado` : `≈ ${usd(clip.estimadoUSD)}`,
+        detalle: detail(clip),
         compacto: true,
+        ...(clip.estado === 'lista' ? { href: media(clip.id, 'clip', Math.round(clip.gastoUSD * 1e4)) } : {}),
       });
-      link(nodeId.prompt(s.id), nodeId.clip(s.id), clip.estado !== 'lista');
-    } else {
-      add(nodeId.imagen(s.id), X.imagen, y + 40, { kind: 'futuro', tone: 'future', titulo: 'Imagen inicial', fase: 3, compacto: true });
-      add(nodeId.clip(s.id), X.clip, y + 40, { kind: 'futuro', tone: 'future', titulo: 'Clip', fase: 4, compacto: true });
+      link(m.imagen ? nodeId.imagen(s.id) : nodeId.prompt(s.id), nodeId.clip(s.id), clip.estado !== 'lista');
+    } else if (s.tipo === 'broll') {
+      // Antes de preparar: se elige modelo, calidad e imagen inicial de cada toma
+      add(nodeId.imagen(s.id), X.imagen, y + 40, { kind: 'imagen-config', tone: 'pending', d, scene: s });
+      add(nodeId.clip(s.id), X.clip + 40, y + 40, { kind: 'clip-config', tone: 'pending', d, scene: s });
       link(nodeId.prompt(s.id), nodeId.imagen(s.id), true);
       link(nodeId.imagen(s.id), nodeId.clip(s.id), true);
+    } else {
+      add(nodeId.clip(s.id), X.imagen + 60, y + 40, {
+        kind: 'produccion',
+        tone: 'pending',
+        titulo: 'Clip',
+        estado: 'HeyGen Avatar IV',
+        detalle: 'Tu foto con labios sincronizados. Se presupuesta al preparar.',
+        compacto: true,
+      });
+      link(nodeId.prompt(s.id), nodeId.clip(s.id), true);
     }
     link(nodeId.clip(s.id), nodeId.final, !gen?.final);
   });
   if (gen) {
-    const mine = gen.mapa.flatMap((m) => [m.clip, ...(m.voz ? [m.voz] : [])]).concat(gen.vozGeneral ? [gen.vozGeneral] : []);
+    const mine = gen.mapa.flatMap((m) => [m.clip, ...(m.voz ? [m.voz] : []), ...(m.imagen ? [m.imagen] : [])]).concat(gen.vozGeneral ? [gen.vozGeneral] : []);
     const all = mine.map((id) => paidById.get(id)).filter((x): x is PaidSceneLite => Boolean(x));
     const ready = all.length > 0 && all.every((x) => x.estado === 'lista');
     const spent = all.reduce((t, x) => t + x.gastoUSD, 0);
@@ -222,6 +265,7 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
       ]
         .filter(Boolean)
         .join(' · '),
+      ...(gen.final ? { href: `/api/director-mode/${pid}/produccion?final=1&v=${gen.final.version}` } : {}),
     });
   } else {
     add(nodeId.final, X.final + 40, midY + 30, { kind: 'futuro', tone: 'future', titulo: 'Video final', fase: 4 });

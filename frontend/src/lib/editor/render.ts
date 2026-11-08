@@ -223,7 +223,7 @@ export async function renderEdit(
     marginV: subMargin,
   });
   await fs.writeFile(f('subtitulos.ass'), subs.ass, 'utf-8');
-  const burn = (perfil.subtitulos.activo && words.length > 0) || hookOn || gfx.front.length > 0;
+  const burn = (perfil.subtitulos.activo && words.length > 0) || hookOn || gfx.front.length > 0 || Boolean(perfil.firma?.activo && perfil.firma.texto.trim());
   const behindOn = !!matte && gfx.behind.length > 0;
   if (behindOn) await fs.writeFile(f('detras.ass'), buildBehindAss(perfil, style, gfx.behind), 'utf-8');
   if ((burn || behindOn) && !(await hasSubtitlesFilter())) {
@@ -245,7 +245,9 @@ export async function renderEdit(
   }
 
   // Zoom por plano: alterno en los cortes y/o acercamiento suave continuo
-  const eventos: SfxEvent[] = hookOn ? [{ tipo: 'impacto', t: 0 }] : [];
+  // Efectos de sonido: cada tipo se puede apagar en el perfil (Sonido)
+  const sfx = perfil.sonido;
+  const eventos: SfxEvent[] = hookOn && sfx.efectosGancho !== false ? [{ tipo: 'impacto', t: 0 }] : [];
   if (r.zoomEnCortes || r.zoomSuave) {
     const n = intervals.length;
     c.push(n > 1 ? `[comp]split=${n}${intervals.map((_, i) => `[c${i}]`).join('')}` : `[comp]null[c0]`);
@@ -256,7 +258,7 @@ export async function renderEdit(
       if (r.zoomEnCortes && i > 0 && len >= 0.6) {
         zoomed = !zoomed;
         // Whoosh 30 ms antes del cambio de plano, como mucho uno cada 2,5 s
-        if (iv.out - lastWhoosh >= 2.5 && iv.out > 1) {
+        if (sfx.efectosCortes !== false && iv.out - lastWhoosh >= 2.5 && iv.out > 1) {
           eventos.push({ tipo: 'whoosh', t: Math.max(0, iv.out - 0.03) });
           lastWhoosh = iv.out;
         }
@@ -286,7 +288,7 @@ export async function renderEdit(
   c.push(burn ? `[zc]subtitles=subtitulos.ass${fontsOpt}[vout]` : `[zc]null[vout]`);
 
   // Efectos en los gráficos: whoosh al entrar una tarjeta, golpe en las palabras gigantes
-  for (const x of placed) eventos.push({ tipo: x.g.tipo === 'detras' ? 'impacto' : 'whoosh', t: Math.max(0, x.start - 0.03) });
+  if (sfx.efectosGraficos !== false) for (const x of placed) eventos.push({ tipo: x.g.tipo === 'detras' ? 'impacto' : 'whoosh', t: Math.max(0, x.start - 0.03) });
   eventos.sort((a, b) => a.t - b.t);
   const spaced = eventos.filter((e, i) => i === 0 || e.t - eventos[i - 1].t >= 0.8);
 

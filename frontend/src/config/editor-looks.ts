@@ -111,6 +111,8 @@ export interface SubtitleSettings {
   palabrasPorLinea: number;
   /** Tamaño de la palabra clave respecto al resto (%). */
   escalaClave: number;
+  /** Opacidad de la caja detrás del texto (%), p. ej. 85 = se ve un poco el video. */
+  opacidadCaja: number;
 }
 
 export interface HookSettings {
@@ -120,7 +122,35 @@ export interface HookSettings {
   tamano: number;
   /** Segundos que se ve el gancho al inicio. */
   duracionSeg: number;
+  /** Fuente propia del gancho (vacío = la de los subtítulos). */
+  fuente: string;
+  mayusculas: boolean;
 }
+
+export type SignaturePosition = 'arriba' | 'abajo';
+
+/** Firma o usuario siempre en pantalla (p. ej. "@santiagoruiz"), pequeño y discreto. */
+export interface SignatureSettings {
+  activo: boolean;
+  texto: string;
+  /** Vacío = la de los subtítulos. */
+  fuente: string;
+  tamano: number;
+  color: string;
+  /** Opacidad (%). */
+  opacidad: number;
+  posicion: SignaturePosition;
+}
+
+export const DEFAULT_SIGNATURE: SignatureSettings = {
+  activo: false,
+  texto: '',
+  fuente: '',
+  tamano: 34,
+  color: '#FFFFFF',
+  opacidad: 70,
+  posicion: 'arriba',
+};
 
 export interface RhythmSettings {
   /** Pausas más largas que esto se recortan (segundos). */
@@ -149,8 +179,14 @@ export interface SoundSettings {
   musicaBajoVozDb: number;
   /** dB extra que baja la música mientras hablas. */
   duckingDb: number;
-  /** Golpe en el gancho y whoosh en los cortes con zoom. */
+  /** Interruptor general de efectos de sonido (si está apagado, no suena ninguno). */
   efectos: boolean;
+  /** Golpe cuando aparece el texto gancho. */
+  efectosGancho: boolean;
+  /** Whoosh en los cortes con zoom. */
+  efectosCortes: boolean;
+  /** Whoosh/golpe cuando entra un gráfico o una palabra gigante. */
+  efectosGraficos: boolean;
   /** dB por debajo de la voz. */
   efectosBajoVozDb: number;
 }
@@ -209,6 +245,7 @@ export interface EditProfile {
   ritmo: RhythmSettings;
   sonido: SoundSettings;
   graficos: GraphicsSettings;
+  firma: SignatureSettings;
 }
 
 const hex = z
@@ -243,6 +280,7 @@ export const ProfileInputSchema = z.object({
     posicion: z.enum(['arriba', 'centro', 'abajo']),
     palabrasPorLinea: z.number().int().min(1).max(8),
     escalaClave: z.number().min(100).max(250).default(130),
+    opacidadCaja: z.number().min(30).max(100).default(100),
   }),
   gancho: z.object({
     activo: z.boolean(),
@@ -250,6 +288,13 @@ export const ProfileInputSchema = z.object({
     colorFondo: hex,
     tamano: z.number().int().min(30).max(140),
     duracionSeg: z.number().min(1).max(10),
+    fuente: z
+      .string()
+      .trim()
+      .max(60)
+      .regex(/^[\p{L}\p{N} ._-]*$/u, 'La fuente solo puede tener letras, números, espacios, punto, guion y guion bajo')
+      .default(''),
+    mayusculas: z.boolean().default(true),
   }),
   ritmo: z.object({
     pausaMaxSeg: z.number().min(0.15).max(2),
@@ -272,6 +317,9 @@ export const ProfileInputSchema = z.object({
       musicaBajoVozDb: z.number().min(6).max(30),
       duckingDb: z.number().min(0).max(15),
       efectos: z.boolean(),
+      efectosGancho: z.boolean().default(true),
+      efectosCortes: z.boolean().default(true),
+      efectosGraficos: z.boolean().default(true),
       efectosBajoVozDb: z.number().min(10).max(35),
     })
     .default(() => ({ ...DEFAULT_SOUND })),
@@ -293,6 +341,22 @@ export const ProfileInputSchema = z.object({
       ocultarSubtitulos: z.boolean(),
     })
     .default(() => ({ ...DEFAULT_GRAPHICS })),
+  firma: z
+    .object({
+      activo: z.boolean(),
+      texto: z.string().trim().max(40).default(''),
+      fuente: z
+        .string()
+        .trim()
+        .max(60)
+        .regex(/^[\p{L}\p{N} ._-]*$/u, 'La fuente solo puede tener letras, números, espacios, punto, guion y guion bajo')
+        .default(''),
+      tamano: z.number().int().min(20).max(80),
+      color: hex,
+      opacidad: z.number().min(20).max(100),
+      posicion: z.enum(['arriba', 'abajo']),
+    })
+    .default(() => ({ ...DEFAULT_SIGNATURE })),
 });
 
 export type ProfileInput = z.infer<typeof ProfileInputSchema>;
@@ -305,6 +369,9 @@ export const DEFAULT_SOUND: SoundSettings = {
   musicaBajoVozDb: 12,
   duckingDb: 7,
   efectos: true,
+  efectosGancho: true,
+  efectosCortes: true,
+  efectosGraficos: true,
   efectosBajoVozDb: 22,
 };
 
@@ -332,11 +399,13 @@ export const DEFAULT_PROFILES: ProfileInput[] = [
       posicion: 'abajo',
       palabrasPorLinea: 3,
       escalaClave: 125,
+      opacidadCaja: 100,
     },
-    gancho: { activo: true, colorTexto: '#0A0A0B', colorFondo: '#C6FF3D', tamano: 70, duracionSeg: 3 },
+    gancho: { activo: true, colorTexto: '#0A0A0B', colorFondo: '#C6FF3D', tamano: 70, duracionSeg: 3, fuente: '', mayusculas: true },
     ritmo: { pausaMaxSeg: 0.3, margenSeg: 0.08, quitarErrores: true, zoomEnCortes: true, zoomSuave: false, zoomPct: 12, normalizarAudio: true },
     sonido: { ...DEFAULT_SOUND, musica: 'pulso' },
     graficos: { ...DEFAULT_GRAPHICS, colorFondo: '#0A0A0B', colorBorde: '#C6FF3D', colorAcento: '#C6FF3D' },
+    firma: { ...DEFAULT_SIGNATURE },
   },
   {
     nombre: 'Autoridad',
@@ -360,11 +429,13 @@ export const DEFAULT_PROFILES: ProfileInput[] = [
       posicion: 'centro',
       palabrasPorLinea: 1,
       escalaClave: 120,
+      opacidadCaja: 100,
     },
-    gancho: { activo: true, colorTexto: '#000000', colorFondo: '#FFD60A', tamano: 72, duracionSeg: 3 },
+    gancho: { activo: true, colorTexto: '#000000', colorFondo: '#FFD60A', tamano: 72, duracionSeg: 3, fuente: '', mayusculas: true },
     ritmo: { pausaMaxSeg: 0.25, margenSeg: 0.06, quitarErrores: true, zoomEnCortes: true, zoomSuave: false, zoomPct: 15, normalizarAudio: true },
     sonido: { ...DEFAULT_SOUND },
     graficos: { ...DEFAULT_GRAPHICS, colorFondo: '#000000', colorBorde: '#FFD60A', colorAcento: '#FFD60A' },
+    firma: { ...DEFAULT_SIGNATURE },
   },
   {
     nombre: 'Minimal',
@@ -388,11 +459,13 @@ export const DEFAULT_PROFILES: ProfileInput[] = [
       posicion: 'abajo',
       palabrasPorLinea: 5,
       escalaClave: 115,
+      opacidadCaja: 100,
     },
-    gancho: { activo: false, colorTexto: '#FFFFFF', colorFondo: '#111111', tamano: 60, duracionSeg: 3 },
+    gancho: { activo: false, colorTexto: '#FFFFFF', colorFondo: '#111111', tamano: 60, duracionSeg: 3, fuente: '', mayusculas: true },
     ritmo: { pausaMaxSeg: 0.5, margenSeg: 0.12, quitarErrores: true, zoomEnCortes: false, zoomSuave: true, zoomPct: 10, normalizarAudio: true },
     sonido: { ...DEFAULT_SOUND, musica: 'pad', efectos: false },
     graficos: { ...DEFAULT_GRAPHICS, cantidad: 'pocos', textoDetras: false, colorFondo: '#111111', colorBorde: '#FFFFFF', colorAcento: '#FFFFFF', opacidad: 85, fuenteImpacto: 'Segoe UI Black' },
+    firma: { ...DEFAULT_SIGNATURE },
   },
 ];
 

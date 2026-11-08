@@ -74,12 +74,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Sube la foto de la persona para las escenas donde habla.' }, { status: 400 });
     }
     if (native && !getBrollModel(body.brollModel).audio) {
-      return NextResponse.json({ error: 'Ese modelo no genera voz; elige Veo, Kling o Wan.' }, { status: 400 });
+      return NextResponse.json({ error: 'Ese modelo no genera voz; elige uno con audio (Gemini Omni, Veo, Kling o Wan).' }, { status: 400 });
     }
 
     // Comprobaciones antes de gastar nada
     const missing: string[] = [];
-    if (!process.env.OPENROUTER_API_KEY?.trim()) missing.push('OPENROUTER_API_KEY');
+    const brollViaApimart = getBrollModel(body.brollModel).provider === 'apimart';
+    const needsOpenRouter = body.scenes.some((s) => s.type === 'avatar') || !brollViaApimart;
+    if (needsOpenRouter && !process.env.OPENROUTER_API_KEY?.trim()) missing.push('OPENROUTER_API_KEY');
+    if (brollViaApimart && body.scenes.some((s) => s.type === 'broll') && !process.env.APIMART_API_KEY?.trim()) missing.push('APIMART_API_KEY');
     if (!native && !process.env.ELEVENLABS_API_KEY?.trim()) missing.push('ELEVENLABS_API_KEY');
     if (missing.length) {
       return NextResponse.json({ error: `Falta ${missing.join(' y ')} en .env.local.` }, { status: 400 });

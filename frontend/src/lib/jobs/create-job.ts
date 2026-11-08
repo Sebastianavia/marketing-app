@@ -4,12 +4,14 @@ import { getPersonName, getSettings } from '@/lib/data/settings';
 import { assertWithinDailyLimit } from '@/lib/usage/usage-store';
 import { errorMessage } from '@/lib/errors';
 import { assertVideoModelAvailable } from '@/lib/video/video-catalog';
-import { GenerationError, assertOpenRouterKey } from '@/lib/generation/errors';
+import { GenerationError, assertApimartKey, assertOpenRouterKey } from '@/lib/generation/errors';
+import { videoProviderOf } from '@/config/broll-models';
 
 /**
  * Crea un trabajo de render (avatar o toma de apoyo) y despierta el runner, que lo procesa en
  * segundo plano. Compartido por /api/render-jobs (Avatar Studio) y el Director.
- * Comprueba la clave, que el modelo siga en el catálogo de OpenRouter y el límite diario.
+ * Comprueba la clave del proveedor (OpenRouter o Apimart), que el modelo siga en el catálogo de
+ * OpenRouter (solo los suyos) y el límite diario.
  */
 
 export interface NewRenderJob {
@@ -26,11 +28,16 @@ export interface NewRenderJob {
 export const MISSING_VIDEO_KEY = 'Falta OPENROUTER_API_KEY en .env.local: no se puede generar video.';
 
 export async function createRenderJob(params: NewRenderJob): Promise<RenderJob> {
-  assertOpenRouterKey(MISSING_VIDEO_KEY);
-  try {
-    await assertVideoModelAvailable(params.model);
-  } catch (e) {
-    throw new GenerationError(errorMessage(e, 'Modelo no disponible.'), 400);
+  const provider = videoProviderOf(params.model);
+  if (provider === 'apimart') {
+    assertApimartKey('Falta APIMART_API_KEY en .env.local: no se puede generar este video.');
+  } else {
+    assertOpenRouterKey(MISSING_VIDEO_KEY);
+    try {
+      await assertVideoModelAvailable(params.model);
+    } catch (e) {
+      throw new GenerationError(errorMessage(e, 'Modelo no disponible.'), 400);
+    }
   }
 
   const settings = await getSettings();
@@ -41,7 +48,7 @@ export async function createRenderJob(params: NewRenderJob): Promise<RenderJob> 
     id: crypto.randomUUID(),
     tool: params.tool,
     title: params.title,
-    provider: 'openrouter',
+    provider,
     model: params.model,
     ...(params.kind ? { kind: params.kind } : {}),
     input: params.input,

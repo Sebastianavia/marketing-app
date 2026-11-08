@@ -17,10 +17,14 @@ import {
   type ProductionScene,
   type SceneSpec,
 } from '@/lib/director/production-store';
-import { proposeScenes, runAvatarScene, runBrollScene, runVoiceScene } from '@/lib/director/production';
+import { proposeScenes, runAvatarScene, runBrollScene, runImageScene, runVoiceScene } from '@/lib/director/production';
 import { reconcileProduction } from '@/lib/director/production-jobs';
-import { composeVideoPrompt } from './prompts';
-import type { DirectorGeneration, DirectorState } from './types';
+import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
+import { clipChoiceProblem } from '@/config/broll-models';
+import { composeImagePrompt, composeVideoPrompt } from './prompts';
+import { sceneClipChoice } from './durations';
+import { sceneRefs, sceneTags, tagRefs } from './mentions';
+import type { DirectorGeneration, DirectorScene, DirectorState } from './types';
 
 /**
  * Fase de generación del modo Director: guion + prompts aprobados → escenas de pago con presupuesto
@@ -38,6 +42,26 @@ function needGuion(d: DirectorState) {
   const sinPrompt = escenas.filter((s) => !s.prompt || s.prompt.deVersion !== s.version).map((s) => s.orden);
   if (sinPrompt.length) throw new ProductionError(`Faltan o están desactualizados los prompts de las escenas ${sinPrompt.join(', ')}.`, 409);
   return escenas;
+}
+
+/** Fotos de referencia para la imagen inicial: las de la escena, las de sus etiquetas y las del proyecto. */
+function imageRefsFor(s: DirectorScene, d: DirectorState): string[] {
+  const refs = d.referencias ?? [];
+  const tags = sceneTags(d, s);
+  const ordered = [
+    ...sceneRefs(d, s.id),
+    // Las etiquetas con avatar ya mandan las fotos del avatar
+    ...tags.filter((t) => !t.avatarId).flatMap((t) => tagRefs(d, t.id)),
+    ...refs.filter((r) => !r.escenaId && !r.etiquetaId),
+  ].filter((r) => r.medio === 'imagen');
+  return [...new Set(ordered.map((r) => r.archivo))].slice(0, 10);
+}
+
+/** Avatar cuya identidad se usa en la escena: el de un personaje que nombra; en voz nativa, el de los ajustes. */
+function sceneAvatarId(s: DirectorScene, d: DirectorState): string | undefined {
+  const fromTag = sceneTags(d, s).find((t) => t.tipo === 'personaje' && t.avatarId)?.avatarId;
+  if (fromTag) return fromTag;
+  return d.ajustes.modoVoz === 'native' && d.ajustes.avatarId ? d.ajustes.avatarId : undefined;
 }
 
 /** Escenas de pago a partir del guion, según el modo de voz de los ajustes. */
@@ -66,17 +90,42 @@ function buildPlan(d: DirectorState): { specs: SceneSpec[]; gen: Omit<DirectorGe
       });
       continue;
     }
+    const choice = sceneClipChoice(s, a);
+    // En voz nativa solo las escenas con diálogo necesitan audio del modelo
+    const conAudio = a.modoVoz === 'native' && Boolean(s.dialogo.trim());
+    const problem = clipChoiceProblem(choice.model, { formato: a.formato, resolucion: choice.resolucion, conAudio });
+    if (problem) throw new ProductionError(`Escena ${s.orden}: ${problem}`, 409);
+    const avatarId = sceneAvatarId(s, d);
+    // Imagen inicial (GPT Image 2) → primer fotograma del clip
+    let imagen: string | undefined;
+    if (choice.imagenInicial) {
+      const referencias = imageRefsFor(s, d);
+      imagen = add({
+        tipo: 'imagen',
+        titulo: `Escena ${s.orden} · imagen inicial`,
+        prompt: composeImagePrompt(s, d),
+        modelo: DEFAULT_IMAGE_MODEL,
+        resolucion: '1K',
+        cantidad: 1,
+        ...(avatarId ? { avatarId } : {}),
+        ...(referencias.length ? { referencias } : {}),
+      });
+    }
     const clip = add({
       tipo: 'toma_de_apoyo',
       titulo: `Escena ${s.orden} · ${s.queSeVe.slice(0, 60)}`,
       prompt: composeVideoPrompt(s, d),
       duracionSeg: s.clipSeg ?? s.duracionSeg,
-      modelo: a.modeloBroll,
-      conAudio: a.modoVoz === 'native',
+      modelo: choice.model.id,
+      resolucion: choice.resolucion,
+      conAudio,
+      ...(imagen ? { imagenDeEscena: imagen } : {}),
+      // Fotos del avatar como referencias extra (solo Apimart admite varias imágenes)
+      ...(avatarId && choice.model.provider === 'apimart' ? { avatarReferencias: avatarId } : {}),
     });
     // Avatar: las tomas de apoyo llevan su propia locución
     const voz = a.modoVoz === 'avatar' && s.dialogo.trim() ? add({ tipo: 'voz', titulo: `Escena ${s.orden} · voz`, texto: s.dialogo, vozId, modeloVoz: DEFAULT_ELEVEN_MODEL }) : undefined;
-    mapa.push({ escenaId: s.id, clip, ...(voz ? { voz } : {}) });
+    mapa.push({ escenaId: s.id, clip, ...(voz ? { voz } : {}), ...(imagen ? { imagen } : {}) });
   }
   return { specs, gen: { mapa, ...(vozGeneral ? { vozGeneral } : {}), modoVoz: a.modoVoz } };
 }
@@ -126,25 +175,36 @@ export async function prepareGeneration(id: string) {
   };
 }
 
-/** Lanza lo aprobado: las voces primero (las necesita el avatar) y luego los clips. */
+/** Imágenes iniciales a la vez (GPT Image 2 tarda ~30–60 s cada una). */
+const IMAGE_PARALLEL = 4;
+
+/**
+ * Lanza lo aprobado: las voces primero (las necesita el avatar), luego las imágenes iniciales
+ * (de 4 en 4, se esperan: son el primer fotograma de cada clip) y por último los clips, que el
+ * runner procesa en segundo plano (máx. 4 a la vez).
+ */
 export async function runGeneration(id: string) {
   let p = await reconcileProduction(id);
   const lanzadas: string[] = [];
   const errores: string[] = [];
   const ready = (s: ProductionScene) => s.estado === 'aprobada' || (s.estado === 'fallida' && !s.falloConCobro && !s.reintentoUsado && s.aprobadaUSD !== null);
-  const order = [...p.escenas].sort((a, b) => Number(b.spec.tipo === 'voz') - Number(a.spec.tipo === 'voz'));
-  for (const s of order) {
-    if (!ready(s)) continue;
+  const run = async (s: ProductionScene) => {
     try {
       if (s.spec.tipo === 'voz') await runVoiceScene(id, s.id);
+      else if (s.spec.tipo === 'imagen') await runImageScene(id, s.id);
       else if (s.spec.tipo === 'avatar') await runAvatarScene(id, s.id);
       else if (s.spec.tipo === 'toma_de_apoyo') await runBrollScene(id, s.id);
-      else continue;
+      else return;
       lanzadas.push(s.id);
     } catch (err) {
       errores.push(`${s.id}: ${err instanceof Error ? err.message : 'error'}`);
     }
-  }
+  };
+  const todo = p.escenas.filter(ready);
+  for (const s of todo.filter((x) => x.spec.tipo === 'voz')) await run(s);
+  const images = todo.filter((x) => x.spec.tipo === 'imagen');
+  for (let i = 0; i < images.length; i += IMAGE_PARALLEL) await Promise.all(images.slice(i, i + IMAGE_PARALLEL).map(run));
+  for (const s of todo.filter((x) => x.spec.tipo === 'avatar' || x.spec.tipo === 'toma_de_apoyo')) await run(s);
   p = await reconcileProduction(id);
   const pendientes = p.escenas.filter((s) => s.estado === 'pendiente').map((s) => s.id);
   return {

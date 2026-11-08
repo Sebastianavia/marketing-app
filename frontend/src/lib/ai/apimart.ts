@@ -176,7 +176,7 @@ function mapApiMartHttpError(status: number, rawData: unknown, fallbackContext: 
       );
     case 402:
       return new ApiMartError(
-        `Saldo insuficiente en tu cuenta de Apimart (${rawMessage || 'recarga créditos en apimart.ai e inténtalo de nuevo'}).`,
+        'Tu cuenta de Apimart no tiene saldo suficiente. Recarga en apimart.ai y vuelve a intentarlo (no se generó nada).',
         402,
         errType || 'payment_required'
       );
@@ -188,7 +188,7 @@ function mapApiMartHttpError(status: number, rawData: unknown, fallbackContext: 
       );
     case 429:
       return new ApiMartError(
-        `Demasiadas solicitudes a Apimart (límite de velocidad alcanzado). Espera unos segundos e inténtalo de nuevo.`,
+        'Apimart está recibiendo demasiadas solicitudes (límite de velocidad). Espera un minuto y vuelve a intentarlo.',
         429,
         errType || 'rate_limit_error'
       );
@@ -492,6 +492,29 @@ export class ApiMartClient {
       taskId,
       status: 'submitted',
     };
+  }
+
+  /**
+   * Envía un cuerpo de video ya armado (lib/ai/apimart-video.ts → buildApimartVideoBody) y devuelve el task_id.
+   * Endpoint: POST https://api.apimart.ai/v1/videos/generations
+   */
+  async createVideoTask(body: Record<string, unknown>): Promise<{ taskId: string }> {
+    if (!this.isConfigured) {
+      throw new ApiMartError('Falta APIMART_API_KEY en frontend/.env.local.', 401, 'missing_api_key');
+    }
+    const response = await fetch(`${APIMART_BASE_URL}/videos/generations`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw mapApiMartHttpError(response.status, data, `Error al enviar el video ${String(body.model)} a Apimart`);
+    }
+    const firstItem = Array.isArray(data?.data) ? data.data[0] : data?.data;
+    const taskId: string | undefined = firstItem?.task_id || firstItem?.id || data?.task_id || data?.id;
+    if (!taskId) throw new ApiMartError('Apimart no devolvió un task_id al crear el video.', 502);
+    return { taskId };
   }
 
   /**

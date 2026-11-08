@@ -16,8 +16,8 @@ import { getDirectorProduction } from './engine';
  * Claude como Director de un proyecto de Guion a video (chat "Claude · director").
  * Motor común en lib/ai/claude-code/agent-runner.ts; aquí van las instrucciones, las herramientas
  * (MCP lulo-director: ver_proyecto + accion) y dónde se guarda el chat (produccion.json → director.claude).
- * Hoy el modo Director llega hasta los prompts (texto, $0); generar imágenes, clips y el video final
- * son las etapas "Próximamente".
+ * Tras los prompts, prepara la producción (imagen inicial GPT Image 2 + clip por escena con Grok o
+ * Gemini Omni de Apimart, o los de OpenRouter), que la persona aprueba en la app antes de generar.
  */
 
 const key = (id: string) => `director:${id}`;
@@ -38,6 +38,15 @@ HERRAMIENTAS DE LULO
 - lulo: preparar_produccion → con los prompts aprobados, arma las escenas de pago con su costo y pide la aprobación EN LA APP (no gasta).
 - lulo: generar → genera solo lo que la persona ya aprobó. lulo: estado_produccion (con esperarSeg) para seguir el avance.
 - lulo: montar_video → con todo listo, monta el video final ($0) y lo pasa al editor de video para pulirlo para redes.
+
+MODELOS DE CLIP (tomas de apoyo; ver_proyecto → opciones.modelosToma tiene límites y precios exactos)
+- grok-imagine-1.5-video-ext (Apimart): el más barato (~$0.024/s a 720p, ~$0.013/s a 480p). Clips de 6 a 15 s, sin voz propia. Predeterminado para voz en off y tomas sin diálogo. Si la escena dura menos de 6 s, se pide de 6 y se recorta al montar.
+- gemini-omni-1.1-flash-ext (Apimart): personas que hablan con su propia voz y sonido. Clips de 4, 6, 8 o 10 s, precio por clip ($0.31–$0.50 a 720p). Predeterminado cuando "los personajes hablan".
+- gemini-omni-flash-preview (Apimart): con audio y edición de video; el modelo decide la duración (3–10 s) y se presupuesta el peor caso (10 s ≈ $1.10). Úsalo solo si hace falta.
+- Veo, Hailuo, Kling y Wan (OpenRouter): alternativas; solo usan el fotograma inicial.
+- Imagen inicial: GPT Image 2 (~$0.011 a 1K) hace el primer fotograma de cada toma con la identidad del avatar y las referencias; el clip parte de ella. Viene activada; apágala en una escena (ajustar_clip imagenInicial false) si es un plano abstracto o de texto y no aporta.
+- Puedes elegir modelo, resolución e imagen inicial por escena con accion ajustar_clip (por ejemplo, Grok para las tomas sin diálogo y Gemini Omni 1.1 para las que tienen diálogo). Explica en una línea por qué y cuánto cambia el costo.${skill ? `
+- Para la plantilla ${skill.nombre}: ${skill.notaModelos}` : ''}
 
 CÓMO GUIAR
 1. Mira el proyecto. Si hay referencias (fotos, PDF) en ./referencias, míralas con Read: son el producto, la persona o el estilo que quiere.

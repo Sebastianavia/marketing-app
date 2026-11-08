@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { AlertTriangle, Loader2, Pause, Pencil, Play, RotateCcw } from 'lucide-react';
-import { fitSceneDuration, formatTime } from '@/lib/director-mode/durations';
+import { fitSceneDuration, formatTime, sceneSettings } from '@/lib/director-mode/durations';
 import { promptIsStale } from '@/lib/director-mode/stages';
 import { estimateSeconds } from '@/lib/scenes/scene-plan';
 import type { DirectorScene, DirectorSettings, DirectorState } from '@/lib/director-mode/types';
@@ -74,7 +74,9 @@ function AlignedLine({ scene, ajustes, audioSrc }: { scene: DirectorScene; ajust
   );
 }
 
-export function ScriptSceneCard({ scene, ajustes, ctx, showPromptState, disabled, redoing, saving, costLabel, audioSrc, onRedo, onSave }: Props) {
+export function ScriptSceneCard({ scene, ajustes: base, ctx, showPromptState, disabled, redoing, saving, costLabel, audioSrc, onRedo, onSave }: Props) {
+  // Si la escena tiene su propio modelo de clip, sus duraciones son las de ese modelo
+  const ajustes = sceneSettings(scene, base);
   const aligned = Boolean(scene.audio);
   const [editing, setEditing] = useState(false);
   const [askRedo, setAskRedo] = useState(false);

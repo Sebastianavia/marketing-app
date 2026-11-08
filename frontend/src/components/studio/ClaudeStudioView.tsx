@@ -78,6 +78,12 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: avatares_y_voces': 'Avatar: mirando avatares y voces',
   'lulo: avatar_costo': 'Avatar: calculando el costo',
   'lulo: avatar_video': 'Avatar: generando la voz y el video',
+  'lulo: voz_costo': 'Voz: calculando el costo',
+  'lulo: voz_generar': 'Voz: generando el audio con ElevenLabs',
+  'lulo: imagen_costo': 'Imágenes: calculando el costo',
+  'lulo: imagen_crear': 'Imágenes: generando las imágenes',
+  'lulo: clonacion_costo': 'Clonación: calculando el costo',
+  'lulo: clonacion_video': 'Clonación: Seedance está reemplazando la persona',
 };
 
 const SUGGESTIONS = [

@@ -6,7 +6,7 @@ import { cloudinaryStorageService } from '@/services/storage/cloudinary.service'
 import { saveGenerated, getGeneratedDir } from '@/lib/storage/generated-library';
 import { recordUsage } from '@/lib/usage/usage-store';
 import { ttsCost } from '@/config/cost-rates';
-import { brollRate, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { clipCostUSD, getBrollModel, pickBrollDuration } from '@/config/broll-models';
 import { estimateSeconds } from './scene-plan';
 import { getElevenModel, hasAudioTags, stripAudioTags, isKnownElevenModel } from '@/config/elevenlabs-models';
 import { getJob, saveJob, listJobs, type RenderJob } from '@/lib/jobs/job-store';
@@ -208,9 +208,10 @@ async function doClips(p: SceneProject) {
         ...base,
         kind: 'broll',
         title: `${p.title} · escena ${i + 1} (habla)`,
+        provider: model.provider,
         model: model.id,
         input: { imageUrl, aspectRatio: p.aspectRatio, prompt, durationSec: duration, resolution: model.resolution, generateAudio: true },
-        estimatedCostUSD: duration * brollRate(model, true),
+        estimatedCostUSD: clipCostUSD(model, duration, { withAudio: true }),
       };
     } else if (s.type === 'avatar' && p.voiceMode !== 'voiceover') {
       const slicePath = path.join(/*turbopackIgnore: true*/ dir, `voz_escena_${i + 1}.mp3`);
@@ -246,7 +247,8 @@ async function doClips(p: SceneProject) {
           durationSec: duration,
           resolution: model.resolution,
         },
-        estimatedCostUSD: duration * model.pricePerSecond,
+        provider: model.provider,
+        estimatedCostUSD: clipCostUSD(model, duration),
       };
     }
     await saveJob(job);

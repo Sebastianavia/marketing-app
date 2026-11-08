@@ -47,6 +47,10 @@ export interface SceneSpec {
   cantidad?: number;
   /** Id de una escena de imagen de esta producción que sirve de foto/fotograma inicial. */
   imagenDeEscena?: string;
+  /** Imagen: fotos de referencia de la producción (rutas relativas a su carpeta, con '/'). */
+  referencias?: string[];
+  /** Toma de apoyo: avatar cuyas fotos van como referencias extra además del fotograma inicial. */
+  avatarReferencias?: string;
   /** Solo avatar (HeyGen). */
   movimiento?: string;
   expresividad?: 'low' | 'medium' | 'high';

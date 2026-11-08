@@ -28,7 +28,7 @@ import {
   getElevenModel,
   type VoiceSettingsState,
 } from '@/config/elevenlabs-models';
-import { BROLL_MODELS, DEFAULT_BROLL_MODEL, VOICE_MODES, brollRate, getBrollModel, type VoiceMode } from '@/config/broll-models';
+import { BROLL_MODELS, DEFAULT_BROLL_MODEL, DEFAULT_NATIVE_BROLL_MODEL, VOICE_MODES, brollPriceLabel, getBrollModel, type VoiceMode } from '@/config/broll-models';
 import { estimateSceneProject } from '@/lib/scenes/scene-estimate';
 import { estimateSeconds } from '@/lib/scenes/scene-plan';
 
@@ -229,7 +229,7 @@ export function TextToVideoView() {
       ? persona?.id ?? 'none' // misma persona en todas las escenas
       : images.find((i) => i.id !== persona?.id)?.id ?? 'none';
   const brollSpec = getBrollModel(brollModel);
-  const availableModels = BROLL_MODELS.filter((m) => voiceMode !== 'native' || m.audio);
+  const availableModels = BROLL_MODELS.filter((m) => (voiceMode !== 'native' || m.audio) && m.aspectRatios.includes(aspect));
   const fullText = scenes.map((s) => s.narration.trim()).join(' ');
   const voiceSpec = getElevenModel(voiceModel);
   const estimate = useMemo(
@@ -528,7 +528,7 @@ export function TextToVideoView() {
               type="button"
               onClick={() => {
                 setVoiceMode(m.id);
-                if (m.id === 'native' && !getBrollModel(brollModel).audio) setBrollModel(DEFAULT_BROLL_MODEL);
+                if (m.id === 'native' && !getBrollModel(brollModel).audio) setBrollModel(DEFAULT_NATIVE_BROLL_MODEL);
               }}
               className={`rounded-lg border p-2.5 text-left transition-colors cursor-pointer ${
                 voiceMode === m.id ? 'border-accent bg-accent/5' : 'border-line hover:bg-surface-2'
@@ -645,7 +645,18 @@ export function TextToVideoView() {
           )}
           <label className="space-y-1 text-[12px] text-fg-muted">
             <span className="block">Formato</span>
-            <select value={aspect} onChange={(e) => setAspect(e.target.value as Aspect)} className="input-clean h-9 px-2 text-[13px]">
+            <select
+              value={aspect}
+              onChange={(e) => {
+                const next = e.target.value as Aspect;
+                setAspect(next);
+                // Si el modelo elegido no admite el formato, se pasa al primero que sí (Gemini Omni no hace 1:1)
+                if (!getBrollModel(brollModel).aspectRatios.includes(next)) {
+                  const ok = BROLL_MODELS.find((m) => (voiceMode !== 'native' || m.audio) && m.aspectRatios.includes(next));
+                  if (ok) setBrollModel(ok.id);
+                }
+              }}
+              className="input-clean h-9 px-2 text-[13px]">
               <option value="9:16">Vertical 9:16</option>
               <option value="16:9">Horizontal 16:9</option>
               <option value="1:1">Cuadrado 1:1</option>
@@ -882,10 +893,10 @@ export function TextToVideoView() {
                   <span className="flex-1">
                     <span className="block text-[12.5px] font-medium text-fg">{m.name}</span>
                     <span className="block text-[11px] text-fg-subtle">
-                      {missingModels.includes(m.id) ? 'Ya no está disponible en OpenRouter.' : m.note}
+                      {missingModels.includes(m.id) ? 'Ya no está disponible en OpenRouter.' : `${m.note} · ${m.resolution} · ${m.provider === 'apimart' ? 'Apimart' : 'OpenRouter'}`}
                     </span>
                   </span>
-                  <span className="text-[11px] tabular-nums text-fg-muted">${brollRate(m, voiceMode === 'native').toFixed(3)}/s</span>
+                  <span className="text-[11px] tabular-nums text-fg-muted">{brollPriceLabel(m, voiceMode === 'native')}</span>
                 </label>
               ))}
             </div>

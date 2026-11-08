@@ -61,6 +61,10 @@ export interface DirectorSettings {
   modoVoz: VoiceMode;
   /** Modelo previsto para las tomas de apoyo (define las duraciones admitidas). */
   modeloBroll: string;
+  /** Resolución de los clips; sin valor = la predeterminada del modelo. */
+  resolucionBroll?: string;
+  /** Crear una imagen inicial (GPT Image 2) antes de cada toma de apoyo. Sin valor = sí. */
+  imagenInicial?: boolean;
   avatarId: string | null;
   avatarNombre?: string;
   presupuestoUSD: number;
@@ -100,6 +104,14 @@ export interface DirectorScene {
   audio?: { desde: number; hasta: number };
   /** Con audio: duración del clip a generar (la menor que admite el modelo y cubre la escena); se recorta al montar. */
   clipSeg?: number;
+  /** Elección solo para esta escena (la persona o Claude). Sin valor = lo de los ajustes. */
+  clipOpciones?: SceneClipOptions;
+}
+
+export interface SceneClipOptions {
+  modelo?: string;
+  resolucion?: string;
+  imagenInicial?: boolean;
 }
 
 export interface DirectorScript {
@@ -182,7 +194,7 @@ export interface DirectorVoiceover {
 /** Fase de generación: de guion + prompts aprobados a escenas de pago (Production.escenas) y video final. */
 export interface DirectorGeneration {
   /** Escenas de pago que salen de cada escena del guion (ids de Production.escenas). */
-  mapa: Array<{ escenaId: string; clip: string; voz?: string }>;
+  mapa: Array<{ escenaId: string; clip: string; voz?: string; imagen?: string }>;
   /** Voz en off: escena de pago con la locución completa. */
   vozGeneral?: string;
   /** Modo de voz con que se preparó (si cambia, hay que volver a preparar). */

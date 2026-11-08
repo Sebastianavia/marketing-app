@@ -99,9 +99,10 @@ export const IMAGE_MODELS: ImageModelSpec[] = [
     defaultResolution: '2K',
     aspectRatios: GPT_IMAGE_2_ASPECTS,
     defaultAspectRatio: '9:16',
-    // Tarifas por nivel de resolución en Apimart (el valor exacto dinámico llega en data.cost y data.credits_cost al completar la tarea)
-    pricePerImage: { '1K': 0.0352, '2K': 0.05279, '4K': 0.10558 },
-    creditsPerImage: { '1K': 0.352, '2K': 0.5279, '4K': 1.0558 },
+    // Precio de lista de GET https://api.apimart.ai/api/pricing/model?model=gpt-image-2 (8 nov 2026): 1K 0.0085 pagado
+    // con el 20 % de descuento de la cuenta → 0.010625 de lista. Se estima por lo alto; el real llega en data.cost.
+    pricePerImage: { '1K': 0.010625, '2K': 0.01875, '4K': 0.0275 },
+    creditsPerImage: { '1K': 0.10625, '2K': 0.1875, '4K': 0.275 },
     pixelDimensions: GPT_IMAGE_2_PIXELS,
     note: 'Apimart (asíncrono): hasta 15 referencias (URL o base64, máx. 20 MB c/u), 15 proporciones (9:16 vertical por defecto) y salida hasta 4K.',
   },
