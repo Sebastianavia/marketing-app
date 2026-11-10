@@ -1,4 +1,5 @@
 import fsp from 'fs/promises';
+import fsSync from 'fs';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
@@ -492,6 +493,9 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       XDG_CACHE_HOME: path.join(dirs.tools, 'cache'),
       TORCH_HOME: path.join(dirs.tools, 'cache', 'torch'),
       LULO_HERRAMIENTAS: dirs.tools,
+      // Bash de verdad (no zsh): Claude escribe scripts de bash; en zsh `for t in $lista` no separa
+      // la lista y sus comandos fallaban (visto 2026-11-10). En Windows ya usa Git Bash.
+      ...(process.platform !== 'win32' && fsSync.existsSync('/bin/bash') ? { SHELL: '/bin/bash' } : {}),
       // npx (HyperFrames y otros) escribe su caché en la carpeta de herramientas: ~/.npm no se puede escribir
       npm_config_cache: path.join(dirs.tools, 'cache', 'npm'),
       PUPPETEER_CACHE_DIR: path.join(dirs.tools, 'cache', 'puppeteer'),

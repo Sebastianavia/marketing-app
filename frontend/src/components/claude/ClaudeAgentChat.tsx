@@ -90,6 +90,8 @@ export interface ClaudeAgentChatProps {
   materialKey?: string;
   /** Tipos que acepta el botón de adjuntar (por defecto fotos, video, audio, PDF y textos). */
   attachAccept?: string;
+  /** Avisa cuando Claude empieza o termina de trabajar (para que la pantalla no ofrezca aprobar a medias). */
+  onWorkingChange?: (working: boolean) => void;
 }
 
 /** Quién dibuja los [[media:ID]] dentro de los mensajes. */
@@ -112,6 +114,7 @@ export function ClaudeAgentChat({
   onAttach,
   materialKey,
   attachAccept = 'image/*,video/*,audio/*,application/pdf,.txt,.md,.srt,.csv,.docx',
+  onWorkingChange,
 }: ClaudeAgentChatProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [attaching, setAttaching] = useState(false);
@@ -228,6 +231,14 @@ export function ClaudeAgentChat({
 
   const info = modo ? MODE_INFO[modo] : null;
   const busy = Boolean(live) || sending;
+  const working = Boolean(live);
+  const onWorkingRef = useRef(onWorkingChange);
+  useEffect(() => {
+    onWorkingRef.current = onWorkingChange;
+  });
+  useEffect(() => {
+    onWorkingRef.current?.(working);
+  }, [working]);
 
   return (
     <MediaContext.Provider value={renderMedia ?? null}>

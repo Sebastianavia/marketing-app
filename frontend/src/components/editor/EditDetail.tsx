@@ -44,6 +44,8 @@ interface Props {
 
 export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
   const [edit, setEdit] = useState<EditProject | null>(null);
+  // Mientras Claude edita, no se ofrece aprobar ni crear a mano: lo que se vea es un borrador intermedio
+  const [claudeWorking, setClaudeWorking] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -126,7 +128,7 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
     }
   };
 
-  const hasScript = edit.frases.length > 0 && !working;
+  const hasScript = edit.frases.length > 0 && !working && !claudeWorking;
 
   return (
     <div className="space-y-5">
@@ -166,8 +168,21 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
       {working && <ProgressCard edit={edit} />}
       {edit.estado === 'error' && edit.error && <ErrorCard edit={edit} busy={busy} run={run} />}
 
+      {claudeWorking && (
+        <div className="flex items-start gap-3 rounded-xl border border-accent/40 bg-surface-2 px-4 py-3 text-[12px]">
+          <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-accent" />
+          <div className="space-y-0.5">
+            <p className="font-medium text-fg">Claude está editando tu video</p>
+            <p className="text-fg-muted">
+              Puede tardar 10–20 minutos: crea una versión, la revisa fotograma a fotograma, la corrige y vuelve a renderizarla. Las versiones que aparezcan
+              mientras tanto son borradores intermedios; cuando termine te lo dirá en el chat y podrás aprobar la última.
+            </p>
+          </div>
+        </div>
+      )}
+
       {(edit.estado === 'borrador' || edit.estado === 'aprobado') && edit.borrador && (
-        <DraftCard edit={edit} busy={busy} run={run} />
+        <DraftCard edit={edit} busy={busy} run={run} claudeWorking={claudeWorking} />
       )}
 
       {edit.direccion && (
@@ -194,6 +209,7 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
       {(edit.frases.length > 0 || edit.borrador) && (
         <ClaudeEditChat
           edit={edit}
+          onWorkingChange={setClaudeWorking}
           onChanged={() => {
             void load();
             onChanged();
@@ -376,7 +392,7 @@ function ErrorCard({ edit, busy, run }: { edit: EditProject; busy: string | null
 
 // ── Borrador ──────────────────────────────────────────────────────────────────
 
-function DraftCard({ edit, busy, run }: { edit: EditProject; busy: string | null; run: RunFn }) {
+function DraftCard({ edit, busy, run, claudeWorking = false }: { edit: EditProject; busy: string | null; run: RunFn; claudeWorking?: boolean }) {
   const b = edit.borrador!;
   const approved = edit.estado === 'aprobado';
   return (
@@ -390,7 +406,7 @@ function DraftCard({ edit, busy, run }: { edit: EditProject; busy: string | null
       />
       <div className="space-y-4">
         <div>
-          <h3 className="text-[15px] font-semibold text-fg">{approved ? 'Reel aprobado' : 'Tu reel está listo'}</h3>
+          <h3 className="text-[15px] font-semibold text-fg">{approved ? 'Reel aprobado' : claudeWorking ? 'Borrador intermedio · Claude lo está mejorando' : 'Tu reel está listo'}</h3>
           <p className="text-[12px] text-fg-muted">
             Versión {b.version} · {formatClock(b.duracion)} (antes {formatClock(edit.original.duracion)}) · look {edit.perfil.nombre}
           </p>
@@ -405,7 +421,7 @@ function DraftCard({ edit, busy, run }: { edit: EditProject; busy: string | null
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          {!approved && (
+          {!approved && !claudeWorking && (
             <button type="button" disabled={!!busy} onClick={() => void run('aprobar', { accion: 'aprobar' })} className="btn-primary h-10 px-5 text-[13px]">
               {busy === 'aprobar' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Aprobar
             </button>
@@ -519,6 +535,13 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h3 className="text-[15px] font-semibold text-fg">{isDraft ? 'Cambiar algo' : edit.direccion ? 'Revisa la propuesta de Claude' : 'Revisa el guion'}</h3>
+          {edit.direccion && isDraft && (
+            <p className="max-w-[80ch] rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-fg">
+              Este video lo dirigió <b>Claude</b>: sus palabras clave, efectos, ayudas visuales, música y cámara están en su plan (por eso aquí pueden verse
+              vacíos el gancho o las palabras a resaltar). Para cambiar algo de eso, <b>pídeselo en el chat</b>; aquí solo ajustas cortes y textos de los
+              subtítulos.
+            </p>
+          )}
           {edit.direccion && !isDraft && (
             <p className="max-w-[80ch] rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-fg">
               Esto no es otro generador: es lo que decidió <b>Claude</b> (cortes, gancho, palabras clave y gráficos), y detrás va su plan de cámara,
