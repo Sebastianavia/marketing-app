@@ -123,7 +123,7 @@ cd frontend; npm install; npm run dev     # http://localhost:3000
 
 ## Skills del proyecto
 
-Fuente de verdad: **`.agents/skills/`** (23 skills; las lee Antigravity). **Skills de video (2026-11-10):** HyperFrames, HeyGen, Remotion y `video`/`social` (35) instaladas en `.agents/skills/` y `.claude/skills/` (en git, con `skills-lock.json`); detalle en `docs/context/skills.md`. Claude Code lee **`.claude/skills/`**:
+Fuente de verdad: **`.agents/skills/`** (23 skills; las lee Antigravity). **Skills de video (2026-11-10):** HyperFrames, Remotion y `video`/`social` (32; sin las de HeyGen) en `.agents/skills/` y `.claude/skills/` (en git, con `skills-lock.json`). Los Claude de la app (editor, director, Estudio) cargan una selección como plugin (`lib/ai/claude-code/video-skills.ts`) y renderizan HyperFrames con `revisar_html_video`/`renderizar_html_video` (`code-video.ts`); detalle en `docs/context/skills.md`. Claude Code lee **`.claude/skills/`**:
 mantener una copia sincronizada (desde la raíz, en PowerShell):
 `Copy-Item -Recurse -Force .agents\skills\* .claude\skills\` (y luego borrar `.claude\skills\context-mode`, que solo sirve con el MCP de Antigravity).
 Si `.claude/skills/` está vacío, lee directamente `.agents/skills/<nombre>/SKILL.md` antes de la tarea correspondiente.

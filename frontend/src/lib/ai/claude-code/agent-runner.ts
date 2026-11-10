@@ -1,4 +1,5 @@
 import fsp from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getDataDir } from '@/lib/data/data-dir';
@@ -8,6 +9,7 @@ import { resolveFfmpegPath } from '@/lib/video/ffmpeg';
 import { fontsDir } from '@/lib/editor/media';
 import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
+import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, execClaude, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
@@ -109,7 +111,14 @@ export interface AgentSpec {
   usage: { tool: string; description: string };
   /** Se antepone al mensaje si la sesión anterior se perdió. */
   lostSessionNote: string;
+  /**
+   * Skills de video (plugin lulo-video, ver video-skills.ts). `renderTool`: herramienta MCP que
+   * renderiza HyperFrames (null = este agente no renderiza); `entregar`: cómo se entrega el video.
+   */
+  videoSkills?: { renderTool: string | null; entregar: string };
 }
+
+type AgentDirs = { tools: string; fuentes: string; modelos: string; skills: string | null };
 
 // ---------------------------------------------------------------------------
 // Turnos en curso (en memoria; el historial queda en el proyecto)
@@ -219,6 +228,9 @@ function describeStep(e: ToolUseEvent): ClaudeChatStep {
     case 'WebSearch':
       detalle = str(i.query);
       break;
+    case 'Skill':
+      detalle = str(i.skill) || str(i.command) || str(i.name);
+      break;
   }
   const m = /^mcp__lulo-[a-z-]+__(.+)$/.exec(e.name);
   return { herramienta: m ? `lulo: ${m[1]}` : e.name, detalle };
@@ -259,7 +271,7 @@ function rulePath(p: string): string {
   return p.replace(/\/+$/, '');
 }
 
-function sandboxSettings(spec: AgentSpec, dirs: { tools: string; fuentes: string; modelos: string }, mode: SandboxMode) {
+function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
   const settings: Record<string, unknown> = {
     permissions: {
       deny: [
@@ -278,10 +290,11 @@ function sandboxSettings(spec: AgentSpec, dirs: { tools: string; fuentes: string
       allowUnsandboxedCommands: false,
       autoAllowBashIfSandboxed: true,
       filesystem: {
-        allowWrite: [spec.cwd, dirs.tools],
+        // ~/.cache/hyperframes: el CLI de HyperFrames guarda ahí su historial aunque haya XDG_CACHE_HOME
+        allowWrite: [spec.cwd, dirs.tools, ...(dirs.skills ? [path.join(os.homedir(), '.cache', 'hyperframes')] : [])],
         denyWrite: spec.protectedFiles.map((f) => path.join(/*turbopackIgnore: true*/ spec.cwd, f)),
         denyRead: ['~/'],
-        allowRead: [spec.cwd, dirs.tools, dirs.fuentes, dirs.modelos],
+        allowRead: [spec.cwd, dirs.tools, dirs.fuentes, dirs.modelos, ...(dirs.skills ? [dirs.skills, path.join(os.homedir(), '.cache', 'hyperframes')] : [])],
       },
       network: { allowedDomains: allowedDomains(), allowLocalBinding: false },
     };
@@ -289,7 +302,7 @@ function sandboxSettings(spec: AgentSpec, dirs: { tools: string; fuentes: string
   return settings;
 }
 
-function allowedTools(spec: AgentSpec, dirs: { tools: string; fuentes: string; modelos: string }, mode: SandboxMode): string[] {
+function allowedTools(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode): string[] {
   const abs = (d: string) => `/${rulePath(d)}/**`;
   const list = [
     'Read(./**)',
@@ -307,6 +320,7 @@ function allowedTools(spec: AgentSpec, dirs: { tools: string; fuentes: string; m
     `mcp__${spec.mcpName}__*`,
   ];
   if (mode !== 'sin_bash') list.push('Bash');
+  if (dirs.skills) list.push('Skill', `Read(${abs(dirs.skills)})`);
   return list;
 }
 
@@ -353,7 +367,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
   try {
     release = await acquireClaudeSlot();
     const mode = sandboxMode();
-    const dirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir() };
+    const plugin = spec.videoSkills ? await ensureVideoSkillsPlugin() : null;
+    const dirs: AgentDirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir(), skills: plugin ? path.dirname(plugin) : null };
     const ffmpegBin = resolveFfmpegPath();
     const py = await findPython().catch(() => null);
     const ctx: AgentContext = {
@@ -367,7 +382,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const workDir = path.join(/*turbopackIgnore: true*/ spec.cwd, 'claude');
     await fsp.mkdir(workDir, { recursive: true });
     const systemFile = path.join(/*turbopackIgnore: true*/ workDir, '.sistema.txt');
-    await fsp.writeFile(systemFile, spec.systemPrompt(ctx), 'utf8');
+    const systemPrompt = spec.systemPrompt(ctx) + (plugin && spec.videoSkills ? '\n' + videoSkillsPrompt(spec.videoSkills) : '');
+    await fsp.writeFile(systemFile, systemPrompt, 'utf8');
     // Configuración en archivos y no en la línea de comandos: con claude.cmd (npm) Windows corta la
     // orden a 8191 caracteres
 
@@ -401,7 +417,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       '--setting-sources', 'local',
       '--permission-mode', 'dontAsk',
       '--allowedTools', ...allowedTools(spec, dirs, mode),
-      '--tools', [...(mode === 'sin_bash' ? [] : ['Bash']), 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'].join(','),
+      '--tools', [...(mode === 'sin_bash' ? [] : ['Bash']), 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', ...(plugin ? ['Skill'] : [])].join(','),
+      ...(plugin ? ['--plugin-dir', plugin] : []),
     ];
     const sessionArgs = () => (session.resume ? ['--resume', session.id] : ['--session-id', session.id]);
 
@@ -414,6 +431,11 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       XDG_CACHE_HOME: path.join(dirs.tools, 'cache'),
       TORCH_HOME: path.join(dirs.tools, 'cache', 'torch'),
       LULO_HERRAMIENTAS: dirs.tools,
+      // npx (HyperFrames y otros) escribe su caché en la carpeta de herramientas: ~/.npm no se puede escribir
+      npm_config_cache: path.join(dirs.tools, 'cache', 'npm'),
+      PUPPETEER_CACHE_DIR: path.join(dirs.tools, 'cache', 'puppeteer'),
+      HYPERFRAMES_NO_TELEMETRY: '1',
+      HYPERFRAMES_SKIP_SKILLS: '1',
       // Herramientas largas (storyboard, render, edición): que Claude Code no las corte antes
       MCP_TOOL_TIMEOUT: String(40 * 60_000),
     });

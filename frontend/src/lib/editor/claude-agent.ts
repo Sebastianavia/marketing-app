@@ -69,6 +69,10 @@ function specFor(p: EditProject): AgentSpec {
     },
     usage: { tool: 'video-editor', description: `Claude editor · "${p.titulo}"` },
     lostSessionNote: '(La conversación anterior se perdió: empieza mirando la edición con ver_edicion.)',
+    videoSkills: {
+      renderTool: 'renderizar_html_video',
+      entregar: 'Para entregarlo, deja un MP4 H.264 + AAC en tu carpeta (si hiciste gráficos aparte, combínalos con el borrador con FFmpeg) y usa publicar_borrador.',
+    },
   };
 }
 

@@ -27,7 +27,6 @@ Para actualizar: volver a copiar la carpeta desde el repo/commit indicado.
 | Video viral con código HTML (reels, explicativos, subtítulos animados, títulos, transiciones, gráficos) | `hyperframes` (leer primero) → `hyperframes-registry` (≈450 bloques listos) → `hyperframes-cli` (previsualizar/render); medios con `media-use` |
 | Copiar el estilo de un video viral / rehacer un video como proyecto editable | `reverse-any-video`, `style-sampling`, `vox-explainer` |
 | Subtítulos 3D alrededor de quien habla, memes de dos pantallas, animación pintada a mano | `camera-3d-captions`, `duo`, `p5-paint-animation` |
-| Avatar de HeyGen, video con presentador, doblaje con lip-sync | `heygen-avatar` → `heygen-video`; `heygen-translate` |
 | Video en React/Remotion (plantillas, subtítulos, render) | `remotion-best-practices` (router) → `remotion-create`, `remotion-captions`, `remotion-render`… |
 | Elegir enfoque de video (grabación, avatar, IA, plantilla) y qué publicar en redes | `video`, `social` |
 
@@ -55,16 +54,18 @@ Para actualizar: volver a copiar la carpeta desde el repo/commit indicado.
 | context-mode | plugin context-mode (solo Antigravity; requiere su MCP) | — |
 | hyperframes, hyperframes-cli, hyperframes-registry, media-use, reverse-any-video, style-sampling, figma, remotion-to-hyperframes, slideshow | heygen-com/hyperframes | 2026-11-10 (`skills-lock.json`) |
 | camera-3d-captions, day-in-my-life, duo, p5-paint-animation, prod-by-claude, session-story, vox-explainer, x-posting-license | heygen-com/hyperframes-community-skills | 2026-11-10 |
-| heygen-avatar, heygen-video, heygen-translate | heygen-com/skills | 2026-11-10 |
 | remotion-best-practices, remotion-captions, remotion-create, remotion-docs, remotion-interactivity, remotion-license, remotion-maps, remotion-markup, remotion-multimedia, remotion-render, remotion-saas, remotion-studio, remotion-upgrade | remotion-dev/skills | 2026-11-10 |
 | video, social | coreyhaines31/marketingskills | 2026-11-10 |
 
 ### Skills de video (2026-11-10)
 Instaladas con `npx skills add <repo> --agent claude-code antigravity --copy` (copias reales en `.claude/skills/` y `.agents/skills/`, sin enlaces simbólicos para que funcionen en Windows). Están en git: quien haga `git pull` ya las tiene; basta con abrir una sesión nueva de Claude Code. Origen y hash de cada una en `skills-lock.json`.
 - Actualizar: `npx skills update -p` (y hacer commit). Restaurar desde el lockfile: `npx skills experimental_install`.
-- Requisitos al usarlas: HyperFrames usa `npx hyperframes …` (Node ≥ 22 y FFmpeg; descarga Chrome headless la primera vez). Las skills de HeyGen necesitan el CLI `heygen` o el MCP de HeyGen y una `HEYGEN_API_KEY` propia (cobra en HeyGen, no pasa por Costos de Lulo). Remotion exige licencia de empresa si la compañía supera 3 personas (ver `remotion-license`).
+- Requisitos al usarlas: HyperFrames usa `npx hyperframes …` (Node ≥ 22 y FFmpeg; descarga Chrome headless la primera vez). Remotion exige licencia de empresa si la compañía supera 3 personas (ver `remotion-license`).
+- Las de HeyGen (`heygen-com/skills`) se quitaron el mismo día: no usamos HeyGen directo, el avatar y la voz van por las herramientas de Lulo.
 - Las skills de HyperFrames ejecutan `npx hyperframes events` al empezar (telemetría de uso; se puede desactivar según su documentación).
-- Son para Claude Code en la terminal del proyecto. Los agentes de dentro de la app (editor, director, estudio) usan `--setting-sources local` y una carpeta propia, así que no las cargan.
+- **Dentro de la app** (Claude · editor, Claude · director, Estudio Claude; UGC y Guion a video llegan al editor con `sendToClaudeEditor`): `lib/ai/claude-code/video-skills.ts` copia una selección (`AGENT_VIDEO_SKILLS`: hyperframes, hyperframes-cli, hyperframes-registry, media-use, reverse-any-video, style-sampling, camera-3d-captions, duo, p5-paint-animation, vox-explainer, video, social, ad-creative, marketing-psychology) desde `.agents/skills/` a `<datos>/claude-skills/lulo-video/` como plugin y `agent-runner` lo carga con `--plugin-dir` + herramienta `Skill` (se recopia solo si cambian). Cada agente lo activa con `videoSkills` en su `AgentSpec`; el bloque del prompt (`videoSkillsPrompt`) prohíbe HeyGen/servicios de pago, telemetría, publish/cloud.
+- **Render**: en el aislamiento de macOS Chrome no arranca, así que el editor y el Estudio tienen las herramientas MCP `revisar_html_video` (= `hyperframes check --json`) y `renderizar_html_video` (= `hyperframes render`), $0, en `lib/ai/claude-code/code-video.ts`: corren en el servidor con `hyperframes@0.9.28` fijo (`LULO_HYPERFRAMES_VERSION`), cwd neutro (no usa un `node_modules` del proyecto), entorno sin claves, sin telemetría, una a la vez; solo carpetas dentro del proyecto y sin enlaces simbólicos ni duros. El servidor de HyperFrames solo sirve la carpeta del proyecto (`file://` y `../` bloqueados, probado). El Director no renderiza: su final pasa al editor. Remotion no se carga en la app (ejecutaría código del proyecto fuera del aislamiento); sigue en la terminal.
+- Sandbox: npx escribe su caché en `<datos>/claude-herramientas/cache/npm`; se permite además `~/.cache/hyperframes`. Probado en macOS (2026-11-10): Claude aislado carga la skill, crea el proyecto con `npx hyperframes init` y escribe la composición; revisión y render desde el servidor OK (3 s de video en 7 s).
 
 ## Candidatas para más adelante (no instaladas)
 - `elevenlabs/skills@dubbing`, `@voice-changer`, `@sound-effects`, `@music` — doblaje, cambio de voz, SFX y música de fondo.

@@ -31,6 +31,7 @@ import { generateImages, imageUnitPrice } from '@/lib/generation/image';
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS, getImageModel, isValidImageModelId } from '@/config/image-models';
 
 import { isInside } from '@/lib/fs/inside';
+import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_DESCRIPTION, CodeCheckSchema, CodeVideoError, CodeVideoSchema, checkCodeVideo, renderCodeVideo } from '@/lib/ai/claude-code/code-video';
 import { SEEDANCE_MODELS, transformVideoSeedance, validateAndBuildSeedancePayload } from '@/services/faceswap.service';
 import type { SeedanceModelId, SeedanceResolution, SeedanceSize, SeedanceTransformInput } from '@/types/faceswap.types';
 import { downloadToLibrary } from '@/lib/storage/generated-library';
@@ -937,6 +938,30 @@ const responderFeedback = tool({
   run: async (_id, { key, resumen }) => respondFromAgent(key, resumen),
 });
 
+const revisarHtmlVideo = tool({
+  name: 'revisar_html_video',
+  description: CODE_CHECK_DESCRIPTION,
+  schema: CodeCheckSchema,
+  run: async (id, input) => {
+    const p = await getStudioProject(id);
+    return checkCodeVideo(p.carpeta, input).catch((err) => {
+      throw err instanceof CodeVideoError ? new StudioError(err.message, err.status) : err;
+    });
+  },
+});
+
+const renderizarHtmlVideo = tool({
+  name: 'renderizar_html_video',
+  description: CODE_VIDEO_DESCRIPTION,
+  schema: CodeVideoSchema,
+  run: async (id, input) => {
+    const p = await getStudioProject(id);
+    return renderCodeVideo(p.carpeta, input).catch((err) => {
+      throw err instanceof CodeVideoError ? new StudioError(err.message, err.status) : err;
+    });
+  },
+});
+
 export const STUDIO_TOOLS: StudioTool[] = [
   subirAFeedback,
   verFeedback,
@@ -955,6 +980,7 @@ export const STUDIO_TOOLS: StudioTool[] = [
   ugcMontar,
   editarVideo,
   editarMas,
+  revisarHtmlVideo, renderizarHtmlVideo,
   avataresYVoces,
   avatarCosto,
   avatarVideo,

@@ -78,6 +78,10 @@ function specFor(p: StudioProject): AgentSpec {
     },
     usage: { tool: 'claude-studio', description: `Estudio Claude · "${p.titulo}"` },
     lostSessionNote: '(La conversación anterior se perdió: empieza mirando el proyecto con ver_proyecto.)',
+    videoSkills: {
+      renderTool: 'renderizar_html_video',
+      entregar: 'Para entregarlo usa mostrar con el archivo; si además hay que editarlo (cortes, subtítulos sobre una persona hablando), pásalo a editar_video.',
+    },
   };
 }
 

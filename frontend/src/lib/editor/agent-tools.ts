@@ -13,6 +13,7 @@ import { keptIntervals, phraseText, subtitleWords } from './timeline';
 import { snapToFrames } from './render';
 import { ACTIVE_STATUSES, type EditProject } from './types';
 import { isInside } from '@/lib/fs/inside';
+import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_DESCRIPTION, CodeCheckSchema, CodeVideoError, CodeVideoSchema, checkCodeVideo, renderCodeVideo } from '@/lib/ai/claude-code/code-video';
 
 /**
  * Herramientas de Claude sobre UNA edición (chat "Claude" de la pantalla de Edición).
@@ -345,7 +346,31 @@ const responderFeedback = tool({
   run: async (editId, { key, resumen }) => respondFromAgent(key, resumen, { servicio: 'edicion', id: editId }),
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, publicarBorrador];
+const revisarHtmlVideo = tool({
+  name: 'revisar_html_video',
+  description: CODE_CHECK_DESCRIPTION,
+  schema: CodeCheckSchema,
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    return checkCodeVideo(p.carpeta, input).catch((err) => {
+      throw err instanceof CodeVideoError ? new AgentToolError(err.message, err.status) : err;
+    });
+  },
+});
+
+const renderizarHtmlVideo = tool({
+  name: 'renderizar_html_video',
+  description: CODE_VIDEO_DESCRIPTION,
+  schema: CodeVideoSchema,
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    return renderCodeVideo(p.carpeta, input).catch((err) => {
+      throw err instanceof CodeVideoError ? new AgentToolError(err.message, err.status) : err;
+    });
+  },
+});
+
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

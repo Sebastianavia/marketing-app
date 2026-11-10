@@ -85,6 +85,11 @@ function specFor(p: Production): AgentSpec {
     },
     usage: { tool: 'text-to-video', description: `Claude director · "${p.nombre}"` },
     lostSessionNote: '(La conversación anterior se perdió: empieza mirando el proyecto con ver_proyecto.)',
+    // El Director no renderiza HyperFrames: el video final pasa al editor (montar_video con pulirConClaude)
+    videoSkills: {
+      renderTool: null,
+      entregar: 'Usa sobre todo video, social, ad-creative y marketing-psychology para el guion, los ganchos y los prompts; los gráficos animados los hace el editor después de montar_video.',
+    },
   };
 }
 
