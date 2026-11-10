@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "skills": {
+    "camera-3d-captions": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/camera-3d-captions/SKILL.md",
+      "computedHash": "ea72d82a1946f084ea06f74d940969491992fb58e0d5ed1a267ff08a7d7c84f8",
+      "installMode": "copy"
+    },
+    "day-in-my-life": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/day-in-my-life/SKILL.md",
+      "computedHash": "58d5f0bb45d4a2110c6010467259dc6478b2075f1cbc095b3f0fbd2a76b7d62a",
+      "installMode": "copy"
+    },
+    "duo": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/duo/SKILL.md",
+      "computedHash": "74fe10e53bde2e820794c21d528b4987145af2fa8a2c6a3e627710a1ed5bf5f1",
+      "installMode": "copy"
+    },
+    "figma": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/figma/SKILL.md",
+      "computedHash": "c7593153c627ecb96d93c65d6908475cc3f7faefc398c0b9176b15063e917e2e",
+      "installMode": "copy"
+    },
+    "heygen-avatar": {
+      "source": "heygen-com/skills",
+      "sourceType": "github",
+      "skillPath": "heygen-avatar/SKILL.md",
+      "computedHash": "c58cb4db3b2fd3a6ca81b2c0dfc16abab2e17fc77c4c5a613a3eb83fc215ed22",
+      "installMode": "copy"
+    },
+    "heygen-translate": {
+      "source": "heygen-com/skills",
+      "sourceType": "github",
+      "skillPath": "heygen-translate/SKILL.md",
+      "computedHash": "e6e5839c5637ca417f32a61159a10a5674a561c1d0a6d7835812ed8d82704b2d",
+      "installMode": "copy"
+    },
+    "heygen-video": {
+      "source": "heygen-com/skills",
+      "sourceType": "github",
+      "skillPath": "heygen-video/SKILL.md",
+      "computedHash": "15e19b8aca06f767574382f1323f6cb5b9cc0e964295ca8a75835c6bd87ce12c",
+      "installMode": "copy"
+    },
+    "hyperframes": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/hyperframes/SKILL.md",
+      "computedHash": "5a9536420b4e7cdeafba0e69a14a60b26c1d6f074759c3947ed4286b9e07abe6",
+      "installMode": "copy"
+    },
+    "hyperframes-cli": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/hyperframes-cli/SKILL.md",
+      "computedHash": "39668f78104f58abb1e2d0b8aafc2f51b7723779527a03b3b0e60666aca3d176",
+      "installMode": "copy"
+    },
+    "hyperframes-registry": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/hyperframes-registry/SKILL.md",
+      "computedHash": "bbbb2bcb11fb43c9dd7e7f927a5617affee0458864fe4b3582e644d70aa1e10f",
+      "installMode": "copy"
+    },
+    "media-use": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/media-use/SKILL.md",
+      "computedHash": "21a106fab9589a7df99fe9b6d1564a0552f8f8cb00b69dbd21e1133a78c1b5cc",
+      "installMode": "copy"
+    },
+    "p5-paint-animation": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/p5-paint-animation/SKILL.md",
+      "computedHash": "3555f122c9e1f0e8650097061709dc2b7aec057cfb0849745043319f0abab3b2",
+      "installMode": "copy"
+    },
+    "prod-by-claude": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/prod-by-claude/SKILL.md",
+      "computedHash": "ecdd4cc0f4fdff678204749323aada18301b2f584b434ab325f25ea08728e3ca",
+      "installMode": "copy"
+    },
+    "remotion-best-practices": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-best-practices/SKILL.md",
+      "computedHash": "0a9ce51911ea54ec99dd85280b6e7fb98f3096548719a14c3ea3a8911eec1031",
+      "installMode": "copy"
+    },
+    "remotion-captions": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-captions/SKILL.md",
+      "computedHash": "0cb1beaaa123c7f9b637b09c614da1b37b811fb7b2c0b5bbf7e56c9e23373b9a",
+      "installMode": "copy"
+    },
+    "remotion-create": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-create/SKILL.md",
+      "computedHash": "53ec5ad57f88ba5cded278d3ad5f54ecece061085512bb03d88047ef527794d8",
+      "installMode": "copy"
+    },
+    "remotion-docs": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-docs/SKILL.md",
+      "computedHash": "ddc9c9ba1ec8498f8803eff5e8e50d6e8d382b1d1f6938239f39f3fcbf5f08f4",
+      "installMode": "copy"
+    },
+    "remotion-interactivity": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-interactivity/SKILL.md",
+      "computedHash": "e181fdd93dc3ac7e65280d48c1c3db1de55b21b8ba2f93371e02a1176d7442d4",
+      "installMode": "copy"
+    },
+    "remotion-license": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-license/SKILL.md",
+      "computedHash": "1a38caa7aa9c6e12956b415ccc0ecd445672ce72a769e29d0cf6557289dad5e7",
+      "installMode": "copy"
+    },
+    "remotion-maps": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-maps/SKILL.md",
+      "computedHash": "98948e75ce0a458e398bbfd99dea409c0b2dd2972b3a1dbd4f831ce3c1743e7f",
+      "installMode": "copy"
+    },
+    "remotion-markup": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-markup/SKILL.md",
+      "computedHash": "1cebb6aa09a3ed05138df6e3ee211c7fe479266ad664f1540e272c489925ff5b",
+      "installMode": "copy"
+    },
+    "remotion-multimedia": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-multimedia/SKILL.md",
+      "computedHash": "23e0915fccf822621edd29708b2c4d1ff0b70374431b7d76a9dabcaf91aded28",
+      "installMode": "copy"
+    },
+    "remotion-render": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-render/SKILL.md",
+      "computedHash": "766c89563d6e7f00c8e1fc3134e10703e73575abc91306770c94df5126e0afb1",
+      "installMode": "copy"
+    },
+    "remotion-saas": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-saas/SKILL.md",
+      "computedHash": "73961158fe42e135695cc10c1ccc3d52223cbb922ed9c393d9f459f58186ccc9",
+      "installMode": "copy"
+    },
+    "remotion-studio": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-studio/SKILL.md",
+      "computedHash": "473fb8fe4ca9895a330cfcfe7714201e599a4276aa1747e60a56afd9afc3795c",
+      "installMode": "copy"
+    },
+    "remotion-to-hyperframes": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-to-hyperframes/SKILL.md",
+      "computedHash": "5651c249d1567f51c24ad5ed98729be4050ec0609e57e7a6a79606614082935e",
+      "installMode": "copy"
+    },
+    "remotion-upgrade": {
+      "source": "remotion-dev/skills",
+      "sourceType": "github",
+      "skillPath": "skills/remotion-upgrade/SKILL.md",
+      "computedHash": "de0e483043d82422707f1df8f135a279a3e3bf79fa330ef10857f050c79961ba",
+      "installMode": "copy"
+    },
+    "reverse-any-video": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/reverse-any-video/SKILL.md",
+      "computedHash": "0ec91433d444ac6d123ba97a33d44e4530812132aa306b996d6dcee6491816ac",
+      "installMode": "copy"
+    },
+    "session-story": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/session-story/SKILL.md",
+      "computedHash": "f9fe659975ee669c8942655ac329d6ea04d43b9f8a5161c9f65657f822fce199",
+      "installMode": "copy"
+    },
+    "slideshow": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/slideshow/SKILL.md",
+      "computedHash": "14d0bf700a7bcb264b60e7c8b786f8883d75d038c2ce93e7fc29ccddd7002744",
+      "installMode": "copy"
+    },
+    "social": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/social/SKILL.md",
+      "computedHash": "6e1d533c62abb5dcb92775fd5aabc198923a198a7e1e498cac585be3c467b270",
+      "installMode": "copy"
+    },
+    "style-sampling": {
+      "source": "heygen-com/hyperframes",
+      "sourceType": "github",
+      "skillPath": "skills/style-sampling/SKILL.md",
+      "computedHash": "180d138feee6d9f20ba3115bccd43abaa74e1258d7b9f90b814c8908ce1505b6",
+      "installMode": "copy"
+    },
+    "video": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "skillPath": "skills/video/SKILL.md",
+      "computedHash": "35382cb46e02686cca2485826ddfc6b0376d112c8f6b30dcbac3966ae3b6aa90",
+      "installMode": "copy"
+    },
+    "vox-explainer": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/vox-explainer/SKILL.md",
+      "computedHash": "2e2a0f5ba1790b03ab177edc30bde23102ed03ab54407d326750757fe3d552cd",
+      "installMode": "copy"
+    },
+    "x-posting-license": {
+      "source": "heygen-com/hyperframes-community-skills",
+      "sourceType": "github",
+      "skillPath": "skills/x-posting-license/SKILL.md",
+      "computedHash": "e8003890b9b93be7390dfcfa3a2f21ac3468fa53e472ccec1e7723d9b29e1732",
+      "installMode": "copy"
+    }
+  }
+}
