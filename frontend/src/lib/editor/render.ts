@@ -267,7 +267,7 @@ export async function renderEdit(
     const col = colorFilter(dir.color, dir.transiciones);
     // El color es de la toma (las capturas y fotos quedan con su color); los destellos y glitch, de todo
     c.push(`[comp]${[cam, col.grade].filter(Boolean).join(',') || 'null'}[cam]`);
-    const els = elementsFilter(dir.elementos, firstElementInput, 'cam', 'elx', perfil, FPS);
+    const els = elementsFilter(dir.elementos, firstElementInput, 'cam', 'elx', perfil, FPS, faceCenter(faces).y);
     c.push(...els.graph);
     c.push(`[elx]${col.fx ?? 'null'}[zc]`);
     elementInputs = els.inputs;

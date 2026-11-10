@@ -11,9 +11,10 @@ import { EditError, getEdit, logActivity, updateEdit } from './edit-store';
 import { ffmpeg, probeVideo } from './media';
 import { keptIntervals, phraseText, subtitleWords } from './timeline';
 import { snapToFrames } from './render';
+import { placeGraphics } from './graphics';
 import { ACTIVE_STATUSES, type EditProject } from './types';
 import { isInside } from '@/lib/fs/inside';
-import { CAMERA_TYPES, DirectionError, DirectionInputSchema, ELEMENT_ENTRIES, ELEMENT_MODES, ELEMENT_POSITIONS, KEY_EFFECTS, TRANSITION_TYPES, AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, describeDirection, directionInFinal, prepareDirection } from './direction';
+import { RHYTHM_BUDGET, analyzeRhythm, directedProfile, CAMERA_TYPES, DirectionError, DirectionInputSchema, ELEMENT_ENTRIES, ELEMENT_MODES, ELEMENT_POSITIONS, KEY_EFFECTS, TRANSITION_TYPES, AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, describeDirection, directionInFinal, prepareDirection } from './direction';
 import { SFX_CATALOG } from './sfx';
 import { MUSIC_CATALOG } from './music';
 import { listMusic, musicDir } from './audio';
@@ -419,7 +420,7 @@ const catalogoEdicion = tool({
         posiciones: ELEMENT_POSITIONS,
         entradas: ELEMENT_ENTRIES,
         explicacion:
-          'pantalla_completa = el archivo tapa el video (b-roll, captura); pantalla_dividida = mitad arriba o abajo (los subtítulos van solos a la unión); flotante = recuadro con borde (tamano = ancho respecto al video). Imágenes y videos de la carpeta de la edición; .mov/.webm con transparencia sirven para gráficos de HyperFrames.',
+          'capa = gráfico a pantalla completa CON TRANSPARENCIA encima de la persona (lo ideal para ayudas visuales hechas con HyperFrames: render en .mov 1080×1920 transparente, con su animación de entrada y salida); pantalla_completa = el archivo tapa el video (b-roll, captura); pantalla_dividida = el archivo ocupa la mitad (posicion arriba/abajo) y la persona se encuadra en la otra mitad con su cara (los subtítulos van a la unión); flotante = recuadro (tamano = ancho respecto al video; borde opcional). Archivos de la carpeta de la edición.',
         formatos: [...IMAGE_EXT, ...VIDEO_EXT],
       },
       subtitulos: {
@@ -430,6 +431,8 @@ const catalogoEdicion = tool({
         nota: 'Puedes cambiar cualquier campo de los subtítulos del perfil (fuente, tamano, colores, grosorBorde, caja, posicion, palabrasPorLinea, mayusculas, escalaClave) y además sombra/colorSombra.',
       },
       archivosEnLaCarpeta: { imagenes: of(IMAGE_EXT), videos: of(VIDEO_EXT), audios: of(AUDIO_EXT) },
+      paleta: 'Elige TÚ la paleta de este video (primario, acento, secundario, texto, fondo) en el campo paleta del plan: se aplica a subtítulos, gancho y gráficos. No estás atado a los colores del perfil.',
+      presupuestoDeRitmo: RHYTHM_BUDGET,
       tiempos: 'Todas las marcas de tiempo del plan son del VIDEO FINAL: sácalas de palabras_borrador.',
     };
   },
@@ -466,9 +469,23 @@ const dirigirEdicion = tool({
         throw err;
       }
     });
-    return borrar
-      ? { ok: true, plan: null }
-      : { ok: true, resumen, avisos, siguiente: 'renderizar y después revisa fotogramas en los momentos clave y escuchar_audio.', direccion: planInFinal(edit) };
+    if (borrar) return { ok: true, plan: null };
+    const finalPlan = planInFinal(edit);
+    const intervals = snapToFrames(keptIntervals(edit.frases, normalizeProfile(edit.perfil).ritmo, edit.original.duracion));
+    const total = totalDuration(intervals);
+    const graphicStarts = placeGraphics(edit, intervals, total).map((g) => g.start);
+    const sub = directedProfile(edit.perfil, edit.direccion!).subtitulos;
+    const ritmo = analyzeRhythm(finalPlan, graphicStarts, total, sub.activo ? sub.tamano : undefined);
+    return {
+      ok: true,
+      resumen,
+      avisos,
+      ritmo,
+      siguiente: ritmo.avisos.length
+        ? 'Corrige los avisos de ritmo (vuelve a llamar a dirigir_edicion solo con las secciones que cambien) y después renderizar.'
+        : 'El ritmo está equilibrado: renderizar y después revisa fotogramas en los momentos clave y escuchar_audio.',
+      direccion: finalPlan,
+    };
   },
 });
 

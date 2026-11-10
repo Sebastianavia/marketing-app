@@ -21,7 +21,7 @@ import type { EditGraphic, EditProject } from './types';
 
 export const CAMERA_TYPES = ['plano', 'punch', 'acercar', 'alejar', 'paneo', 'sacudida'] as const;
 export const TRANSITION_TYPES = ['flash', 'negro', 'glitch', 'desenfoque'] as const;
-export const ELEMENT_MODES = ['pantalla_completa', 'flotante', 'pantalla_dividida'] as const;
+export const ELEMENT_MODES = ['capa', 'pantalla_completa', 'flotante', 'pantalla_dividida'] as const;
 export const ELEMENT_POSITIONS = ['arriba', 'centro', 'abajo', 'arriba_izq', 'arriba_der', 'abajo_izq', 'abajo_der', 'centro_izq', 'centro_der'] as const;
 export const ELEMENT_ENTRIES = ['pop', 'deslizar', 'fundido', 'corte'] as const;
 export const KEY_EFFECTS = ['ninguno', 'rebote', 'sacudida', 'crecer', 'brillo'] as const;
@@ -93,8 +93,22 @@ const ElementSchema = z.object({
   /** Ancho respecto al video (flotante). */
   tamano: z.number().min(0.15).max(1).default(0.55),
   entrada: z.enum(ELEMENT_ENTRIES).default('pop'),
-  borde: z.boolean().default(true),
+  borde: z.boolean().default(false),
   colorBorde: hex.default('#FFFFFF'),
+});
+
+/** Paleta del video (la elige Claude para ESTE video; no está atada al perfil). */
+const PaletteSchema = z.object({
+  /** Color principal (fondos de tarjetas, cajas). */
+  primario: hex,
+  /** Acento: palabras clave, cifras, checks, bordes destacados. */
+  acento: hex,
+  /** Segundo acento opcional (contrastes, «antes/después», alertas). */
+  secundario: hex.optional(),
+  /** Texto principal. */
+  texto: hex.default('#FFFFFF'),
+  /** Fondo de paneles oscuros/claros. */
+  fondo: hex.default('#0B0B0F'),
 });
 
 const SoundSchema = z.object({
@@ -126,6 +140,9 @@ const GanchoSchema = ProfileInputSchema.shape.gancho.partial().extend({ texto: z
 /** Lo que manda Claude (tiempos del VIDEO FINAL). Cada sección que venga reemplaza a la guardada. */
 export const DirectionInputSchema = z.object({
   resumen: z.string().max(2000).optional(),
+  /** Concepto creativo: estilo visual, tipografía, ritmo y por qué encaja con este video. */
+  concepto: z.string().max(2000).optional(),
+  paleta: PaletteSchema.optional(),
   camara: z.array(CameraSchema).max(250).optional(),
   transiciones: z.array(TransitionSchema).max(100).optional(),
   color: ColorSchema.optional(),
@@ -304,12 +321,21 @@ export function prepareDirection(
  * del plan; sin el zoom alterno mecánico ni los efectos automáticos (los pone el plan).
  */
 export function directedProfile(perfil: EditProfile, d: EditDirection): EditProfile {
-  const sub = { ...perfil.subtitulos, ...stripExtras(d.subtitulos ?? {}) };
+  // La paleta de Claude manda sobre los colores del perfil; lo que ponga explícito en cada sección, más
+  const pal = d.paleta;
+  const fromPalette = pal
+    ? {
+        sub: { colorResaltado: pal.acento, colorTexto: pal.texto, colorCaja: pal.primario },
+        gancho: { colorFondo: pal.acento, colorTexto: textOnColor(pal.acento) },
+        graficos: { colorFondo: pal.fondo, colorBorde: pal.acento, colorAcento: pal.acento, colorTexto: pal.texto },
+      }
+    : { sub: {}, gancho: {}, graficos: {} };
+  const sub = { ...perfil.subtitulos, ...fromPalette.sub, ...stripExtras(d.subtitulos ?? {}) };
   return {
     ...perfil,
     subtitulos: sub,
-    gancho: { ...perfil.gancho, ...omitText(d.gancho ?? {}) },
-    graficos: { ...perfil.graficos, ...(d.estiloGraficos ?? {}) },
+    gancho: { ...perfil.gancho, ...fromPalette.gancho, ...omitText(d.gancho ?? {}) },
+    graficos: { ...perfil.graficos, ...fromPalette.graficos, ...(d.estiloGraficos ?? {}) },
     ritmo: { ...perfil.ritmo, zoomEnCortes: false, zoomSuave: false },
     sonido: {
       ...perfil.sonido,
@@ -320,6 +346,13 @@ export function directedProfile(perfil: EditProfile, d: EditDirection): EditProf
       efectosBajoVozDb: d.efectosBajoVozDb ?? perfil.sonido.efectosBajoVozDb,
     },
   };
+}
+
+/** Negro o blanco según qué se lea mejor sobre ese color. */
+function textOnColor(hexColor: string): string {
+  const h = hexColor.replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? '#000000' : '#FFFFFF';
 }
 
 function stripExtras(s: NonNullable<EditDirection['subtitulos']>) {
@@ -458,7 +491,9 @@ export function elementsFilter(
   inLabel: string,
   outLabel: string,
   perfil: EditProfile,
-  fps: number
+  fps: number,
+  /** Centro vertical de la cara (0–1): en pantalla dividida la persona se encuadra en su mitad. */
+  faceY = 0.36
 ): { inputs: string[]; graph: string[] } {
   const { width: W, height: H } = formatSize(perfil.formato);
   const safe = safeZone(perfil.red, perfil.formato);
@@ -478,15 +513,27 @@ export function elementsFilter(
     let y: string;
     const sideX = (p: string) => (p.endsWith('_izq') ? '80' : p.endsWith('_der') ? `main_w-overlay_w-${safe.right + 20}` : '(main_w-overlay_w)/2');
     const sideY = (p: string) => (p.startsWith('arriba') ? `${safe.top + 40}` : p.startsWith('abajo') ? `main_h-overlay_h-${safe.bottom + 40}` : '(main_h-overlay_h)/2');
-    if (e.modo === 'pantalla_completa') {
+    if (e.modo === 'capa') {
+      // Gráfico a pantalla completa con transparencia (HyperFrames .mov/.webm a 1080×1920): se ve el video debajo
+      size = `scale=${W}:${H}`;
+      x = '0';
+      y = '0';
+    } else if (e.modo === 'pantalla_completa') {
       size = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`;
       x = '0';
       y = '0';
     } else if (e.modo === 'pantalla_dividida') {
       const hh = Math.round(H / 4) * 2;
+      const assetTop = e.posicion.startsWith('arriba');
       size = `scale=${W}:${hh}:force_original_aspect_ratio=increase,crop=${W}:${hh}`;
       x = '0';
-      y = e.posicion.startsWith('arriba') ? '0' : `${H - hh}`;
+      y = assetTop ? '0' : `${H - hh}`;
+      // La persona NO queda tapada: se encuadra su cara en la otra mitad
+      const y0 = Math.round(Math.min(H - hh, Math.max(0, faceY * H - hh * 0.42)));
+      graph.push(`[${cur}]split=2[sb${i}][ss${i}]`);
+      graph.push(`[ss${i}]crop=${W}:${hh}:0:${y0},setsar=1[sh${i}]`);
+      graph.push(`[sb${i}][sh${i}]overlay=x=0:y=${assetTop ? H - hh : 0}:enable='between(t,${f4(e.desde)},${f4(e.hasta)})'[sp${i}]`);
+      cur = `sp${i}`;
     } else {
       const w = Math.round((e.tamano * W) / 2) * 2;
       const b = e.borde ? 8 : 0;
@@ -498,7 +545,10 @@ export function elementsFilter(
     const fin = e.hasta;
     const dIn = e.entrada === 'pop' ? 0.1 : e.entrada === 'fundido' ? 0.25 : e.entrada === 'deslizar' ? 0.12 : 0;
     const fades = `${dIn ? `,fade=t=in:st=${f4(a)}:d=${f4(dIn)}:alpha=1` : ''},fade=t=out:st=${f4(Math.max(a, fin - 0.15))}:d=0.15:alpha=1`;
-    graph.push(`[${idx}:v]setpts=PTS-STARTPTS+${f4(a)}/TB,${size},format=rgba${fades},setsar=1[el${i}]`);
+    // Un video más corto que su ventana se congela en su último fotograma (si no, en un split quedaba
+    // la persona recortada sobre sí misma al acabarse el clip)
+    const hold = e.esImagen ? '' : `tpad=stop_mode=clone:stop_duration=${f4(len)},`;
+    graph.push(`[${idx}:v]${hold}setpts=PTS-STARTPTS+${f4(a)}/TB,${size},format=rgba${fades},setsar=1[el${i}]`);
     // Movimiento de entrada: el pop sube 70 px con rebote; deslizar entra desde el lado
     const p = `clip((t-${f4(a)})/0.22,0,1)`;
     if (e.entrada === 'pop') y = `${y}+70*pow(1-${p},3)`;
@@ -599,4 +649,130 @@ export function describeDirection(d: EditDirection, graficos?: number): string {
   if (d.subtitulos?.estilo) parts.push(`subtítulos «${d.subtitulos.estilo}»`);
   if (d.color) parts.push('color');
   return parts.join(' · ');
+}
+
+// ── Ritmo y equilibrio ───────────────────────────────────────────────────────
+
+/**
+ * Presupuesto de formatos de un video corto con persona a cámara. Se lo damos a Claude como guía y
+ * comprobamos el plan contra él (dirigir_edicion devuelve los avisos para que corrija antes de renderizar).
+ */
+export const RHYTHM_BUDGET = {
+  /** Tiempo máximo con pantalla dividida (fracción del video). */
+  splitMax: 0.3,
+  /** Tiempo máximo con algo a pantalla completa tapando a la persona. */
+  completaMax: 0.2,
+  /** Tiempo mínimo con la persona sola (con cámara y subtítulos, sin elementos encima). */
+  personaMin: 0.35,
+  /** Duración máxima de cada ayuda visual (s) según su modo. */
+  maxSeg: { capa: 4.5, flotante: 4.5, pantalla_completa: 4, pantalla_dividida: 7 } as Record<(typeof ELEMENT_MODES)[number], number>,
+  /** Ningún tramo más largo que esto sin un cambio visual (cámara, elemento, gráfico, transición). */
+  sinCambioMax: 3.5,
+  /** Efectos de sonido por segundo: mínimo y máximo razonables. */
+  sfxPorSegundo: [0.3, 1.4] as [number, number],
+};
+
+export interface RhythmReport {
+  duracion: number;
+  porcentaje: { personaSola: number; pantallaDividida: number; pantallaCompleta: number; capas: number; flotantes: number };
+  cambiosVisuales: number;
+  segundosPorCambio: number;
+  tramoMasLargoSinCambio: { desde: number; hasta: number; segundos: number };
+  efectosPorSegundo: number;
+  presupuesto: typeof RHYTHM_BUDGET;
+  avisos: string[];
+}
+
+/** Analiza el plan (tiempos del video FINAL) contra el presupuesto de ritmo. */
+export function analyzeRhythm(
+  d: Pick<DirectionInput, 'camara' | 'elementos' | 'transiciones' | 'sonidos'>,
+  graphicStarts: number[],
+  total: number,
+  subtituloPx?: number
+): RhythmReport {
+  const B = RHYTHM_BUDGET;
+  const els = d.elementos ?? [];
+  const r1 = (n: number) => Math.round(n * 10) / 10;
+  // Cobertura por modo (unión de intervalos)
+  const cover = (modes: string[]) => {
+    const iv = els.filter((e) => modes.includes(e.modo)).map((e) => [Math.max(0, e.desde), Math.min(total, e.hasta)] as [number, number]).sort((a, b) => a[0] - b[0]);
+    let sum = 0;
+    let cur: [number, number] | null = null;
+    for (const x of iv) {
+      if (!cur || x[0] > cur[1]) {
+        if (cur) sum += cur[1] - cur[0];
+        cur = [...x] as [number, number];
+      } else cur[1] = Math.max(cur[1], x[1]);
+    }
+    if (cur) sum += cur[1] - cur[0];
+    return total > 0 ? sum / total : 0;
+  };
+  const pct = (x: number) => Math.round(x * 100);
+  const split = cover(['pantalla_dividida']);
+  const completa = cover(['pantalla_completa']);
+  const capas = cover(['capa']);
+  const flot = cover(['flotante']);
+  const anything = cover(['pantalla_dividida', 'pantalla_completa', 'capa', 'flotante']);
+  const persona = 1 - anything;
+
+  // Cambios visuales
+  const marks = new Set<number>([0, total]);
+  for (const c of d.camara ?? []) {
+    marks.add(r1(c.desde));
+    if (c.tipo !== 'plano') marks.add(r1((c.desde + c.hasta) / 2));
+  }
+  for (const e of els) {
+    marks.add(r1(e.desde));
+    marks.add(r1(e.hasta));
+  }
+  for (const t of d.transiciones ?? []) marks.add(r1(t.t));
+  for (const g of graphicStarts) marks.add(r1(g));
+  const sorted = [...marks].filter((t) => t >= 0 && t <= total).sort((a, b) => a - b);
+  let longest = { desde: 0, hasta: total, segundos: total };
+  let best = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = sorted[i] - sorted[i - 1];
+    if (gap > best) {
+      best = gap;
+      longest = { desde: sorted[i - 1], hasta: sorted[i], segundos: r1(gap) };
+    }
+  }
+  const cambios = Math.max(0, sorted.length - 2);
+  const sfx = (d.sonidos ?? []).length / Math.max(1, total);
+
+  const avisos: string[] = [];
+  if (split > B.splitMax) avisos.push(`Demasiada pantalla dividida: ${pct(split)} % del video (máximo ${pct(B.splitMax)} %). Cansa: reserva el split para comparar o demostrar y alterna con persona sola, capas y flotantes.`);
+  if (completa > B.completaMax) avisos.push(`Demasiado tiempo a pantalla completa tapando a la persona: ${pct(completa)} % (máximo ${pct(B.completaMax)} %).`);
+  if (persona < B.personaMin) avisos.push(`La persona sola (sin nada encima) solo ocupa ${pct(persona)} % (mínimo ${pct(B.personaMin)} %): deja respirar con cambios de cámara y subtítulos.`);
+  for (const e of els) {
+    const dur = e.hasta - e.desde;
+    const max = B.maxSeg[e.modo];
+    if (dur > max) avisos.push(`El elemento «${e.archivo}» (${e.modo}) dura ${r1(dur)} s (máximo ${max} s): las ayudas viven lo que dura la idea; pártelo en varias o cámbialo de formato.`);
+  }
+  // Mismo formato 3 veces seguidas sin respiro
+  const seq = [...els].sort((a, b) => a.desde - b.desde);
+  for (let i = 2; i < seq.length; i++) {
+    if (seq[i].modo === seq[i - 1].modo && seq[i - 1].modo === seq[i - 2].modo && seq[i].desde - seq[i - 2].hasta < 6) {
+      avisos.push(`Tres «${seq[i].modo}» seguidos (${r1(seq[i - 2].desde)}–${r1(seq[i].hasta)} s): varía el formato.`);
+      break;
+    }
+  }
+  if (longest.segundos > B.sinCambioMax) avisos.push(`De ${longest.desde} a ${longest.hasta} s (${longest.segundos} s) no cambia nada en pantalla (máximo ${B.sinCambioMax} s): añade un cambio de cámara, una palabra clave, un elemento o un gráfico.`);
+  for (const c of d.camara ?? []) {
+    if (c.tipo === 'plano' && c.hasta - c.desde > 5) avisos.push(`Plano fijo de ${r1(c.hasta - c.desde)} s (${r1(c.desde)}–${r1(c.hasta)} s): muévelo (acercar/alejar/paneo) o pártelo en dos ángulos.`);
+  }
+  if (sfx < B.sfxPorSegundo[0]) avisos.push(`Pocos efectos de sonido (${sfx.toFixed(2)}/s): cada evento visual lleva su sonido.`);
+  if (sfx > B.sfxPorSegundo[1]) avisos.push(`Demasiados efectos de sonido (${sfx.toFixed(2)}/s): satura; deja solo los que acompañan un evento.`);
+  if (subtituloPx !== undefined && subtituloPx < 64) avisos.push(`Subtítulos pequeños (${subtituloPx} px): en vertical usa 72–100 px para que se lean en el móvil.`);
+
+  return {
+    duracion: r1(total),
+    porcentaje: { personaSola: pct(persona), pantallaDividida: pct(split), pantallaCompleta: pct(completa), capas: pct(capas), flotantes: pct(flot) },
+    cambiosVisuales: cambios,
+    segundosPorCambio: cambios ? r1(total / cambios) : r1(total),
+    tramoMasLargoSinCambio: longest,
+    efectosPorSegundo: Math.round(sfx * 100) / 100,
+    presupuesto: B,
+    avisos,
+  };
 }
