@@ -73,6 +73,7 @@ const Body = z.discriminatedUnion('accion', [
     accion: z.literal('generar'),
     fase: z.enum(['todo', 'storyboard', 'clips']).optional(),
     escenaPagoId: z.string().max(20).optional(),
+    anclarAlClip1: z.boolean().optional(),
   }),
   z.object({ accion: z.literal('rehacer_pago'), escenaPagoId: z.string().min(1).max(20) }),
   z.object({ accion: z.literal('auditar_clip'), escenaPagoId: z.string().min(1).max(20) }),
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       a.accion === 'preparar'
         ? await prepareGeneration(id)
         : a.accion === 'generar'
-          ? await runGeneration(id, { fase: a.fase, escenaPagoId: a.escenaPagoId })
+          ? await runGeneration(id, { fase: a.fase, escenaPagoId: a.escenaPagoId, anclarAlClip1: a.anclarAlClip1 })
           : a.accion === 'rehacer_pago'
             ? await redoPaidScene(id, a.escenaPagoId)
             : a.accion === 'auditar_clip'

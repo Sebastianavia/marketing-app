@@ -25,6 +25,12 @@ export const REALISM_STILL =
   'Only light sources that exist in the location, no rim light, no bloom, no teal-and-orange grade, moderate saturation. ' +
   'Skin with pores, imperfections and asymmetry. Places with wear, clutter and dirt. Slightly off-center framing.';
 
+export const ANIMATION_BLOCK =
+  'Consistent high-end 3D animated feature film look, tactile surface shaders, soft volumetric lighting, expressive character animation, smooth natural motion at 1x speed, cohesive color script across shots.';
+
+export const ANIMATION_STILL =
+  'Consistent high-end 3D animated feature film keyframe, tactile surface shaders, soft volumetric lighting, cohesive color palette and character proportions.';
+
 /** Lo mismo en español, para la interfaz. */
 export const REALISM_SUMMARY_ES =
   'Velocidad real sin cámara lenta · cámara en mano · grano y desenfoque real · solo luces del lugar, sin bloom ni colores saturados · ' +
@@ -46,7 +52,7 @@ export const NINE_SYMPTOMS = [
  * Prompt final que recibirá el modelo de video (Fase 4). Las escenas de persona hablando (HeyGen)
  * solo llevan el movimiento: el bloque de realismo es para los modelos que generan la imagen.
  */
-export function composeVideoPrompt(scene: DirectorScene, d: Pick<DirectorState, 'ajustes'>): string {
+export function composeVideoPrompt(scene: DirectorScene, d: Pick<DirectorState, 'ajustes' | 'skill'>): string {
   const base = scene.prompt?.texto.trim() ?? '';
   if (scene.tipo === 'avatar') return base;
   const parts = [base.replace(/\.?\s*$/, '.')];
@@ -54,15 +60,15 @@ export function composeVideoPrompt(scene: DirectorScene, d: Pick<DirectorState, 
     // Formato de diálogo de la guía de Veo (igual que el modo manual)
     parts.push(`The person speaks in Spanish, facing the camera, and says: "${scene.dialogo.trim()}"`);
   }
-  parts.push(REALISM_BLOCK, NO_MUSIC);
+  parts.push(d.skill === 'animacion' ? ANIMATION_BLOCK : REALISM_BLOCK, NO_MUSIC);
   return parts.join(' ');
 }
 
 /**
- * Prompt de la imagen inicial (primer fotograma) de una toma de apoyo, para GPT Image 2.
+ * Prompt de la imagen inicial (primer fotograma) de una toma de apoyo, para GPT Image 2 / Nano Banana Pro / Seedream 5.0 Pro.
  * Parte del prompt de video de la escena, con las etiquetas que usa y el realismo de foto fija.
  */
-export function composeImagePrompt(scene: DirectorScene, d: Pick<DirectorState, 'ajustes' | 'etiquetas' | 'referencias'>): string {
+export function composeImagePrompt(scene: DirectorScene, d: Pick<DirectorState, 'ajustes' | 'etiquetas' | 'referencias' | 'skill'>): string {
   // Tope: el prompt de imagen admite 4000 caracteres y la app añade la identidad del avatar delante
   const base = (scene.prompt?.texto.trim() || scene.queSeVe.trim()).slice(0, 2400).replace(/\.?\s*$/, '.');
   const tags = sceneTags(d, scene)
@@ -70,11 +76,11 @@ export function composeImagePrompt(scene: DirectorScene, d: Pick<DirectorState, 
     .map((t) => `@${t.mencion}: ${t.descripcion.trim()}`);
   const orientation = d.ajustes.formato === '16:9' ? 'horizontal' : d.ajustes.formato === '1:1' ? 'square' : 'vertical';
   return [
-    `Still photo: the very first frame of a ${orientation} (${d.ajustes.formato}) social media video. Show the opening moment of this shot, before any movement:`,
+    `Still frame: the very first frame of a ${orientation} (${d.ajustes.formato}) social media video. Show the opening moment of this shot, before any movement:`,
     base,
     tags.length ? `Elements: ${tags.join('; ')}.` : '',
     'No text, captions, logos or watermarks added.',
-    REALISM_STILL,
+    d.skill === 'animacion' ? ANIMATION_STILL : REALISM_STILL,
   ]
     .filter(Boolean)
     .join(' ');

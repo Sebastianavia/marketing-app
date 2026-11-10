@@ -241,3 +241,57 @@ export const STYLE_PRESETS: StylePreset[] = [
   },
 ];
 
+export interface RelightOrAnglePreset {
+  id: string;
+  label: string;
+  kind: 'relight' | 'angle';
+  promptEn: string;
+}
+
+/** Módulo Relight & Multi-Angle de Buzzy (pág. 2 del PDF): re-ilumina o saca otro ángulo a partir de una foto existente. */
+export const RELIGHT_ANGLE_PRESETS: RelightOrAnglePreset[] = [
+  {
+    id: 'relight-window',
+    label: '☀️ Re-iluminar: Luz ventana',
+    kind: 'relight',
+    promptEn:
+      'Keep the exact same subject, identity, pose, clothing, and framing from the reference image, but relight the scene with soft natural side window daylight and realistic shadow falloff.',
+  },
+  {
+    id: 'relight-golden',
+    label: '🌅 Re-iluminar: Hora dorada',
+    kind: 'relight',
+    promptEn:
+      'Keep the exact same subject, identity, pose, clothing, and framing from the reference image, but relight the scene with warm golden hour sunset sunlight and soft natural shadows.',
+  },
+  {
+    id: 'relight-night',
+    label: '🌙 Re-iluminar: Noche cálida',
+    kind: 'relight',
+    promptEn:
+      'Keep the exact same subject, identity, pose, clothing, and framing from the reference image, but relight the scene in cozy nighttime ambiance lit by warm practical indoor lamps.',
+  },
+  {
+    id: 'angle-34',
+    label: '📐 Multi-Angle: Vista 3/4',
+    kind: 'angle',
+    promptEn:
+      'Generate the exact same subject from the reference image with identical facial features, clothing, materials, and lighting, captured from a 45-degree 3/4 camera angle.',
+  },
+  {
+    id: 'angle-closeup',
+    label: '🔍 Multi-Angle: Primer plano',
+    kind: 'angle',
+    promptEn:
+      'Generate a closer close-up shot of the exact same subject from the reference image, preserving identical identity, textures, details, and ambient lighting.',
+  },
+  {
+    id: 'angle-low',
+    label: '🎥 Multi-Angle: Contrapicado',
+    kind: 'angle',
+    promptEn:
+      'Generate the exact same subject from the reference image with identical appearance, clothing, and lighting, captured from a subtle low-angle hero perspective.',
+  },
+];
+
+

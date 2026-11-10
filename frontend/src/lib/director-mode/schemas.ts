@@ -92,7 +92,7 @@ export const InputBody = z.object({
   pdfBase64: z.string().max(30_000_000).optional(),
   pdfNombre: z.string().max(200).optional(),
   /** Solo al crear: plantilla de la caja de inicio. */
-  skill: z.enum(['pelicula', 'ugc', 'presentador', 'explicativo']).optional(),
+  skill: z.enum(['pelicula', 'ugc', 'tvc', 'presentador', 'explicativo', 'animacion']).optional(),
 });
 
 export const SettingsBody = z.object({

@@ -34,6 +34,7 @@ export function ProductionBar({ dm, production, pulirConClaude }: { dm: DM; prod
   const gen = d.produccion;
   const [open, setOpen] = useState(false);
   const [showAnimatic, setShowAnimatic] = useState(false);
+  const [anclarAlClip1, setAnclarAlClip1] = useState<boolean>(gen?.anclarAlClip1 ?? true);
   const busy = dm.busy?.startsWith('produccion:') ? dm.busy.slice('produccion:'.length) : null;
   const ids = new Set(gen ? gen.mapa.flatMap((m) => [m.clip, m.voz, m.imagen].filter(Boolean) as string[]).concat(gen.vozGeneral ? [gen.vozGeneral] : []) : []);
   const mine = production.escenas.filter((s) => ids.has(s.id));
@@ -113,11 +114,24 @@ export function ProductionBar({ dm, production, pulirConClaude }: { dm: DM; prod
               <Eye className="h-3 w-3" /> {showAnimatic ? 'Ocultar Animatic' : 'Previsualizar Storyboard'}
             </button>
           )}
+          {gen && clipsRunnable && gen.mapa.length > 1 && (
+            <label
+              className="flex cursor-pointer items-center gap-1 rounded border border-line bg-surface-2 px-2 py-1 text-[11px] text-fg-muted hover:text-fg"
+              title="Como en Buzzy (Paso 11): genera primero el Clip 1, espera a que termine y lanza los Clips 2…N usando un fotograma del Clip 1 como ancla de referencia visual."
+            >
+              <input
+                type="checkbox"
+                checked={anclarAlClip1}
+                onChange={(e) => setAnclarAlClip1(e.target.checked)}
+              />
+              <span>⚓ Anclar al Clip 1</span>
+            </label>
+          )}
           {gen && clipsRunnable && !storyboardRunnable && (
             <button
               type="button"
               disabled={!!dm.busy}
-              onClick={() => void produce('generar', { fase: 'clips' })}
+              onClick={() => void produce('generar', { fase: 'clips', anclarAlClip1 })}
               className="btn-primary h-7 px-2.5 text-[11.5px]"
               title="Anima todas las escenas aprobadas a partir de sus imágenes iniciales"
             >
@@ -129,7 +143,7 @@ export function ProductionBar({ dm, production, pulirConClaude }: { dm: DM; prod
             <button
               type="button"
               disabled={!!dm.busy}
-              onClick={() => void produce('generar', { fase: 'todo' })}
+              onClick={() => void produce('generar', { fase: 'todo', anclarAlClip1 })}
               className="btn-primary h-7 px-2.5 text-[11.5px]"
               title="Genera imágenes iniciales, locución y clips de video de una vez"
             >

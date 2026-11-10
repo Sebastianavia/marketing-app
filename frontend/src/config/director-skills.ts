@@ -6,7 +6,7 @@ import { DEFAULT_BROLL_MODEL, DEFAULT_NATIVE_BROLL_MODEL, type VoiceMode } from 
  * Se guarda en produccion.json → director.skill (opcional: los borradores viejos no la tienen).
  */
 
-export type DirectorSkillId = 'pelicula' | 'ugc' | 'presentador' | 'explicativo';
+export type DirectorSkillId = 'pelicula' | 'ugc' | 'tvc' | 'presentador' | 'explicativo' | 'animacion';
 
 export interface DirectorSkill {
   id: DirectorSkillId;
@@ -105,6 +105,42 @@ export const DIRECTOR_SKILLS: DirectorSkill[] = [
       'Video explicativo sin rostro: gancho con pregunta o dato en la primera escena → de 3 a 5 puntos, uno por escena → cierre con resumen o llamado. Todo con voz en off; nadie habla a cámara.',
     notaPrompts: 'Tomas visuales y concretas de cada punto (objetos, manos, lugares), sin personas hablando.',
     notaModelos: 'Voz en off encima: Grok Imagine 1.5 a 720p para todo (sin audio, 6–15 s). Si una escena dura menos de 6 s, el clip se pide de 6 y se recorta al montar.',
+  },
+  {
+    id: 'tvc',
+    nombre: 'Comercial de marca',
+    descripcion: 'Anuncio estilo estudio publicitario para mostrar tu producto.',
+    icono: '💎',
+    ajustes: { formato: '9:16', duracionSeg: 25, modoVoz: 'voiceover', modeloBroll: DEFAULT_BROLL_MODEL },
+    ejemplos: [
+      'Reloj minimalista de acero cepillado resistente al agua para uso diario.',
+      'Perfume artesanal con notas de madera de cedro y bergamota.',
+      'Cafetera espresso compacta de aluminio para preparar café de especialidad en casa.',
+    ],
+    placeholder: 'Producto, beneficios principales (selling points) y estética de marca…',
+    preguntasSobre: 'la atmósfera visual del comercial (lujo oscuro, minimalista luminoso, estilo de vida cálido) y el beneficio principal que debe protagonizar el cierre.',
+    formaGuion:
+      'Comercial de marca (TVC): apertura magnética mostrando el problema o deseo → revelación heroica del producto con detalle de materiales/textura → escena de uso aspiracional → plano final de producto (packshot) con frase de marca memorable.',
+    notaPrompts: 'Fotografía publicitaria de producto: iluminación controlada de estudio o luz natural direccional, planos macro de textura y encuadres limpios donde el @producto sea el centro visual.',
+    notaModelos: 'Voz en off con ElevenLabs y tomas con Grok Imagine 1.5 a 720p + imagen inicial con Nano Banana Pro o Seedream 5.0 Pro usando las fotos del @producto.',
+  },
+  {
+    id: 'animacion',
+    nombre: 'Animación 3D / Pixar',
+    descripcion: 'Historia o anuncio animado con estilo 3D o ilustración consistente.',
+    icono: '✨',
+    ajustes: { formato: '9:16', duracionSeg: 30, modoVoz: 'voiceover', modeloBroll: DEFAULT_BROLL_MODEL },
+    ejemplos: [
+      'Un pequeño grano de café animado viaja desde la montaña hasta la taza para despertar a una oficina dormida.',
+      'Una mascota robot aprende a cuidar una planta en un apartamento futurista.',
+      'Dos personajes de plastilina explican cómo ahorrar energía en casa sin aburrirse.',
+    ],
+    placeholder: 'Cuenta la historia animada o qué explica el personaje animado…',
+    preguntasSobre: 'el estilo visual de animación (3D estilo Pixar, stop-motion táctil, anime cinematográfico) y el tono emocional.',
+    formaGuion:
+      'Narrativa visual expresiva: acciones físicas claras, personajes con silueta y colores muy definidos repetidos en cada escena, escenarios con paleta de color coherente.',
+    notaPrompts: 'Estilo de animación 3D / CGI o ilustración cinematográfica consistente en todas las escenas: materiales táctiles, iluminación volumétrica suave, expresividad facial clara.',
+    notaModelos: 'Voz en off con ElevenLabs, imágenes iniciales con Nano Banana Pro o Seedream 5.0 Pro para fijar el diseño 3D del personaje y clips con Grok Imagine 1.5.',
   },
 ];
 

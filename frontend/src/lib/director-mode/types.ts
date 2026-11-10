@@ -205,6 +205,8 @@ export interface DirectorGeneration {
   /** Modo de voz con que se preparó (si cambia, hay que volver a preparar). */
   modoVoz: DirectorSettings['modoVoz'];
   preparada: string;
+  /** Paso 11 de Buzzy: genera primero el Clip 1, espera a que termine y lanza 2…N usando un fotograma del Clip 1 como ancla de referencia. */
+  anclarAlClip1?: boolean;
   final?: { archivo: string; duracionSeg: number; creado: string; version: number; edicionId?: string };
 }
 

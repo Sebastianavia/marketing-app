@@ -7,13 +7,17 @@ import {
   CHARACTER_REF_MODES,
   CINEMA_CATEGORIES,
   EMPTY_SET_PROMPT_PREFIX,
+  RELIGHT_ANGLE_PRESETS,
   STYLE_PRESETS,
   type CharacterRefMode,
+  type RelightOrAnglePreset,
 } from '@/config/cinema-controls';
 import { IMAGE_MODELS, getImageModel } from '@/config/image-models';
 import { parseNodeId } from './build-graph';
-import { tagKindLabel } from '@/lib/director-mode/mentions';
+import { tagKindLabel, tagRefs } from '@/lib/director-mode/mentions';
 import type { DirectorSceneType, TagKind } from '@/lib/director-mode/types';
+import { refUrl } from '../refs/ref-common';
+import { readFileAsDataUrl } from '../stage-forms';
 import type { useDirectorMode } from '../useDirectorMode';
 
 type DM = ReturnType<typeof useDirectorMode>;
@@ -495,6 +499,51 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
     }
   };
 
+  const existingPhotos = tagRefs(d, tag.id).filter((r) => r.medio === 'imagen');
+  const canRelightOrAngle = tipo !== 'estilo' && (existingPhotos.length > 0 || (tipo === 'personaje' && Boolean(avatarId)));
+
+  const applyRelightOrAngle = async (preset: RelightOrAnglePreset) => {
+    setGeneratingRef(true);
+    dm.setError(null);
+    try {
+      const references: string[] = [];
+      if (existingPhotos[0]) {
+        const blob = await fetch(refUrl(dm.production!.id, existingPhotos[0].id)).then((x) => x.blob());
+        const refFile = new File([blob], existingPhotos[0].nombreOriginal || 'ref.jpg', { type: blob.type || 'image/jpeg' });
+        references.push(await readFileAsDataUrl(refFile));
+      }
+      const modelSpec = getImageModel(genModel);
+      const res = modelSpec.defaultResolution || modelSpec.resolutions[0];
+      const subjectDesc = descripcion.trim() ? ` Subject: ${descripcion.trim()}.` : '';
+      const r = await fetch('/api/images/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelSpec.id,
+          prompt: `${preset.promptEn}${subjectDesc}`,
+          references,
+          ...(tipo === 'personaje' && avatarId ? { avatarId } : {}),
+          aspectRatio: d.ajustes.formato,
+          resolution: res,
+          count: 1,
+          realism: true,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !Array.isArray(data.images) || !data.images[0]?.url) {
+        throw new Error(data.error || 'No se pudo generar la variante de luz/ángulo.');
+      }
+      const imgBlob = await fetch(data.images[0].url).then((x) => x.blob());
+      const ext = imgBlob.type.includes('jpeg') ? 'jpg' : 'png';
+      const file = new File([imgBlob], `${tag.mencion}-${preset.id}.${ext}`, { type: imgBlob.type || 'image/png' });
+      await dm.uploadRefs([file], { etiquetaId: tag.id });
+    } catch (err) {
+      dm.setError(err instanceof Error ? err.message : 'No se pudo aplicar Relight / Multi-Angle.');
+    } finally {
+      setGeneratingRef(false);
+    }
+  };
+
   return (
     <div className="nodrag nopan absolute right-3 top-14 z-20 max-h-[calc(100%-70px)] w-84 max-w-[calc(100%-24px)] space-y-2.5 overflow-y-auto rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
       <div className="flex items-center justify-between">
@@ -623,6 +672,28 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
                 ? `Generar escenario vacío @${tag.mencion}`
                 : `Generar foto para @${tag.mencion}`}
         </button>
+
+        {canRelightOrAngle && (
+          <div className="space-y-1 rounded-lg border border-line bg-surface-2/60 p-2 pt-1.5">
+            <span className="block text-[10px] font-medium text-fg">
+              ✨ Relight & Multi-Angle (usa la foto actual de @{tag.mencion}):
+            </span>
+            <div className="grid grid-cols-2 gap-1">
+              {RELIGHT_ANGLE_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={generatingRef || !!dm.busy}
+                  onClick={() => void applyRelightOrAngle(p)}
+                  className="rounded border border-line bg-surface px-1.5 py-1 text-left text-[10px] text-fg hover:border-line-strong disabled:opacity-50 cursor-pointer"
+                  title={p.promptEn}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

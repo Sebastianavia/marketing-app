@@ -1,11 +1,21 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { FileText, Loader2, Music2, Paperclip, X } from 'lucide-react';
+import { FileText, Link2, Loader2, Music2, Paperclip, Plus, Sparkles, X } from 'lucide-react';
 import { DEFAULT_SKILL, DIRECTOR_SKILLS, getDirectorSkill, type DirectorSkillId } from '@/config/director-skills';
 import { VOICE_MODES } from '@/config/broll-models';
 import type { DraftRow } from './useDirectorMode';
 import { readFileAsDataUrl } from './stage-forms';
+
+function dataUrlToFile(dataUrl: string, fileName: string, fallbackMime = 'image/jpeg'): File {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header?.match(/data:([^;]+)/);
+  const mime = mimeMatch ? mimeMatch[1] : fallbackMime;
+  const binary = atob(base64 || '');
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], fileName, { type: mime });
+}
 
 /**
  * Caja de inicio del modo Director (estilo Buzzy): skill + idea o guion + referencias.
@@ -53,9 +63,48 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
   // Si se quitó el audio elegido, no queda elegido
   const voiceFile = voiceChoice && audios.some((r) => r.file.name === voiceChoice) ? voiceChoice : null;
   const [note, setNote] = useState<string | null>(null);
+  const [productUrl, setProductUrl] = useState('');
+  const [scrapingUrl, setScrapingUrl] = useState(false);
+  const [showUrlBar, setShowUrlBar] = useState(false);
+  const [sellingPoints, setSellingPoints] = useState<string[]>([]);
+  const [newPoint, setNewPoint] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const skill = getDirectorSkill(skillId)!;
   const isScript = !pdf && looksLikeScript(texto);
+
+  const scrapeProduct = async () => {
+    const cleanUrl = productUrl.trim();
+    if (!cleanUrl) return;
+    setScrapingUrl(true);
+    setNote(null);
+    try {
+      const r = await fetch('/api/director-mode/scrape-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cleanUrl, confidencial }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'No se pudo analizar la página del producto.');
+      const pts = Array.isArray(data.sellingPoints) ? data.sellingPoints.filter(Boolean) : [];
+      if (pts.length) setSellingPoints(pts);
+      const header = [data.titulo, data.descripcion].filter(Boolean).join(' — ');
+      if (header) {
+        setTexto((cur) => (cur.trim() ? `${cur.trim()}\n\nProducto: ${header}` : `Producto: ${header}`));
+      }
+      if (Array.isArray(data.images) && data.images.length > 0) {
+        const downloaded: PendingRef[] = data.images.map((img: { dataUrl: string; name: string; mime?: string }) => {
+          const f = dataUrlToFile(img.dataUrl, img.name, img.mime || 'image/jpeg');
+          return { file: f, url: URL.createObjectURL(f) };
+        });
+        setRefs((cur) => [...cur, ...downloaded].slice(0, MAX_START_REFS));
+      }
+      setProductUrl('');
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'No se pudo importar el producto.');
+    } finally {
+      setScrapingUrl(false);
+    }
+  };
 
   const addRefs = async (files: FileList | null) => {
     if (!files) return;
@@ -90,15 +139,22 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
     });
 
   const start = () => {
-    if (!pdf && !texto.trim()) return setNote('Escribe la idea, pega el guion o añade un PDF con + Ref.');
+    if (!pdf && !texto.trim() && sellingPoints.length === 0) {
+      return setNote('Escribe la idea, pega el guion, importa un link de producto o añade un PDF con + Ref.');
+    }
+    const cleanPoints = sellingPoints.map((p) => p.trim()).filter(Boolean);
+    const finalTexto =
+      cleanPoints.length > 0 && !texto.includes('Argumentos de venta:')
+        ? `${texto.trim()}\n\nArgumentos de venta:\n${cleanPoints.map((p) => `- ${p}`).join('\n')}`.trim()
+        : texto;
     onStart(
       {
-      tipo: pdf ? 'pdf' : isScript ? 'guion' : 'idea',
-      texto,
-      mantenerPalabras: isScript && keep,
-      confidencial,
-      skill: skillId,
-      ...(pdf ? { pdfBase64: pdf.dataUrl, pdfNombre: pdf.name } : {}),
+        tipo: pdf ? 'pdf' : isScript ? 'guion' : 'idea',
+        texto: finalTexto,
+        mantenerPalabras: isScript && keep,
+        confidencial,
+        skill: skillId,
+        ...(pdf ? { pdfBase64: pdf.dataUrl, pdfNombre: pdf.name } : {}),
       },
       refs.map((r) => r.file),
       voiceFile ?? undefined
@@ -110,7 +166,7 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
       <h2 className="text-center font-display text-[22px] text-fg">¿Qué video hacemos?</h2>
 
       {/* Skill */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Tipo de video">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Tipo de video">
         {DIRECTOR_SKILLS.map((s) => (
           <button
             key={s.id}
@@ -140,6 +196,103 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
           className="w-full resize-y bg-transparent p-1 text-[14px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle"
           aria-label="Idea o guion"
         />
+
+        {/* Importador de producto por URL (estilo Buzzy ugc-ads pasos 2 y 3) */}
+        {(showUrlBar || skillId === 'ugc' || skillId === 'tvc') && (
+          <div className="mt-2 rounded-xl border border-line bg-surface-2/60 p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link2 className="h-3.5 w-3.5 text-fg-subtle shrink-0" />
+              <input
+                type="url"
+                value={productUrl}
+                onChange={(e) => setProductUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void scrapeProduct();
+                  }
+                }}
+                placeholder="Pega el link de tu producto o tienda online para extraer fotos y argumentos de venta…"
+                className="input-clean h-7 min-w-[200px] flex-1 px-2 text-[12px]"
+              />
+              <button
+                type="button"
+                disabled={scrapingUrl || !productUrl.trim()}
+                onClick={() => void scrapeProduct()}
+                className="btn-secondary h-7 px-2.5 text-[11.5px]"
+              >
+                {scrapingUrl ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                {scrapingUrl ? 'Analizando página…' : 'Extraer producto · $0'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Argumentos de venta extraídos o añadidos (Selling Points editables) */}
+        {sellingPoints.length > 0 && (
+          <div className="mt-2 space-y-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-fg">
+                🎯 Argumentos de venta (Selling Points) — edítalos o quita los que no quieras incluir:
+              </span>
+              <button
+                type="button"
+                onClick={() => setSellingPoints([])}
+                className="text-[10.5px] text-fg-subtle hover:text-fg cursor-pointer"
+              >
+                Limpiar
+              </button>
+            </div>
+            <div className="space-y-1">
+              {sellingPoints.map((pt, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <input
+                    value={pt}
+                    onChange={(e) =>
+                      setSellingPoints((cur) => cur.map((x, j) => (j === idx ? e.target.value : x)))
+                    }
+                    className="input-clean h-7 flex-1 px-2 text-[11.5px] text-fg"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSellingPoints((cur) => cur.filter((_, j) => j !== idx))}
+                    className="text-fg-subtle hover:text-fg cursor-pointer p-1"
+                    aria-label="Quitar argumento"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <input
+                value={newPoint}
+                onChange={(e) => setNewPoint(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newPoint.trim()) {
+                    e.preventDefault();
+                    setSellingPoints((cur) => [...cur, newPoint.trim()]);
+                    setNewPoint('');
+                  }
+                }}
+                placeholder="Añadir otro argumento de venta…"
+                className="input-clean h-7 flex-1 px-2 text-[11px]"
+              />
+              <button
+                type="button"
+                disabled={!newPoint.trim()}
+                onClick={() => {
+                  if (!newPoint.trim()) return;
+                  setSellingPoints((cur) => [...cur, newPoint.trim()]);
+                  setNewPoint('');
+                }}
+                className="btn-secondary h-7 px-2 text-[11px]"
+              >
+                <Plus className="h-3 w-3" /> Añadir
+              </button>
+            </div>
+          </div>
+        )}
 
         {(pdf || refs.length > 0) && (
           <div className="mt-2 space-y-2 border-t border-line pt-2">
@@ -197,6 +350,16 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
           >
             <Paperclip className="h-3.5 w-3.5" /> + Ref
           </button>
+          {skillId !== 'ugc' && skillId !== 'tvc' && (
+            <button
+              type="button"
+              onClick={() => setShowUrlBar((v) => !v)}
+              className="btn-secondary h-8 px-2.5 text-[12px]"
+              title="Extraer fotos y argumentos de venta desde el link de una tienda o producto ($0)"
+            >
+              <Link2 className="h-3.5 w-3.5" /> {showUrlBar ? 'Ocultar link' : '+ Link producto'}
+            </button>
+          )}
           {isScript && (
             <label className="flex cursor-pointer items-center gap-1.5">
               <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />

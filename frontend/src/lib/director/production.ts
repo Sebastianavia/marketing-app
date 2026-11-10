@@ -653,14 +653,35 @@ export async function runBrollScene(productionId: string, sceneId: string) {
     const withAudio = !!s.spec.conAudio;
     const duration = pickBrollDuration(model, Math.ceil(s.spec.duracionSeg ?? 6));
     const resolution = brollResolution(model, s.spec.resolucion);
-    const imageUrl = frame ? await uploadTemp(productionId, sceneId, frame, 'image') : '';
+    let imageUrl = frame ? await uploadTemp(productionId, sceneId, frame, 'image') : '';
     // Fotos del avatar como referencias extra, hasta el máximo del modelo (los modelos no aceptan base64:
     // se suben a Cloudinary como temporales y se borran al terminar). Omni 1.1 con fotograma inicial solo admite 1 imagen.
     const referenceImageUrls: string[] = [];
     const frameOnly = model.id === 'gemini-omni-1.1-flash-ext' && !!imageUrl;
     const slots = model.provider === 'apimart' && !frameOnly ? model.maxImages - (imageUrl ? 1 : 0) : 0;
-    if (s.spec.avatarReferencias && slots > 0) {
-      const { files } = await avatarPhotoFiles(s.spec.avatarReferencias, slots);
+
+    // Paso 11 de Buzzy (Anclar al Clip 1): si está activo y esta escena no es el Clip 1, extrae un fotograma del Clip 1 como ancla visual
+    const clip1Id = p.director?.produccion?.mapa[0]?.clip;
+    if (p.director?.produccion?.anclarAlClip1 && clip1Id && sceneId !== clip1Id) {
+      const clip1Scene = p.escenas.find((x) => x.id === clip1Id);
+      const clip1File = clip1Scene ? currentFiles(clip1Scene, 'clip')[0] : undefined;
+      if (clip1Scene?.estado === 'lista' && clip1File && fsSync.existsSync(clip1File.ruta)) {
+        const anchorFrame = path.join(/*turbopackIgnore: true*/ p.carpeta, `.anchor-${clip1Scene.id}-v${clip1Scene.version}.jpg`);
+        if (!fsSync.existsSync(anchorFrame)) {
+          await runFfmpeg(['-y', '-hide_banner', '-ss', '0.5', '-i', clip1File.ruta, '-frames:v', '1', '-q:v', '2', anchorFrame]);
+        }
+        if (fsSync.existsSync(anchorFrame)) {
+          if (!imageUrl) {
+            imageUrl = await uploadTemp(productionId, sceneId, anchorFrame, 'image');
+          } else if (slots > 0) {
+            referenceImageUrls.push(await uploadTemp(productionId, sceneId, anchorFrame, 'image'));
+          }
+        }
+      }
+    }
+
+    if (s.spec.avatarReferencias && slots - referenceImageUrls.length > 0) {
+      const { files } = await avatarPhotoFiles(s.spec.avatarReferencias, slots - referenceImageUrls.length);
       for (const f of files) referenceImageUrls.push(await uploadTemp(productionId, sceneId, f, 'image'));
     }
     const job = await createRenderJob({

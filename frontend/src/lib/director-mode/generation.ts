@@ -194,6 +194,8 @@ export interface RunGenerationOptions {
   fase?: 'todo' | 'storyboard' | 'clips';
   /** Si se indica, ejecuta únicamente esa escena de pago (p. ej. 'e2'). */
   escenaPagoId?: string;
+  /** Paso 11 de Buzzy: lanza primero el Clip 1, espera a que termine y lanza 2…N usando un fotograma del Clip 1 como referencia. */
+  anclarAlClip1?: boolean;
 }
 
 /**
@@ -202,6 +204,11 @@ export interface RunGenerationOptions {
  * runner procesa en segundo plano (máx. 4 a la vez).
  */
 export async function runGeneration(id: string, opts: RunGenerationOptions = {}) {
+  if (opts.anclarAlClip1 !== undefined) {
+    await updateProduction(id, (x) => {
+      if (x.director?.produccion) x.director.produccion.anclarAlClip1 = opts.anclarAlClip1;
+    });
+  }
   let p = await reconcileProduction(id);
   const fase = opts.fase ?? 'todo';
   const targetId = opts.escenaPagoId;
@@ -241,8 +248,15 @@ export async function runGeneration(id: string, opts: RunGenerationOptions = {})
     }
     if (fase === 'todo' || fase === 'clips') {
       p = await reconcileProduction(id);
+      const anchorClip1 = Boolean(p.director?.produccion?.anclarAlClip1);
+      const clip1Id = p.director?.produccion?.mapa[0]?.clip;
+      const clip1Scene = clip1Id ? p.escenas.find((x) => x.id === clip1Id) : undefined;
       const clipsReady = p.escenas.filter(ready).filter((x) => x.spec.tipo === 'avatar' || x.spec.tipo === 'toma_de_apoyo');
       for (const s of clipsReady) {
+        // Paso 11 de Buzzy: si Anclar al Clip 1 está activo y el Clip 1 aún no terminó, solo lanza el Clip 1 primero
+        if (anchorClip1 && clip1Scene && s.id !== clip1Scene.id && clip1Scene.estado !== 'lista') {
+          continue;
+        }
         // Si depende del último fotograma del clip anterior y ese clip aún se está generando, se lanzará en generationStatus al terminar
         if (s.spec.continuarDeEscena) {
           const prev = p.escenas.find((x) => x.id === s.spec.continuarDeEscena);
@@ -271,16 +285,27 @@ export async function redoPaidScene(id: string, escenaPagoId: string) {
 
 export async function generationStatus(id: string) {
   let p = await reconcileProduction(id);
-  // Si hay escenas encadenadas (continuarDeEscena) aprobadas cuyo clip anterior ya terminó, se lanzan en cadena
-  const ready = (s: ProductionScene) => s.estado === 'aprobada' && Boolean(s.spec.continuarDeEscena);
-  for (const s of p.escenas.filter(ready)) {
-    const prev = p.escenas.find((x) => x.id === s.spec.continuarDeEscena);
-    if (prev?.estado === 'lista') {
-      try {
-        await runBrollScene(id, s.id);
-      } catch {
-        // el error ya queda anotado en la escena
-      }
+  const anchorClip1 = Boolean(p.director?.produccion?.anclarAlClip1);
+  const clip1Id = p.director?.produccion?.mapa[0]?.clip;
+  const clip1Scene = clip1Id ? p.escenas.find((x) => x.id === clip1Id) : undefined;
+  const clip1Ready = clip1Scene?.estado === 'lista';
+
+  // Lanza automáticamente escenas encadenadas (continuarDeEscena) o escenas 2…N ancladas al Clip 1 cuando su referencia ya está lista
+  for (const s of p.escenas) {
+    if (s.estado !== 'aprobada' || (s.spec.tipo !== 'toma_de_apoyo' && s.spec.tipo !== 'avatar')) continue;
+    const waitingChain = Boolean(s.spec.continuarDeEscena);
+    const waitingAnchor = anchorClip1 && Boolean(clip1Scene && s.id !== clip1Scene.id);
+    if (!waitingChain && !waitingAnchor) continue;
+    if (waitingAnchor && !clip1Ready) continue;
+    if (waitingChain) {
+      const prev = p.escenas.find((x) => x.id === s.spec.continuarDeEscena);
+      if (prev?.estado !== 'lista') continue;
+    }
+    try {
+      if (s.spec.tipo === 'avatar') await runAvatarScene(id, s.id);
+      else await runBrollScene(id, s.id);
+    } catch {
+      // el error ya queda anotado en la escena
     }
   }
   p = await reconcileProduction(id);
