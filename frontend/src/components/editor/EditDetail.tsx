@@ -129,6 +129,12 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
   };
 
   const hasScript = edit.frases.length > 0 && !working && !claudeWorking;
+  const showDraft = (edit.estado === 'borrador' || edit.estado === 'aprobado') && !!edit.borrador;
+  const showChat = edit.frases.length > 0 || !!edit.borrador;
+  const chatChanged = () => {
+    void load();
+    onChanged();
+  };
 
   return (
     <div className="space-y-5">
@@ -181,9 +187,17 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
         </div>
       )}
 
-      {(edit.estado === 'borrador' || edit.estado === 'aprobado') && edit.borrador && (
-        <DraftCard edit={edit} busy={busy} run={run} claudeWorking={claudeWorking} />
+      {/* Con borrador: video a la izquierda y chat de Claude a la derecha; acciones y calidad debajo */}
+      {showDraft && showChat && (
+        <div className="grid gap-5 lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
+          <DraftVideo edit={edit} claudeWorking={claudeWorking} />
+          <div className="h-[640px] min-h-0 overflow-hidden rounded-xl border border-line bg-surface">
+            <ClaudeEditChat edit={edit} onWorkingChange={setClaudeWorking} onChanged={chatChanged} fill />
+          </div>
+        </div>
       )}
+
+      {showDraft && <DraftCard edit={edit} busy={busy} run={run} claudeWorking={claudeWorking} showVideo={!showChat} />}
 
       {edit.direccion && (
         <div className="flex flex-wrap items-start gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 text-[12px]">
@@ -206,16 +220,7 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
         </div>
       )}
 
-      {(edit.frases.length > 0 || edit.borrador) && (
-        <ClaudeEditChat
-          edit={edit}
-          onWorkingChange={setClaudeWorking}
-          onChanged={() => {
-            void load();
-            onChanged();
-          }}
-        />
-      )}
+      {!showDraft && showChat && <ClaudeEditChat edit={edit} onWorkingChange={setClaudeWorking} onChanged={chatChanged} />}
 
       {hasScript && edit.estado !== 'error' && (
         <ScriptReview
@@ -392,18 +397,47 @@ function ErrorCard({ edit, busy, run }: { edit: EditProject; busy: string | null
 
 // ── Borrador ──────────────────────────────────────────────────────────────────
 
-function DraftCard({ edit, busy, run, claudeWorking = false }: { edit: EditProject; busy: string | null; run: RunFn; claudeWorking?: boolean }) {
+/** El borrador en grande (al lado del chat de Claude). */
+function DraftVideo({ edit, claudeWorking }: { edit: EditProject; claudeWorking: boolean }) {
+  const b = edit.borrador!;
+  return (
+    <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
+      <video key={b.version} src={mediaUrl(edit.id, 'borrador', b.version)} controls playsInline className="mx-auto max-h-[560px] w-full rounded-lg bg-black" />
+      <p className="text-center text-[11px] text-fg-muted">
+        Versión {b.version} · {formatClock(b.duracion)}
+        {claudeWorking ? ' · borrador intermedio' : ''}
+      </p>
+    </section>
+  );
+}
+
+function DraftCard({
+  edit,
+  busy,
+  run,
+  claudeWorking = false,
+  showVideo = true,
+}: {
+  edit: EditProject;
+  busy: string | null;
+  run: RunFn;
+  claudeWorking?: boolean;
+  /** false cuando el video ya está arriba, al lado del chat. */
+  showVideo?: boolean;
+}) {
   const b = edit.borrador!;
   const approved = edit.estado === 'aprobado';
   return (
-    <section className="grid gap-5 rounded-xl border border-line bg-surface p-5 md:grid-cols-[auto_minmax(0,1fr)]">
-      <video
-        key={b.version}
-        src={mediaUrl(edit.id, 'borrador', b.version)}
-        controls
-        playsInline
-        className="mx-auto max-h-[560px] w-full max-w-[320px] rounded-xl bg-black"
-      />
+    <section className={`grid gap-5 rounded-xl border border-line bg-surface p-5 ${showVideo ? 'md:grid-cols-[auto_minmax(0,1fr)]' : ''}`}>
+      {showVideo && (
+        <video
+          key={b.version}
+          src={mediaUrl(edit.id, 'borrador', b.version)}
+          controls
+          playsInline
+          className="mx-auto max-h-[560px] w-full max-w-[320px] rounded-xl bg-black"
+        />
+      )}
       <div className="space-y-4">
         <div>
           <h3 className="text-[15px] font-semibold text-fg">{approved ? 'Reel aprobado' : claudeWorking ? 'Borrador intermedio · Claude lo está mejorando' : 'Tu reel está listo'}</h3>

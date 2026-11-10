@@ -37,7 +37,18 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: renderizar_html_video': 'Renderizando la animación (HyperFrames)',
 };
 
-export function ClaudeEditChat({ edit, onChanged, onWorkingChange }: { edit: EditProject; onChanged: () => void; onWorkingChange?: (working: boolean) => void }) {
+export function ClaudeEditChat({
+  edit,
+  onChanged,
+  onWorkingChange,
+  fill = false,
+}: {
+  edit: EditProject;
+  onChanged: () => void;
+  onWorkingChange?: (working: boolean) => void;
+  /** Ocupa todo el alto de su contenedor (al lado del video). */
+  fill?: boolean;
+}) {
   return (
     <ClaudeAgentChat
       endpoint={`/api/editor/projects/${edit.id}/claude`}
@@ -51,6 +62,7 @@ export function ClaudeEditChat({ edit, onChanged, onWorkingChange }: { edit: Edi
       refreshOnStep
       materialKey={`edit:${edit.id}`}
       onWorkingChange={onWorkingChange}
+      fill={fill}
       onAttach={(files) => uploadAttachments(`/api/editor/projects/${edit.id}/files`, files)}
     />
   );
