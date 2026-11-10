@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import { ArrowLeft, Bot, Film, FolderCheck, History, Loader2, MessageSquare, Pencil, RotateCcw, Settings2, Sparkles, Square, Terminal, X } from 'lucide-react';
 import { useMiaStore } from '@/store/useMiaStore';
 import { useUgcStudioStore } from '@/store/useUgcStudioStore';
@@ -418,6 +419,18 @@ export function UgcGeneratorView({ onExit }: { onExit?: () => void }) {
                 <p className="mt-1.5 flex items-center gap-1.5 px-1 text-[11px] text-emerald-600 dark:text-emerald-400">
                   <FolderCheck className="h-3.5 w-3.5" /> Guardado en {savedProjectPath}
                 </p>
+              )}
+              {savedProjectPath && (
+                <FeedbackButton
+                  key={finalVideoUrl}
+                  className="mt-1.5 px-1"
+                  fuente={{
+                    tipo: 'archivo',
+                    servicio: 'ugc',
+                    ruta: `${savedProjectPath}${savedProjectPath.includes('\\') ? '\\' : '/'}final.mp4`,
+                    titulo: storyboard.title || 'UGC Studio',
+                  }}
+                />
               )}
             </div>
           )}

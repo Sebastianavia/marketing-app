@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import {
   AlertCircle,
   ArrowDown,
@@ -528,6 +529,9 @@ export function TextToVideoView() {
                 <FolderOpen className="h-3.5 w-3.5" /> Abrir carpeta
               </button>
             </div>
+            {project.outputPath && (
+              <FeedbackButton key={project.outputPath} fuente={{ tipo: 'archivo', servicio: 'escenas', ruta: project.outputPath, titulo: project.title || 'Guion a video' }} />
+            )}
           </div>
         )}
 

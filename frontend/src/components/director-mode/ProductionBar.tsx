@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Clapperboard, Eye, Film, Image as ImageIcon, Loader2, Pause, Play, RefreshCw, SkipBack, SkipForward, Wallet, X } from 'lucide-react';
 import type { Production, ProductionScene } from '@/lib/director/production-store';
 import type { useDirectorMode } from './useDirectorMode';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 
 /**
  * Generación del modo Director desde la app (lo mismo que hacen las herramientas de Claude · director):
@@ -166,6 +167,7 @@ export function ProductionBar({ dm, production, pulirConClaude }: { dm: DM; prod
           · también en Proyectos.
         </p>
       )}
+      {gen?.final && <FeedbackButton key={gen.final.version} fuente={{ tipo: 'director', id: production.id }} />}
 
       {showAnimatic && gen && <AnimaticPlayer production={production} onClose={() => setShowAnimatic(false)} />}
 

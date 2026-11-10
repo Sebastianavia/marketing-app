@@ -10,6 +10,7 @@ import { TodaySpend } from '@/components/layout/TodaySpend';
 import { OrchestratorPicker } from '@/components/layout/OrchestratorPicker';
 import { VideoCatalogAlert } from '@/components/layout/VideoCatalogAlert';
 import { DirectorApprovals } from '@/components/layout/DirectorApprovals';
+import { FeedbackInbox } from '@/components/feedback/FeedbackInbox';
 
 interface TitleBarProps {
   activeToolTitle?: string;
@@ -98,6 +99,7 @@ export function TitleBar({ activeToolTitle, onNavigateHome, onOpenCosts }: Title
         <DirectorApprovals />
         <VideoCatalogAlert />
         <OrchestratorPicker />
+        <FeedbackInbox />
         <TodaySpend onClick={onOpenCosts} />
         <CloudinaryCleanWidget />
 

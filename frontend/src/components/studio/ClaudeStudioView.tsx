@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import { ArrowLeft, CheckCircle2, CircleDashed, Clock, Download, Loader2, Plus, ShieldCheck, Sparkles, XCircle } from 'lucide-react';
 import { ClaudeAgentChat } from '@/components/claude/ClaudeAgentChat';
 import { agentApi } from '@/components/claude/agent-api';
@@ -64,6 +65,10 @@ const STATUS: Record<ServiceStatus, { label: string; icon: React.ReactNode; cls:
 
 const STEP_NAMES: Record<string, string> = {
   'lulo: servicios': 'Revisando qué herramientas hay',
+  'lulo: subir_a_feedback': 'Subiendo a la app de feedback',
+  'lulo: ver_feedback': 'Leyendo el feedback del equipo',
+  'lulo: feedback_pendiente': 'Recolectando el feedback del equipo',
+  'lulo: marcar_feedback_revisado': 'Marcando el feedback como recibido',
   'lulo: ver_proyecto': 'Mirando el proyecto',
   'lulo: pedir_aprobacion': 'Pidiendo tu aprobación',
   'lulo: mostrar': 'Preparando el resultado',
@@ -217,6 +222,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
             <Download className="h-3 w-3" /> Descargar
           </a>
         </figcaption>
+        {m.tipo === 'video' && <FeedbackButton className="px-1 pb-1" fuente={{ tipo: 'studio', id: current.id, mediaId: m.id }} />}
       </figure>
     );
   };

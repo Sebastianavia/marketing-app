@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import { VideoPlayer } from '../ui/VideoPlayer';
 import {
   Sparkles,
@@ -982,6 +983,13 @@ export function AvatarWorkspace() {
               if (file) handlePhotoSelect(file);
             }}
           />
+          {finalVideoUrl && finalVideoPath && (
+            <FeedbackButton
+              key={finalVideoPath}
+              className="mx-auto mt-3 w-full max-w-[340px]"
+              fuente={{ tipo: 'archivo', servicio: 'avatar', ruta: finalVideoPath, titulo: activeProject?.title || activeProject?.name || 'Avatar Studio' }}
+            />
+          )}
         </div>
       </div>
 

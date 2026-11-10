@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import {
   FolderKanban,
   FolderOpen,
@@ -287,14 +288,21 @@ export function ProjectsLibraryView({ onOpenTool }: ProjectsLibraryViewProps) {
 
               {/* Video Player or Content Preview */}
               {p.videoUrl || (p.videoPath && p.mediaAvailable?.video) ? (
-                <div className="relative aspect-video w-full rounded-lg bg-bg overflow-hidden border border-line">
-                  <video
-                    src={p.videoUrl || media(p.videoPath)}
-                    controls
-                    preload="metadata"
-                    className="h-full w-full object-contain"
-                  />
-                </div>
+                <>
+                  <div className="relative aspect-video w-full rounded-lg bg-bg overflow-hidden border border-line">
+                    <video
+                      src={p.videoUrl || media(p.videoPath)}
+                      controls
+                      preload="metadata"
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
+                  {p.videoPath && p.mediaAvailable?.video && (
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <FeedbackButton fuente={{ tipo: 'archivo', servicio: 'proyectos', ruta: p.videoPath, titulo: p.title || p.name }} />
+                    </div>
+                  )}
+                </>
               ) : p.imagePaths?.length ? (
                 <div className="grid grid-cols-2 gap-1.5">
                   {p.imagePaths.slice(0, 4).map((img) => (

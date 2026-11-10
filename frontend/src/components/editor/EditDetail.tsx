@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FeedbackButton } from '@/components/feedback/FeedbackButton';
 import {
   AlertCircle,
   ArrowLeft,
@@ -397,6 +398,7 @@ function DraftCard({ edit, busy, run }: { edit: EditProject; busy: string | null
             </a>
           )}
         </div>
+        <FeedbackButton key={b.version} fuente={{ tipo: 'edicion', id: edit.id }} />
 
         {b.calidad && b.calidad.length > 0 && (
           <div className="space-y-2 rounded-xl border border-line p-3">
