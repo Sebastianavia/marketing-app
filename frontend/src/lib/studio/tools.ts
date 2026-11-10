@@ -910,7 +910,7 @@ const subirAFeedback = tool({
 
 const verFeedback = tool({
   name: 'ver_feedback',
-  description: 'Estado y notas de los videos de ESTE proyecto subidos a la app de feedback (Por revisar, Cambios pedidos, Claude trabajando, Claude respondió, Aprobado). $0.',
+  description: 'Estado y notas de los videos de ESTE proyecto subidos a la app de feedback (En revisión del equipo, Enviado a Claude, Claude trabajando, Claude respondió, Versión anterior). $0.',
   schema: z.object({}),
   run: async (id) => originFeedbackForClaude('studio', id),
 });
@@ -918,14 +918,14 @@ const verFeedback = tool({
 const feedbackPendiente = tool({
   name: 'feedback_pendiente',
   description:
-    'Videos de TODO el equipo (cualquier herramienta o PC) donde se pidieron cambios en la app de feedback y Claude aún no los tomó, con sus notas. `todos: true` = todos los videos con feedback y su estado. $0.',
+    'Videos de TODO el equipo (cualquier herramienta o PC) donde el equipo envió sus notas a Claude y aún no se extrajeron, con sus notas. `todos: true` = todos los videos con feedback y su estado. $0.',
   schema: z.object({ todos: z.boolean().default(false) }),
   run: async (_id, { todos }) => feedbackForClaude(todos),
 });
 
 const tomarFeedback = tool({
   name: 'tomar_feedback',
-  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback o feedback_pendiente. $0.',
+  description: 'Extrae las notas y el feedback que el equipo envió a Claude desde la app de feedback (estado «Enviado a Claude»): las descarga y deja esa versión en «Claude trabajando». Devuelve las notas para ejecutarlas. `key` sale de ver_feedback o feedback_pendiente. $0.',
   schema: z.object({ key: z.string().min(1).max(400) }),
   run: async (_id, { key }) => takeFeedbackFromAgent(key, 'Estudio Claude'),
 });

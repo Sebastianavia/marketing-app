@@ -326,14 +326,14 @@ const publicarBorrador = tool({
 const verFeedback = tool({
   name: 'ver_feedback',
   description:
-    'Estado y notas de los borradores de esta edición subidos a la app de feedback (Por revisar, Cambios pedidos, Claude trabajando, Claude respondió, Aprobado). Tiempos [mm:ss] DEL BORRADOR subido: ubícalos con palabras_borrador. $0.',
+    'Estado y notas de los borradores de esta edición subidos a la app de feedback (En revisión del equipo, Enviado a Claude, Claude trabajando, Claude respondió, Versión anterior). Tiempos [mm:ss] DEL BORRADOR subido: ubícalos con palabras_borrador. $0.',
   schema: z.object({}),
   run: async (editId) => originFeedbackForClaude('edicion', editId),
 });
 
 const tomarFeedback = tool({
   name: 'tomar_feedback',
-  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback. $0.',
+  description: 'Extrae las notas y el feedback que el equipo envió a Claude desde la app de feedback (estado «Enviado a Claude»): las descarga y deja esa versión en «Claude trabajando». Devuelve las notas para ejecutarlas. `key` sale de ver_feedback. $0.',
   schema: z.object({ key: z.string().min(1).max(400) }),
   run: async (editId, { key }) => takeFeedbackFromAgent(key, 'Claude · editor', { servicio: 'edicion', id: editId }),
 });

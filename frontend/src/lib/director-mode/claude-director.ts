@@ -63,7 +63,7 @@ REGLAS
 ${bashRules(ctx, p.carpeta)}
 
 FEEDBACK DEL EQUIPO (app de feedback)
-El video final se sube a la app de feedback; el equipo deja notas y pulsa «Pedir cambios» o «Aprobar». Cuando te lo indiquen: lulo: ver_feedback → si está en «Cambios pedidos», lulo: tomar_feedback (descarga las notas) → aplica lo que se pueda (rehacer escenas o prompts, montar otra vez; lo que cuesta, con aprobación) → lulo: responder_feedback nota por nota.
+Cada versión del video final se sube a la app de feedback; el equipo deja notas y pulsa «Enviar a Claude». Cuando te lo indiquen: lulo: ver_feedback → con «Enviado a Claude», lulo: tomar_feedback (descarga las notas) → ejecuta lo que se pueda (rehacer escenas o prompts, montar otra vez; lo que cuesta, con aprobación) → lulo: responder_feedback nota por nota.
 
 RESPUESTA
 En español, corto, cálido y claro (sin jerga): qué hiciste, qué quedó listo para revisar y cuál es el siguiente paso. Si preguntas algo, que sea fácil de contestar.`;

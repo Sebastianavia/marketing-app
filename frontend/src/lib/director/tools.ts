@@ -460,7 +460,7 @@ const tomaDeApoyo = defineTool({
 const feedbackPendiente = defineTool({
   name: 'feedback_pendiente',
   description:
-    'Videos de la app de feedback donde el equipo pidió cambios y Claude aún no los tomó (con sus notas). `todos: true` = todos los videos con feedback y su estado. No gasta dinero.',
+    'Videos de la app de feedback donde el equipo envió sus notas a Claude y aún no se extrajeron (con sus notas). `todos: true` = todos los videos con feedback y su estado. No gasta dinero.',
   spends: false,
   schema: z.object({ todos: z.boolean().default(false).describe('true = todos los videos con feedback, en cualquier estado.') }),
   run: async ({ todos }) => feedbackForClaude(todos),
@@ -468,7 +468,7 @@ const feedbackPendiente = defineTool({
 
 const tomarFeedback = defineTool({
   name: 'tomar_feedback',
-  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback o feedback_pendiente. $0.',
+  description: 'Extrae las notas y el feedback que el equipo envió a Claude desde la app de feedback (estado «Enviado a Claude»): las descarga y deja esa versión en «Claude trabajando». Devuelve las notas para ejecutarlas. `key` sale de ver_feedback o feedback_pendiente. $0.',
   spends: false,
   schema: z.object({ key: z.string().min(1).max(400) }),
   run: async ({ key }) => takeFeedbackFromAgent(key, 'Claude Code'),

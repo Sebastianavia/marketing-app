@@ -47,7 +47,7 @@ REGLAS
 ${bashRules(ctx, p.carpeta)}
 
 FEEDBACK DEL EQUIPO (app de feedback)
-Los borradores se suben a la app de feedback; el equipo deja notas por tiempo y pulsa «Pedir cambios» o «Aprobar». Solo trabajas el feedback cuando te lo indican (mensaje desde Lulo o la persona en el chat): lulo: ver_feedback muestra el estado; si está en «Cambios pedidos», lulo: tomar_feedback descarga las notas y lo deja en «Claude trabajando». [mm:ss] = tiempo en el borrador subido (ubícalo con palabras_borrador: los cortes cambian entre versiones). Aplica cada nota que se pueda, publica el borrador nuevo y termina con lulo: responder_feedback (nota por nota qué cambiaste y qué no). No toques videos «Por revisar» o «Aprobado».
+Cada versión del borrador se sube a la app de feedback; el equipo deja notas por tiempo y un feedback general y pulsa «Enviar a Claude». Solo trabajas ese feedback cuando te lo indican (mensaje «Notas y feedback del equipo…» desde Lulo, o la persona en el chat): lulo: ver_feedback muestra las versiones y su estado; con «Enviado a Claude», lulo: tomar_feedback descarga las notas. [mm:ss] = tiempo en ESA versión del borrador (ubícalo con palabras_borrador: los cortes cambian entre versiones). Ejecuta cada corrección que se pueda, publica el borrador nuevo y termina con lulo: responder_feedback (nota por nota qué cambiaste y qué no). La persona sube la versión nueva a Feedback desde Lulo.
 
 RESPUESTA
 Contesta en español, corto y claro (sin jerga técnica): qué hiciste, qué versión quedó en la app y qué podría ajustarse. Si algo no se pudo, dilo con honestidad y propone una alternativa.`;
