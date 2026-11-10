@@ -66,11 +66,15 @@ export async function validateMaterialFolder(input: string): Promise<string> {
   if (path.parse(resolved).root === resolved || path.dirname(resolved) === resolved) throw new MaterialError('Elige una carpeta concreta, no la raíz del disco.');
   const home = path.resolve(/*turbopackIgnore: true*/ os.homedir());
   if (isInside(resolved, home)) throw new MaterialError('Elige una carpeta concreta (no la carpeta personal completa).');
-  for (const blocked of [repoRoot(), getDataDir()]) {
+  // Rutas reales también aquí: /tmp → /private/tmp en macOS, unidades montadas…
+  const real2 = async (p: string) => fs.realpath(p).catch(() => path.resolve(/*turbopackIgnore: true*/ p));
+  for (const blocked of await Promise.all([repoRoot(), getDataDir()].map(real2))) {
     if (isInside(blocked, resolved) || isInside(resolved, blocked)) throw new MaterialError('Esa carpeta tiene archivos internos de Lulo Studio: elige otra.');
   }
   const parts = path.relative(path.parse(resolved).root, resolved).split(path.sep);
-  if (parts.some((s) => hidden(s) || s.toLowerCase() === 'appdata' || s === 'Library')) {
+  // ~/Library (macOS) es configuración; una carpeta «Library» en otro sitio es material normal
+  const macLibrary = process.platform === 'darwin' && isInside(path.join(/*turbopackIgnore: true*/ home, 'Library'), resolved);
+  if (macLibrary || parts.some((s) => hidden(s) || s.toLowerCase() === 'appdata')) {
     throw new MaterialError('No se pueden usar carpetas ocultas o de configuración del sistema.');
   }
   return resolved;

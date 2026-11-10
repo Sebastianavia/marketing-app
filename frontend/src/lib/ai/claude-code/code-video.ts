@@ -65,17 +65,17 @@ function inside(base: string, rel: string, what: string): string {
 async function assertSafeProject(dir: string) {
   let count = 0;
   const walk = async (d: string) => {
-    for (const e of await fs.readdir(d, { withFileTypes: true })) {
-      const full = path.join(/*turbopackIgnore: true*/ d, e.name);
-      if (e.isSymbolicLink()) throw new CodeVideoError(`El proyecto no puede tener enlaces (${path.relative(dir, full)}): copia el archivo dentro.`);
-      if (e.isDirectory()) {
-        if (e.name === 'renders') continue;
-        await walk(full);
-      } else if (e.isFile()) {
-        if (++count > 5000) throw new CodeVideoError('El proyecto tiene demasiados archivos (máx. 5000).');
-        const st = await fs.stat(full);
-        if (st.nlink > 1) throw new CodeVideoError(`El proyecto no puede tener enlaces duros (${path.relative(dir, full)}): copia el archivo dentro.`);
-      }
+    for (const name of await fs.readdir(d)) {
+      const full = path.join(/*turbopackIgnore: true*/ d, name);
+      // lstat y no el tipo de readdir: hay sistemas de archivos que no lo informan. Se revisa todo,
+      // también renders/: el servidor de HyperFrames sirve la carpeta entera
+      const st = await fs.lstat(full);
+      const rel = path.relative(dir, full);
+      if (st.isSymbolicLink()) throw new CodeVideoError(`El proyecto no puede tener enlaces (${rel}): copia el archivo dentro.`);
+      if (++count > 5000) throw new CodeVideoError('El proyecto tiene demasiados archivos (máx. 5000).');
+      if (st.isDirectory()) await walk(full);
+      else if (!st.isFile()) throw new CodeVideoError(`El proyecto tiene un archivo especial (${rel}): quítalo.`);
+      else if (st.nlink > 1) throw new CodeVideoError(`El proyecto no puede tener enlaces duros (${rel}): copia el archivo dentro.`);
     }
   };
   await walk(dir);

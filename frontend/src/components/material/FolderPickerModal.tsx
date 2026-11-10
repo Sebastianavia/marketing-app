@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Check, Folder, FolderOpen, HardDrive, Loader2, X } from 'lucide-react';
 import { describeKinds, materialApi, type BrowseResult } from './material-api';
 
@@ -50,16 +50,25 @@ export function FolderPickerModal({
     }
   }, []);
 
+  // onClose e initial cambian en cada render del padre (el chat se redibuja con cada evento de
+  // Claude): con refs, el explorador solo se reinicia al abrirse y no a mitad de navegación
+  const onCloseRef = useRef(onClose);
+  const initialRef = useRef(initial);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    initialRef.current = initial;
+  });
+
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(() => void go(initial ?? undefined), 0);
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const t = setTimeout(() => void go(initialRef.current ?? undefined), 0);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current();
     window.addEventListener('keydown', onKey);
     return () => {
       clearTimeout(t);
       window.removeEventListener('keydown', onKey);
     };
-  }, [open, initial, go, onClose]);
+  }, [open, go]);
 
   if (!open) return null;
 

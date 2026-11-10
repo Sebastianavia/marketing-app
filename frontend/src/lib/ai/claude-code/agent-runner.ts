@@ -11,6 +11,7 @@ import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
+import { isInside } from '@/lib/fs/inside';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, execClaude, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
@@ -286,8 +287,11 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
         // localhost; en Windows (sin sandbox) esto evita que Claude se apruebe a sí mismo con un
         // comando o lea el token del Director o las claves.
         ...AGENT_DENY,
-        // La carpeta de material es de solo lectura
-        ...(dirs.material ? [`Edit(/${rulePath(dirs.material)}/**)`] : []), // Edit cubre todas las escrituras de archivos
+        // La carpeta de material es de solo lectura. En modo dontAsk Edit/Write ya están limitados a
+        // la carpeta del proyecto y a la de herramientas; esta regla protege además una carpeta de
+        // material que esté DENTRO del proyecto. Si el material contiene el proyecto (p. ej. toda la
+        // carpeta de proyectos) no se pone: bloquearía también la carpeta de trabajo de Claude.
+        ...(dirs.material && !isInside(dirs.material, spec.cwd) ? [`Edit(/${rulePath(dirs.material)}/**)`] : []),
       ],
     },
   };

@@ -167,7 +167,11 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
     try {
       const { proyecto } = await api<{ proyecto: Project }>('/api/studio', json({ titulo: t.split(/\s+/).slice(0, 7).join(' ') }));
       // La carpeta de material va antes del primer mensaje para que Claude la vea desde el inicio
-      if (firstMaterial) await materialApi.set(`studio:${proyecto.id}`, firstMaterial);
+      // Si la carpeta ya no vale se avisa, pero la conversación empieza igual (si no, quedaría un
+      // proyecto vacío)
+      if (firstMaterial) {
+        await materialApi.set(`studio:${proyecto.id}`, firstMaterial).catch((err) => setError(`Carpeta de material: ${err instanceof Error ? err.message : 'no se pudo guardar'}`));
+      }
       await agentApi.send(`/api/studio/${proyecto.id}/claude`, t);
       setFirst('');
       setFirstMaterial(null);

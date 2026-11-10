@@ -6,6 +6,7 @@ import type { EditProfile } from '@/config/editor-looks';
 import type { EditProject } from '@/lib/editor/types';
 import { editorApi, uploadEdit, type SystemStatus } from './editor-api';
 import { MaterialFolderField } from '@/components/material/MaterialFolderBar';
+import { materialApi } from '@/components/material/material-api';
 import { LookDots, LookPreview } from './LookPreview';
 
 /**
@@ -83,6 +84,11 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
     setError(null);
     const meta = { titulo: titulo.trim(), pedido: pedido.trim(), perfilId: perfil.id, revisarAntes, ...(material ? { carpetaMaterial: material } : {}) };
     try {
+      // Antes de subir el video: si la carpeta ya no vale, el error llega claro y sin esperar la subida
+      if (material) {
+        const b = await materialApi.browse(material);
+        if (!b.usable) throw new Error(`Carpeta de material: ${b.problema ?? 'no se puede usar'}`);
+      }
       const edit = localVideo
         ? await editorApi.fromProjects({ ...meta, rutaLocal: localVideo.ruta })
         : await uploadEdit(file!, meta, (pct) => setProgress(pct));

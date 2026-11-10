@@ -282,14 +282,19 @@ const agregarReferencia = tool({
   }),
   run: async (productionId, { archivos, escenaId }) => {
     const p = await getDirectorProduction(productionId);
+    const carpeta = await fs.realpath(p.carpeta).catch(() => path.resolve(/*turbopackIgnore: true*/ p.carpeta));
     const material = await usableMaterialFolder(`director:${productionId}`);
     const files = [];
     for (const a of archivos) {
-      const abs = path.resolve(/*turbopackIgnore: true*/ p.carpeta, a);
+      const abs = path.resolve(/*turbopackIgnore: true*/ carpeta, a);
       const real = await fs.realpath(abs).catch(() => '');
       if (!real) throw new DirectorAgentToolError(`No existe ${a}.`, 404);
-      const ok = isInside(p.carpeta, real) || (material && isInside(material, real));
+      const ok = isInside(carpeta, real) || (material && isInside(material, real));
       if (!ok) throw new DirectorAgentToolError(`${a} no está en la carpeta de material ni en la de la producción.`);
+      // Antes de leerlo: las referencias admiten como mucho 50 MB (audio); no cargar videos enormes
+      const st = await fs.stat(real);
+      if (!st.isFile()) throw new DirectorAgentToolError(`${a} no es un archivo.`);
+      if (st.size > 50 * 1048576) throw new DirectorAgentToolError(`${a} pesa más de 50 MB: las referencias son fotos, audios o PDF.`);
       files.push({ name: path.basename(real), bytes: await fs.readFile(real) });
     }
     const r = await addReferences(productionId, files, { escenaId });
