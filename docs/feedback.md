@@ -4,43 +4,42 @@ Actualizado el 2026-11-10. La app de feedback (repo aparte en `~/Documents/feedb
 https://video-feedback-b07.pages.dev) sirve para que el equipo vea un video y deje notas por segundo.
 Lulo sube allí los videos y trae de vuelta las notas para que Claude las aplique.
 
-## Flujo (estados)
+## Flujo
 
 ```
-Lulo: «Subir a Feedback»  →  Por revisar (resaltado en ámbar en la app de feedback)
-Equipo (en la app publicada): mira el video, deja notas con su nombre y pulsa
-        «Pedir cambios»  →  Cambios pedidos        o        «Aprobar»  →  Aprobado
-Lulo: «Aplicar cambios con Claude» (botón o bandeja), o se le pide a Claude en el chat
-        →  Claude trabajando (Claude descarga las notas; esa versión queda cerrada)
-Claude aplica y responde nota por nota  →  Claude respondió (vuelve a resaltarse para el equipo)
-Lulo sube la versión nueva  →  la anterior queda «Hay versión nueva»
+Lulo: «Subir a Feedback»  →  versión vN en el proyecto del video  →  En revisión del equipo (resaltada)
+App de feedback: el equipo deja notas por segundo y un feedback general, firma con su nombre
+        y pulsa «Enviar a Claude»  →  Enviado a Claude  (puede retirar el envío o seguir añadiendo notas)
+Lulo: «Extraer notas y feedback» en el video (en esa versión) o en la bandeja, o se le pide a Claude
+        en el chat  →  Claude trabajando  (Claude descarga las notas; esa versión queda cerrada)
+Claude ejecuta las correcciones y responde nota por nota  →  Claude respondió
+Lulo: «Subir esta versión a Feedback» (v N+1, mismo proyecto)  →  la anterior queda «Versión anterior»
+        y el equipo sigue comentando sobre la nueva…
 ```
 
-- El equipo entra directamente a https://video-feedback-b07.pages.dev. Arriba ve **«Para revisar»**
-  (videos *Por revisar* y *Claude respondió*) y cada tarjeta lleva el color de su estado.
-- El nombre del revisor se pide una vez y se guarda en su navegador. Firma las notas y la decisión.
-- «Pedir cambios» exige al menos una nota o un feedback general. Se puede deshacer mientras Claude no lo tome.
-- **Lulo no consulta nada en segundo plano.** Lee el bucket solo cuando:
-  - se abre la bandeja **Feedback** de la barra superior o se pulsa «Actualizar»;
-  - se muestra el botón de un video (lee solo ese video: 2 lecturas);
-  - Claude usa sus herramientas de feedback.
-- Claude solo trabaja videos en **Cambios pedidos**, y siempre porque se lo indica una persona desde
-  Lulo: con el botón, con la bandeja o pidiéndoselo en el chat («revisa el feedback»).
+- La app de feedback solo sirve para dejar notas y feedback general, y para enviarlos a Claude. No hay
+  «Aprobar». Cualquiera con el enlace puede comentar.
+- En Lulo, el bloque de feedback de cada video lista **todas sus versiones** subidas con su estado y,
+  en las que están en *Enviado a Claude*, el botón «Extraer notas y feedback».
+  - La versión nueva se propone con el número siguiente y en el mismo proyecto de Feedback.
+  - Un archivo que se vuelve a montar en la misma ruta (UGC, avatar…) también cuenta como versión nueva.
+- **Lulo no consulta nada en segundo plano.** Lee el bucket solo al mostrar el bloque de un video (solo
+  sus versiones), al abrir la bandeja **Feedback** o cuando Claude usa sus herramientas.
+- Claude solo trabaja versiones *Enviado a Claude*, y siempre porque una persona se lo indica desde Lulo.
 
 ## Colores
 
-| Estado | App de feedback | Lulo |
-|---|---|---|
-| Por revisar | ámbar, resaltado | ámbar |
-| Cambios pedidos | naranja | naranja (número en la bandeja) |
-| Claude trabajando | azul | azul |
-| Claude respondió | violeta, resaltado | violeta |
-| Aprobado | verde | verde |
-| Hay versión nueva | gris, atenuado | gris |
+| Estado | Color |
+|---|---|
+| En revisión del equipo («Por revisar» en la app de feedback) | ámbar, resaltado |
+| Enviado a Claude | naranja (número en la bandeja) |
+| Claude trabajando | azul |
+| Claude respondió | violeta |
+| Versión anterior | gris, atenuado |
 
-## A quién le llegan los cambios
+## A quién le llegan las notas
 
-| Video subido desde | «Aplicar cambios con Claude» va a |
+| Video subido desde | «Extraer notas y feedback» va a |
 |---|---|
 | Edición de video (borrador vN) | El chat «Claude · editor» de esa edición |
 | Guion a video · Director (final vN) | El chat «Claude · director» de esa producción |
@@ -56,8 +55,9 @@ Lulo sube la versión nueva  →  la anterior queda «Hay versión nueva»
 | Estudio Claude | `subir_a_feedback`, `ver_feedback` (ese proyecto), `feedback_pendiente` (todos los videos del equipo con cambios pedidos), `tomar_feedback`, `responder_feedback` |
 | Claude Code en la terminal (MCP `lulo-studio`) | `feedback_pendiente`, `tomar_feedback`, `responder_feedback` |
 
-- `tomar_feedback` descarga las notas del momento y deja el video en *Claude trabajando*. Si ya estaba
-  tomado, no cambia nada. Rechaza los videos *Por revisar*, *Aprobado*, *Claude respondió* y *Hay versión nueva*.
+- `tomar_feedback` (lo mismo que «Extraer notas y feedback») descarga las notas del momento y deja la
+  versión en *Claude trabajando*. Si ya estaba extraída, no cambia nada. Solo acepta versiones
+  *Enviado a Claude*.
 - `responder_feedback` guarda el resumen nota por nota en `<video>.lulo.json`. El equipo lo ve en el
   reproductor como «Respuesta de Claude».
 
@@ -100,9 +100,9 @@ Lulo sube la versión nueva  →  la anterior queda «Hay versión nueva»
 - `GET /api/feedback/<key>`: añade `estado` y `lulo` (con `respuesta`).
 - `PUT /api/feedback/<key>`: las notas aceptan `autor` y se conserva la decisión. Responde 409 si el
   video está en *Claude trabajando* o *Hay versión nueva*.
-- `POST /api/feedback/<key>` `{accion:"decidir", tipo:"cambios"|"aprobado"|null, por}`: la decisión.
-- `public/app.js`: resumen por estado, sección «Para revisar», tarjetas con color, panel «Revisión» en
-  el reproductor (nombre, Pedir cambios / Aprobar / Deshacer, respuesta de Claude, versión nueva) y
+- `POST /api/feedback/<key>` `{accion:"decidir", tipo:"cambios"|null, por}`: «Enviar a Claude» (o retirar el envío).
+- `public/app.js`: resumen por estado, sección «Para revisar», tarjetas con color, panel «Enviar a Claude» en
+  el reproductor (nombre, «Enviar a Claude» / «Retirar envío», respuesta de Claude, versión nueva) y
   notas cerradas mientras Claude trabaja.
 - **Diseño Lulo Studio (2026-11-10):**
   - Mismos tokens que `globals.css`: oscuro por defecto y claro si el sistema lo pide; lima `#C6FF3D`
@@ -113,7 +113,7 @@ Lulo sube la versión nueva  →  la anterior queda «Hay versión nueva»
 - **Celular:**
   - El video queda fijo arriba mientras se leen las notas y se suelta al escribir, para dejar sitio
     al teclado (`body.is-editing`).
-  - En pantallas pequeñas el orden es notas → feedback general → decisión; el estado se ve junto al título.
+  - El orden es notas → feedback general → «Enviar a Claude»; el estado se ve junto al título.
   - Botones de al menos 40 px, campos de 16 px (iOS no hace zoom), márgenes seguros
     (`env(safe-area-inset-*)`), sin atajos de teclado en pantallas táctiles y miniaturas 4:5
     (los videos de Lulo son verticales).
