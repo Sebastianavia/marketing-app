@@ -19,6 +19,8 @@ import {
 } from '@/config/broll-models';
 import { sceneClipChoice } from '@/lib/director-mode/durations';
 import { estimatePlan } from '@/lib/director/estimate';
+import { getImageModel, isValidImageModelId } from '@/config/image-models';
+import { isApiMartImageModel } from '@/lib/ai/apimart';
 
 const IMG = 'https://res.cloudinary.com/demo/image/upload/frame.jpg';
 const REF = (n: number) => `https://res.cloudinary.com/demo/image/upload/ref-${n}.jpg`;
@@ -171,6 +173,49 @@ test('Presupuesto del Director: imagen GPT Image 2 1K + clip Grok 6 s 480p ≈ $
   assert.equal(e.totalUSD.toFixed(4), '0.0871');
   const prev = estimatePlan([{ tipo: 'toma_de_apoyo', modelo: 'gemini-omni-flash-preview', duracionSeg: 4, conAudio: true }]);
   assert.ok(prev.suposiciones.some((s) => /peor caso/.test(s)));
+});
+
+test('Modelos de imagen Apimart: GPT Image 2, Nano Banana Pro y Seedream 5.0 Pro (con aliases y costos)', () => {
+  for (const id of [
+    'gpt-image-2',
+    'gpt-image-2-ext',
+    'gemini-3-pro-image-preview',
+    'nano-banana-pro-ext',
+    'gemini-3-pro-image-preview-official',
+    'nano-banana-pro',
+    'seedream-5-0-pro',
+    'seedream-5.0-pro',
+  ]) {
+    assert.ok(isValidImageModelId(id), `Debe aceptar ${id}`);
+    assert.ok(isApiMartImageModel(id), `Debe reconocer ${id} como Apimart`);
+  }
+
+  const nano = getImageModel('nano-banana-pro-ext');
+  assert.equal(nano.id, 'gemini-3-pro-image-preview');
+  assert.equal(nano.maxRefs, 14);
+  assert.equal(nano.pricePerImage['1K'], 0.068);
+
+  const seedream = getImageModel('seedream-5.0-pro');
+  assert.equal(seedream.id, 'seedream-5-0-pro');
+  assert.equal(seedream.maxRefs, 10);
+  assert.deepEqual(seedream.resolutions, ['1K', '1.5K', '2K']);
+  assert.equal(seedream.defaultResolution, '1.5K');
+  assert.equal(seedream.pricePerImage['1K'], 0.045);
+  assert.equal(seedream.pricePerImage['1.5K'], 0.045);
+  assert.equal(seedream.pricePerImage['2K'], 0.09);
+
+  const planSeedream = estimatePlan([
+    { tipo: 'imagen', modelo: 'seedream-5-0-pro', resolucion: '1.5K', cantidad: 1 },
+    { tipo: 'imagen', modelo: 'nano-banana-pro-ext', resolucion: '1K', cantidad: 1 },
+  ]);
+  assert.equal(planSeedream.escenas[0].costoUSD, 0.045);
+  assert.equal(planSeedream.escenas[1].costoUSD, 0.068);
+
+  const choiceWithSeedream = sceneClipChoice(
+    { clipOpciones: { modeloImagen: 'seedream-5-0-pro' } },
+    { modeloBroll: 'grok-imagine-1.5-video-ext', imagenInicial: true }
+  );
+  assert.equal(choiceWithSeedream.imageModel.id, 'seedream-5-0-pro');
 });
 
 console.log(`\n${ok} pruebas correctas. No se llamó a ninguna API.`);

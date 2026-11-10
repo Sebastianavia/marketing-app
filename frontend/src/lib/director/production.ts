@@ -7,7 +7,7 @@ import { assertWithinDailyLimit } from '@/lib/usage/usage-store';
 import { cloudinaryStorageService } from '@/services/storage/cloudinary.service';
 import { getConfiguredVoiceId } from '@/services/elevenlabs/elevenlabs.service';
 import { DEFAULT_ELEVEN_MODEL } from '@/config/elevenlabs-models';
-import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
+import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/config/image-models';
 import { DEFAULT_BROLL_MODEL, brollResolution, clipCostUSD, getBrollModel, pickBrollDuration } from '@/config/broll-models';
 import { refAbsPath } from '@/lib/director-mode/references';
 import { videoRate } from '@/config/cost-rates';
@@ -104,11 +104,16 @@ async function validateSpec(spec: SceneSpec, n: number, all: SceneSpec[]) {
     case 'voz':
       if (!spec.texto?.trim()) fail('una locución necesita "texto".');
       break;
-    case 'imagen':
+    case 'imagen': {
       if (!spec.prompt || spec.prompt.trim().length < 3) fail('una imagen necesita "prompt".');
       if ((spec.cantidad ?? 1) > 4) fail('máximo 4 imágenes por escena.');
-      if ((spec.referencias?.length ?? 0) > 14) fail('máximo 14 fotos de referencia por imagen.');
+      const imgModel = getImageModel(spec.modelo || DEFAULT_IMAGE_MODEL);
+      const maxRefs = spec.avatarId ? Math.max(0, imgModel.maxRefs - 1) : imgModel.maxRefs;
+      if ((spec.referencias?.length ?? 0) > maxRefs) {
+        fail(`${imgModel.name} admite hasta ${maxRefs} fotos de referencia${spec.avatarId ? ' además del avatar' : ''}.`);
+      }
       break;
+    }
     case 'toma_de_apoyo': {
       if (!spec.prompt?.trim()) fail('una toma de apoyo necesita "prompt".');
       const model = getBrollModel(spec.modelo || DEFAULT_BROLL_MODEL);

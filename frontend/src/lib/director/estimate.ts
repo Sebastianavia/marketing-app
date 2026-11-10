@@ -150,7 +150,7 @@ function estimateBroll(scene: SceneInput, n: number, assumptions: string[]): Sce
 
 function estimateImage(scene: SceneInput, n: number): SceneEstimate {
   const id = scene.modelo || DEFAULT_IMAGE_MODEL;
-  const model = IMAGE_MODELS.find((m) => m.id === id);
+  const model = IMAGE_MODELS.find((m) => m.id === id || m.aliases?.includes(id));
   if (!model) {
     throw new EstimateError(`Escena ${n}: modelo de imagen desconocido "${id}". Válidos: ${IMAGE_MODELS.map((m) => m.id).join(', ')}.`);
   }

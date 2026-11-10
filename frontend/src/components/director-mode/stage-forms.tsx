@@ -3,13 +3,14 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, FileUp, Lightbulb, Loader2, Pencil, RotateCcw } from 'lucide-react';
 import { VOICE_MODES, brollPriceLabel, brollResolution, getBrollModel, type VoiceMode } from '@/config/broll-models';
+import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS, getImageModel } from '@/config/image-models';
 import { brollModelsFor, durationRules } from '@/lib/director-mode/durations';
 import { REALISM_SUMMARY_ES } from '@/lib/director-mode/prompts';
 import { ACTIVE_ORDER, STAGES, promptIsStale } from '@/lib/director-mode/stages';
 import type { Aspect, ActiveStageId, DirectorSettings, DirectorState, InputKind } from '@/lib/director-mode/types';
 import type { Production } from '@/lib/director/production-store';
 import { ScriptSceneCard, TYPE_LABEL } from './ScriptSceneCard';
-import { ClipPicker } from './ClipPicker';
+import { ClipPicker, imageStartCostUSD } from './ClipPicker';
 import type { useDirectorMode } from './useDirectorMode';
 
 /**
@@ -44,9 +45,10 @@ export function StageSummary({ id, p }: { id: ActiveStageId; p: Production }) {
   const d = p.director!;
   if (id === 'ajustes' && d.etapas.ajustes.estado === 'aprobada') {
     const voice = VOICE_MODES.find((v) => v.id === d.ajustes.modoVoz)?.label;
+    const imgModel = (d.ajustes.imagenInicial ?? true) ? getImageModel(d.ajustes.modeloImagen || DEFAULT_IMAGE_MODEL).name : 'sin imagen inicial';
     return (
       <>
-        {d.ajustes.formato} · {d.ajustes.duracionSeg} s · {voice} · {getBrollModel(d.ajustes.modeloBroll).name} ·{' '}
+        {d.ajustes.formato} · {d.ajustes.duracionSeg} s · {voice} · {getBrollModel(d.ajustes.modeloBroll).name} · {imgModel} ·{' '}
         {d.ajustes.avatarNombre ? `avatar «${d.ajustes.avatarNombre}»` : 'sin avatar'} · presupuesto ${d.ajustes.presupuestoUSD}
       </>
     );
@@ -460,6 +462,22 @@ export function SettingsStage({ d, busy, act }: { d: DirectorState; busy: string
           <input type="checkbox" checked={s.imagenInicial ?? true} onChange={(e) => set({ imagenInicial: e.target.checked })} />
           Imagen inicial por escena
         </label>
+        {(s.imagenInicial ?? true) && (
+          <label className="space-y-1">
+            <span className="block">Modelo de imagen inicial</span>
+            <select
+              value={getImageModel(s.modeloImagen || DEFAULT_IMAGE_MODEL).id}
+              onChange={(e) => set({ modeloImagen: e.target.value })}
+              className="input-clean h-8 px-2 text-[12px]"
+            >
+              {IMAGE_MODELS.map((im) => (
+                <option key={im.id} value={im.id}>
+                  {im.name} · ${imageStartCostUSD(im.id).toFixed(3)}/img
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="space-y-1">
           <span className="block">Avatar (opcional)</span>
           <select value={s.avatarId ?? ''} onChange={(e) => set({ avatarId: e.target.value || null })} className="input-clean h-8 px-2 text-[12px]">
@@ -487,7 +505,9 @@ export function SettingsStage({ d, busy, act }: { d: DirectorState; busy: string
       <p className="text-[11px] text-fg-subtle">Duraciones por escena: {durationRules(s)}. Las escenas se ajustan solas a estas duraciones.</p>
       <p className="text-[11px] text-fg-subtle">
         {getBrollModel(s.modeloBroll).note}
-        {(s.imagenInicial ?? true) && ' Cada toma parte de una imagen inicial hecha con GPT Image 2 (≈ $0.011), con tu avatar y tus referencias.'} Puedes cambiar el modelo de una escena en su nodo Clip.
+        {(s.imagenInicial ?? true) &&
+          ` Cada toma parte de una imagen inicial hecha con ${getImageModel(s.modeloImagen || DEFAULT_IMAGE_MODEL).name} (≈ $${imageStartCostUSD(s.modeloImagen).toFixed(3)}/img), con tu avatar y tus referencias.`}{' '}
+        Puedes cambiar el modelo de clip o de imagen en cada escena.
       </p>
       {!models.length && <p className="text-[11.5px] text-red-600 dark:text-red-400">Ningún modelo admite esta combinación de formato y voz.</p>}
       <div className="flex justify-end gap-2">

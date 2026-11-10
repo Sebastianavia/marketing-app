@@ -67,25 +67,33 @@ export type ApiMartImageModelId =
   | 'gemini-3-pro-image-preview'
   | 'nano-banana-pro-ext'
   | 'gemini-3-pro-image-preview-official'
-  | 'nano-banana-pro';
+  | 'nano-banana-pro'
+  | 'seedream-5-0-pro'
+  | 'seedream-5.0-pro';
 
 export interface ApiMartImageGenerationPayload {
-  /** Modelo de imagen en Apimart: GPT-Image-2 o Nano Banana Pro (`gemini-3-pro-image-preview`). */
+  /** Modelo de imagen en Apimart: GPT-Image-2, Nano Banana Pro o Seedream 5.0 Pro. */
   model?: ApiMartImageModelId | string;
   /** Descripción textual para la generación de la imagen. */
   prompt: string;
-  /** Número de imágenes a generar (entero puro, por defecto 1). */
+  /** Número de imágenes a generar (entero puro, por defecto 1; en Seedream 5.0 Pro siempre es 1). */
   n?: number;
-  /** Proporción de la imagen (9:16 por defecto en Lulo Studio). */
+  /** Proporción de la imagen (9:16 por defecto en Lulo Studio) o dimensiones exactas widthxheight. */
   size?: string;
-  /** Nivel de resolución de salida: '1k'/'2k'/'4k' (GPT-Image-2) o '1K'/'2K'/'4K' (Nano Banana Pro). */
+  /** Nivel de resolución de salida: '1k'/'2k'/'4k' (GPT-Image-2), '1K'/'2K'/'4K' (Nano Banana Pro) o '1K'/'1.5K'/'2K' (Seedream 5.0 Pro). */
   resolution?: string;
-  /** Imágenes de referencia (URL pública o data URI base64 combinables; máx. 15 en GPT-Image-2 y 14 en Nano Banana Pro). */
+  /** Imágenes de referencia (URL pública o data URI base64 combinables; máx. 15 en GPT-Image-2, 14 en Nano Banana Pro y 10 en Seedream 5.0 Pro). */
   imageUrls?: string[];
   /** Moderación opcional antes de enviar (por defecto false). */
   nsfwCheck?: boolean;
-  /** Si recurrir al canal oficial como fallback (por defecto false; no aplicable en -official). */
+  /** Si recurrir al canal oficial como fallback (por defecto false; no aplicable en -official ni en Seedream 5.0 Pro). */
   officialFallback?: boolean;
+  /** Opciones específicas de Seedream 5.0 Pro. */
+  outputFormat?: 'jpeg' | 'png';
+  background?: 'opaque' | 'transparent';
+  watermark?: boolean;
+  layerDecomposition?: boolean;
+  optimizePromptMode?: 'standard';
 }
 
 export interface ApiMartImageTaskStatus {
@@ -107,13 +115,14 @@ export interface ApiMartImageTaskStatus {
 }
 
 export class ApiMartError extends Error {
-  constructor(
-    message: string,
-    public status = 500,
-    public errorType?: string
-  ) {
+  status: number;
+  errorType?: string;
+
+  constructor(message: string, status = 500, errorType?: string) {
     super(message);
     this.name = 'ApiMartError';
+    this.status = status;
+    this.errorType = errorType;
   }
 }
 
@@ -128,6 +137,8 @@ export function isApiMartImageModel(model: string | undefined): boolean {
     'nano-banana-pro-ext',
     'gemini-3-pro-image-preview-official',
     'nano-banana-pro',
+    'seedream-5-0-pro',
+    'seedream-5.0-pro',
   ].includes(model);
 }
 
@@ -138,6 +149,10 @@ function isNanoBananaProModel(model: string): boolean {
     'gemini-3-pro-image-preview-official',
     'nano-banana-pro',
   ].includes(model);
+}
+
+function isSeedream5ProModel(model: string): boolean {
+  return model === 'seedream-5-0-pro' || model === 'seedream-5.0-pro';
 }
 
 function mapApiMartHttpError(status: number, rawData: unknown, fallbackContext: string): ApiMartError {
@@ -239,7 +254,8 @@ export class ApiMartClient {
 
     const modelName = payload.model && isApiMartImageModel(payload.model) ? payload.model : 'gpt-image-2';
     const isNanoBanana = isNanoBananaProModel(modelName);
-    const maxAllowedRefs = isNanoBanana ? 14 : 15;
+    const isSeedream5Pro = isSeedream5ProModel(modelName);
+    const maxAllowedRefs = isSeedream5Pro ? 10 : isNanoBanana ? 14 : 15;
 
     const refs = payload.imageUrls?.filter(Boolean) ?? [];
     if (refs.length > maxAllowedRefs) {
@@ -250,18 +266,55 @@ export class ApiMartClient {
       );
     }
 
-    // Nano Banana Pro usa '1K' | '2K' | '4K' en mayúsculas; GPT-Image-2 usa '1k' | '2k' | '4k' en minúsculas
-    const rawRes = String(payload.resolution || (isNanoBanana ? '1K' : '2k')).toUpperCase();
-    const validUpper = ['1K', '2K', '4K'].includes(rawRes) ? rawRes : isNanoBanana ? '1K' : '2K';
-    const resolution = isNanoBanana ? validUpper : validUpper.toLowerCase();
-    const count = Math.max(1, Math.floor(Number(payload.n ?? 1)));
+    const sizeValue = payload.size || '9:16';
+    const exactPixelMatch = /^(\d{3,4})[xX×](\d{3,4})$/.exec(sizeValue.trim());
+    if (isSeedream5Pro && exactPixelMatch) {
+      const w = Number(exactPixelMatch[1]);
+      const h = Number(exactPixelMatch[2]);
+      const totalPx = w * h;
+      const ratio = w / h;
+      if (totalPx < 921_600 || totalPx > 4_624_220) {
+        throw new ApiMartError(
+          `En Seedream 5.0 Pro los píxeles totales (${w}×${h} = ${totalPx}) deben estar entre 921,600 y 4,624,220.`,
+          400,
+          'invalid_request_error'
+        );
+      }
+      if (ratio < 1 / 16 || ratio > 16) {
+        throw new ApiMartError(
+          `En Seedream 5.0 Pro la proporción ancho/alto (${w}×${h}) debe estar entre 1/16 y 16.`,
+          400,
+          'invalid_request_error'
+        );
+      }
+    }
+
+    // Seedream 5.0 Pro: '1K' | '1.5K' | '2K' (3K/4K dan 400); Nano Banana Pro: '1K' | '2K' | '4K'; GPT-Image-2: '1k' | '2k' | '4k'
+    const rawRes = String(
+      payload.resolution || (isSeedream5Pro ? '1.5K' : isNanoBanana ? '1K' : '2k')
+    ).toUpperCase();
+    const resolution = isSeedream5Pro
+      ? ['1K', '1.5K', '2K'].includes(rawRes)
+        ? rawRes
+        : rawRes === '4K' || rawRes === '3K'
+          ? '2K'
+          : '1.5K'
+      : isNanoBanana
+        ? ['1K', '2K', '4K'].includes(rawRes)
+          ? rawRes
+          : '1K'
+        : (['1K', '2K', '4K'].includes(rawRes) ? rawRes : '2K').toLowerCase();
+
+    // Seedream 5.0 Pro es modelo de una sola imagen por solicitud (n > 1 devuelve 400)
+    const count = isSeedream5Pro ? 1 : Math.max(1, Math.floor(Number(payload.n ?? 1)));
 
     const body: Record<string, unknown> = {
       model: modelName,
       prompt: payload.prompt,
-      size: payload.size || '9:16',
+      size: sizeValue,
       n: count,
-      resolution,
+      // Cuando size es un valor de píxel exacto en Seedream 5.0 Pro, resolution se omite
+      ...(isSeedream5Pro && exactPixelMatch ? {} : { resolution }),
     };
 
     if (refs.length > 0) {
@@ -270,9 +323,17 @@ export class ApiMartClient {
     if (typeof payload.nsfwCheck === 'boolean') {
       body.nsfw_check = payload.nsfwCheck;
     }
-    const isOfficialChannel = modelName === 'gemini-3-pro-image-preview-official' || modelName === 'nano-banana-pro';
-    if (typeof payload.officialFallback === 'boolean' && !isOfficialChannel) {
-      body.official_fallback = payload.officialFallback;
+    if (isSeedream5Pro) {
+      if (payload.outputFormat) body.output_format = payload.outputFormat;
+      if (payload.background) body.background = payload.background;
+      if (typeof payload.watermark === 'boolean') body.watermark = payload.watermark;
+      if (typeof payload.layerDecomposition === 'boolean') body.layer_decomposition = payload.layerDecomposition;
+      if (payload.optimizePromptMode) body.optimize_prompt_options = { mode: payload.optimizePromptMode };
+    } else {
+      const isOfficialChannel = modelName === 'gemini-3-pro-image-preview-official' || modelName === 'nano-banana-pro';
+      if (typeof payload.officialFallback === 'boolean' && !isOfficialChannel) {
+        body.official_fallback = payload.officialFallback;
+      }
     }
 
     const response = await fetch(`${APIMART_BASE_URL}/images/generations`, {
@@ -325,7 +386,7 @@ export class ApiMartClient {
     const taskData = payload?.data ?? payload;
     const rawStatus = String(taskData?.status || 'processing').toLowerCase();
     const status: ApiMartImageTaskStatus['status'] =
-      rawStatus === 'completed' || rawStatus === 'succeeded'
+      rawStatus === 'completed' || rawStatus === 'succeeded' || rawStatus === 'success'
         ? 'completed'
         : rawStatus === 'failed' || rawStatus === 'error' || rawStatus === 'cancelled'
           ? 'failed'
@@ -387,9 +448,10 @@ export class ApiMartClient {
     options: { timeoutMs?: number; pollIntervalMs?: number; initialDelayMs?: number } = {}
   ): Promise<ApiMartImageTaskStatus> {
     const { taskId } = await this.createImageGenerationTask(payload);
-    const timeoutMs = options.timeoutMs ?? 240_000;
-    const pollIntervalMs = options.pollIntervalMs ?? 3_000;
-    const initialDelayMs = options.initialDelayMs ?? 2_000;
+    const isSeedream = isSeedream5ProModel(String(payload.model || ''));
+    const timeoutMs = options.timeoutMs ?? 300_000;
+    const pollIntervalMs = options.pollIntervalMs ?? (isSeedream ? 5_000 : 3_000);
+    const initialDelayMs = options.initialDelayMs ?? (isSeedream ? 3_000 : 2_000);
     const startedAt = Date.now();
 
     await new Promise((r) => setTimeout(r, initialDelayMs));
@@ -541,7 +603,7 @@ export class ApiMartClient {
     const taskData = payload?.data ?? payload;
     const rawStatus = String(taskData?.status || 'processing').toLowerCase();
     const status: ApiMartVideoTaskStatus['status'] =
-      rawStatus === 'completed' || rawStatus === 'succeeded'
+      rawStatus === 'completed' || rawStatus === 'succeeded' || rawStatus === 'success'
         ? 'completed'
         : rawStatus === 'failed' || rawStatus === 'error' || rawStatus === 'cancelled'
           ? 'failed'

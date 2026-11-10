@@ -45,7 +45,7 @@ function needGuion(d: DirectorState) {
 }
 
 /** Fotos de referencia para la imagen inicial: las de la escena, las de sus etiquetas y las del proyecto. */
-function imageRefsFor(s: DirectorScene, d: DirectorState): string[] {
+function imageRefsFor(s: DirectorScene, d: DirectorState, maxRefs = 14): string[] {
   const refs = d.referencias ?? [];
   const tags = sceneTags(d, s);
   const ordered = [
@@ -54,7 +54,7 @@ function imageRefsFor(s: DirectorScene, d: DirectorState): string[] {
     ...tags.filter((t) => !t.avatarId).flatMap((t) => tagRefs(d, t.id)),
     ...refs.filter((r) => !r.escenaId && !r.etiquetaId),
   ].filter((r) => r.medio === 'imagen');
-  return [...new Set(ordered.map((r) => r.archivo))].slice(0, 10);
+  return [...new Set(ordered.map((r) => r.archivo))].slice(0, maxRefs);
 }
 
 /** Avatar cuya identidad se usa en la escena: el de un personaje que nombra; en voz nativa, el de los ajustes. */
@@ -96,16 +96,23 @@ function buildPlan(d: DirectorState): { specs: SceneSpec[]; gen: Omit<DirectorGe
     const problem = clipChoiceProblem(choice.model, { formato: a.formato, resolucion: choice.resolucion, conAudio });
     if (problem) throw new ProductionError(`Escena ${s.orden}: ${problem}`, 409);
     const avatarId = sceneAvatarId(s, d);
-    // Imagen inicial (GPT Image 2) → primer fotograma del clip
+    // Imagen inicial (GPT Image 2 / Nano Banana Pro / Seedream 5.0 Pro / modelo elegido) → primer fotograma del clip
     let imagen: string | undefined;
     if (choice.imagenInicial) {
-      const referencias = imageRefsFor(s, d);
+      const imgModel = choice.imageModel;
+      const imgRes = imgModel.resolutions.includes('1.5K')
+        ? '1.5K'
+        : imgModel.resolutions.includes('1K')
+          ? '1K'
+          : imgModel.resolutions[0];
+      const maxExtraRefs = Math.min(14, avatarId ? Math.max(0, imgModel.maxRefs - 1) : imgModel.maxRefs);
+      const referencias = imageRefsFor(s, d, maxExtraRefs);
       imagen = add({
         tipo: 'imagen',
-        titulo: `Escena ${s.orden} · imagen inicial`,
+        titulo: `Escena ${s.orden} · imagen inicial (${imgModel.name})`,
         prompt: composeImagePrompt(s, d),
-        modelo: DEFAULT_IMAGE_MODEL,
-        resolucion: '1K',
+        modelo: imgModel.id,
+        resolucion: imgRes,
         cantidad: 1,
         ...(avatarId ? { avatarId } : {}),
         ...(referencias.length ? { referencias } : {}),

@@ -15,7 +15,14 @@ import { ClipPicker, IMAGE_START_USD, sceneClipEstimate } from '../ClipPicker';
 
 /** Acciones que los nodos pueden lanzar (el lienzo las recibe del estudio). */
 export interface CanvasActions {
-  onClip?: (body: { accion: 'ajustar_clip'; escenaId: string; modelo?: string | null; resolucion?: string | null; imagenInicial?: boolean | null }) => void;
+  onClip?: (body: {
+    accion: 'ajustar_clip';
+    escenaId: string;
+    modelo?: string | null;
+    resolucion?: string | null;
+    imagenInicial?: boolean | null;
+    modeloImagen?: string | null;
+  }) => void;
   busy?: boolean;
 }
 export const CanvasActionsContext = createContext<CanvasActions>({});
@@ -291,7 +298,9 @@ function ImageConfigNode({ d, sceneId }: { d: DirectorState; sceneId: string }) 
   return (
     <Shell selected={false} tone="pending" width={170} dashed={!e.imagenInicial}>
       <Header icon={<ImageIcon className="h-3 w-3 text-fg-subtle" />} title="Imagen inicial" />
-      <p className="mt-1 text-[10.5px] text-fg-muted">{e.imagenInicial ? `GPT Image 2 · ≈ $${IMAGE_START_USD.toFixed(3)}` : 'Desactivada: el clip parte solo del texto'}</p>
+      <p className="mt-1 text-[10.5px] text-fg-muted">
+        {e.imagenInicial ? `${e.imageModel.name.replace(/\s*\(.*\)$/, '')} · ≈ $${e.imagenUSD.toFixed(3)}` : 'Desactivada: el clip parte solo del texto'}
+      </p>
       <p className="mt-0.5 text-[10px] text-fg-subtle">{e.imagenInicial ? 'Primer fotograma con tu avatar y tus referencias.' : 'Actívala en el clip.'}</p>
     </Shell>
   );

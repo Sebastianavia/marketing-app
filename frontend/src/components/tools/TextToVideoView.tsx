@@ -29,6 +29,7 @@ import {
   type VoiceSettingsState,
 } from '@/config/elevenlabs-models';
 import { BROLL_MODELS, DEFAULT_BROLL_MODEL, DEFAULT_NATIVE_BROLL_MODEL, VOICE_MODES, brollPriceLabel, getBrollModel, type VoiceMode } from '@/config/broll-models';
+import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS, getImageModel } from '@/config/image-models';
 import { estimateSceneProject } from '@/lib/scenes/scene-estimate';
 import { estimateSeconds } from '@/lib/scenes/scene-plan';
 
@@ -115,6 +116,15 @@ export function TextToVideoView() {
   const [motionPrompt, setMotionPrompt] = useState('');
   const [expressiveness, setExpressiveness] = useState<Expressiveness>('low');
   const [ffmpeg, setFfmpeg] = useState<{ available: boolean } | null>(null);
+
+  // Generador de imágenes IA integrado en Guion a video (GPT Image 2 / Nano Banana Pro)
+  const [showImgGen, setShowImgGen] = useState(false);
+  const [imgGenModel, setImgGenModel] = useState<string>('gemini-3-pro-image-preview');
+  const [imgGenResolution, setImgGenResolution] = useState<string>('1K');
+  const [imgGenPrompt, setImgGenPrompt] = useState('');
+  const [imgGenSceneKey, setImgGenSceneKey] = useState<string>('none');
+  const [imgGenUseRefs, setImgGenUseRefs] = useState(true);
+  const [generatingImg, setGeneratingImg] = useState(false);
 
   // Render
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -313,6 +323,61 @@ export function TextToVideoView() {
     const id = `img-${newKey()}`;
     setImages((cur) => [...cur, { id, name: img.name, dataUrl: img.dataUrl }]);
     if (!personaId) setPersonaId(id);
+  };
+
+  const generateSceneImage = async () => {
+    if (images.length >= 8) {
+      setError('Ya tienes el máximo de 8 imágenes en el proyecto.');
+      return;
+    }
+    const targetScene = scenes.find((s) => s.key === imgGenSceneKey);
+    const finalPrompt = (imgGenPrompt.trim() || targetScene?.visualPrompt || targetScene?.narration || '').trim();
+    if (finalPrompt.length < 3) {
+      setError('Escribe qué imagen quieres generar o elige una escena con descripción visual.');
+      return;
+    }
+    setError(null);
+    setGeneratingImg(true);
+    try {
+      const modelSpec = getImageModel(imgGenModel);
+      const validRes = modelSpec.resolutions.includes(imgGenResolution) ? imgGenResolution : modelSpec.resolutions[0];
+      const refs = imgGenUseRefs ? images.map((i) => i.dataUrl).slice(0, modelSpec.maxRefs) : [];
+      const res = await fetch('/api/images/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: modelSpec.id,
+          prompt: finalPrompt,
+          references: refs,
+          aspectRatio: aspect,
+          resolution: validRes,
+          count: 1,
+          realistic: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.images?.[0]?.url) {
+        throw new Error(data?.error || 'No se pudo generar la imagen.');
+      }
+      // Convertir la imagen servida localmente a dataUrl para usarla en las escenas
+      const imgRes = await fetch(data.images[0].url);
+      const blob = await imgRes.blob();
+      const file = new File([blob], `ia-${modelSpec.id}.png`, { type: blob.type || 'image/png' });
+      const dataUrl = await readFileAsDataUrl(file);
+      const id = `img-${newKey()}`;
+      const sceneIndex = scenes.findIndex((s) => s.key === imgGenSceneKey);
+      const label = sceneIndex >= 0 ? `Escena ${sceneIndex + 1} (${modelSpec.name.split(' ')[0]})` : `IA · ${modelSpec.name.split(' ')[0]}`;
+      setImages((cur) => [...cur, { id, name: label, dataUrl }]);
+      if (!personaId && images.length === 0) setPersonaId(id);
+      if (targetScene) {
+        patchScene(targetScene.key, { imageId: id });
+      }
+      setImgGenPrompt('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al generar la imagen con IA.');
+    } finally {
+      setGeneratingImg(false);
+    }
   };
 
   const patchScene = (key: string, patch: Partial<DraftScene>) =>
@@ -792,18 +857,130 @@ export function TextToVideoView() {
         <>
           {/* 3. Imágenes */}
           <section className="space-y-3 rounded-xl border border-line bg-surface p-5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-[13px] font-semibold text-fg">3. Imágenes</h2>
               <input ref={imgInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addImages(e.target.files)} />
-              <button type="button" onClick={() => imgInput.current?.click()} className="btn-secondary h-8 px-3 text-[12px]" disabled={images.length >= 8}>
-                <ImagePlus className="h-3.5 w-3.5" /> Añadir
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowImgGen((v) => !v)}
+                  className="btn-secondary h-8 px-3 text-[12px]"
+                  disabled={images.length >= 8}
+                >
+                  <Lightbulb className="h-3.5 w-3.5" /> {showImgGen ? 'Ocultar generador IA' : 'Generar con IA (Nano Banana Pro / Seedream 5.0 Pro / GPT Image 2)'}
+                </button>
+                <button type="button" onClick={() => imgInput.current?.click()} className="btn-secondary h-8 px-3 text-[12px]" disabled={images.length >= 8}>
+                  <ImagePlus className="h-3.5 w-3.5" /> Subir archivo
+                </button>
+              </div>
             </div>
             <p className="text-[11px] text-fg-subtle">
               La foto marcada como persona se usa en las escenas donde habla. Cada toma de apoyo parte de la imagen que elijas en su
-              escena (por ejemplo, una foto del producto) o solo de su descripción. Veo puede rechazar fotos de personas: si pasa,
-              la toma se reintenta sola sin imagen.
+              escena (por ejemplo, una foto subida o generada aquí con Nano Banana Pro / GPT Image 2) o solo de su descripción.
             </p>
+
+            {showImgGen && (
+              <div className="space-y-3 rounded-lg border border-line bg-surface-2/60 p-3.5">
+                <div className="grid gap-2.5 sm:grid-cols-3">
+                  <label className="space-y-1 text-[11px] text-fg-subtle">
+                    <span className="block">Modelo de imagen</span>
+                    <select
+                      value={imgGenModel}
+                      onChange={(e) => {
+                        const nextModel = getImageModel(e.target.value);
+                        setImgGenModel(nextModel.id);
+                        if (!nextModel.resolutions.includes(imgGenResolution)) {
+                          setImgGenResolution(nextModel.defaultResolution || nextModel.resolutions[0]);
+                        }
+                      }}
+                      className="input-clean h-8 w-full px-2 text-[12px] text-fg"
+                    >
+                      {IMAGE_MODELS.map((im) => {
+                        const defRes = im.defaultResolution || im.resolutions[0];
+                        return (
+                          <option key={im.id} value={im.id}>
+                            {im.name} (${(im.pricePerImage[defRes] ?? 0).toFixed(3)})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 text-[11px] text-fg-subtle">
+                    <span className="block">Resolución</span>
+                    <select
+                      value={imgGenResolution}
+                      onChange={(e) => setImgGenResolution(e.target.value)}
+                      className="input-clean h-8 w-full px-2 text-[12px] text-fg"
+                    >
+                      {getImageModel(imgGenModel).resolutions.map((r) => (
+                        <option key={r} value={r}>
+                          {r} (${(getImageModel(imgGenModel).pricePerImage[r] ?? 0).toFixed(3)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1 text-[11px] text-fg-subtle">
+                    <span className="block">Asignar a escena</span>
+                    <select
+                      value={imgGenSceneKey}
+                      onChange={(e) => {
+                        const k = e.target.value;
+                        setImgGenSceneKey(k);
+                        const sc = scenes.find((s) => s.key === k);
+                        if (sc && !imgGenPrompt.trim()) {
+                          setImgGenPrompt(sc.visualPrompt || sc.narration);
+                        }
+                      }}
+                      className="input-clean h-8 w-full px-2 text-[12px] text-fg"
+                    >
+                      <option value="none">Solo añadir a la galería del video</option>
+                      {scenes.map((sc, idx) => (
+                        <option key={sc.key} value={sc.key}>
+                          Escena {idx + 1}: {(sc.visualPrompt || sc.narration).slice(0, 38)}…
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <textarea
+                  rows={2}
+                  value={imgGenPrompt}
+                  onChange={(e) => setImgGenPrompt(e.target.value)}
+                  placeholder="Describe la imagen para la escena (o selecciona una escena arriba para usar su descripción visual)..."
+                  className="input-clean w-full resize-y p-2.5 text-[12px] leading-relaxed"
+                />
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {images.length > 0 ? (
+                    <label className="flex items-center gap-1.5 text-[11.5px] text-fg-muted cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={imgGenUseRefs}
+                        onChange={(e) => setImgGenUseRefs(e.target.checked)}
+                      />
+                      Usar las {images.length} imagen(es) ya cargadas como referencia (máx. {getImageModel(imgGenModel).maxRefs})
+                    </label>
+                  ) : (
+                    <span className="text-[11px] text-fg-subtle">
+                      Formato {aspect} · {getImageModel(imgGenModel).note}
+                    </span>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={generateSceneImage}
+                    disabled={generatingImg || images.length >= 8}
+                    className="btn-primary ml-auto h-8 px-3 text-[12px]"
+                  >
+                    {generatingImg ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {generatingImg ? 'Generando imagen…' : `Generar imagen (${aspect} · ${imgGenResolution})`}
+                  </button>
+                </div>
+              </div>
+            )}
             {images.length > 0 && (
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
                 {images.map((img) => (

@@ -1,4 +1,5 @@
 import { BROLL_MODELS, brollResolution, getBrollModel, pickBrollDuration } from '@/config/broll-models';
+import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/config/image-models';
 import type { Aspect, DirectorScene, DirectorSceneType, DirectorSettings } from './types';
 
 /** Ajustes con el modelo propio de la escena, si lo tiene (para calcular sus duraciones). */
@@ -7,17 +8,22 @@ export function sceneSettings<T extends Pick<DirectorSettings, 'modeloBroll'>>(s
   return m && m !== ajustes.modeloBroll ? { ...ajustes, modeloBroll: m } : ajustes;
 }
 
-/** Modelo, resolución e imagen inicial que usará el clip de una escena. */
-export function sceneClipChoice(s: Pick<DirectorScene, 'clipOpciones'>, ajustes: Pick<DirectorSettings, 'modeloBroll' | 'resolucionBroll' | 'imagenInicial'>) {
+/** Modelo, resolución, imagen inicial y modelo de imagen que usará el clip de una escena. */
+export function sceneClipChoice(
+  s: Pick<DirectorScene, 'clipOpciones'>,
+  ajustes: Pick<DirectorSettings, 'modeloBroll' | 'resolucionBroll' | 'imagenInicial' | 'modeloImagen'>
+) {
   const o = s.clipOpciones ?? {};
   const model = getBrollModel(o.modelo || ajustes.modeloBroll);
+  const imageModel = getImageModel(o.modeloImagen || ajustes.modeloImagen || DEFAULT_IMAGE_MODEL);
   // La resolución de los ajustes solo vale si la escena usa el mismo modelo
   const res = o.resolucion ?? (model.id === ajustes.modeloBroll ? ajustes.resolucionBroll : undefined);
   return {
     model,
+    imageModel,
     resolucion: brollResolution(model, res),
     imagenInicial: o.imagenInicial ?? ajustes.imagenInicial ?? true,
-    propia: Boolean(o.modelo || o.resolucion || o.imagenInicial !== undefined),
+    propia: Boolean(o.modelo || o.resolucion || o.imagenInicial !== undefined || o.modeloImagen),
   };
 }
 

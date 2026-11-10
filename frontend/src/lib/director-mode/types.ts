@@ -63,8 +63,10 @@ export interface DirectorSettings {
   modeloBroll: string;
   /** Resolución de los clips; sin valor = la predeterminada del modelo. */
   resolucionBroll?: string;
-  /** Crear una imagen inicial (GPT Image 2) antes de cada toma de apoyo. Sin valor = sí. */
+  /** Crear una imagen inicial antes de cada toma de apoyo. Sin valor = sí. */
   imagenInicial?: boolean;
+  /** Modelo para las imágenes iniciales (gpt-image-2, gemini-3-pro-image-preview / nano-banana-pro-ext…). Sin valor = DEFAULT_IMAGE_MODEL. */
+  modeloImagen?: string;
   avatarId: string | null;
   avatarNombre?: string;
   presupuestoUSD: number;
@@ -112,6 +114,7 @@ export interface SceneClipOptions {
   modelo?: string;
   resolucion?: string;
   imagenInicial?: boolean;
+  modeloImagen?: string;
 }
 
 export interface DirectorScript {

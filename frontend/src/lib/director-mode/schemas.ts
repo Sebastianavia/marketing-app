@@ -104,6 +104,8 @@ export const SettingsBody = z.object({
   resolucionBroll: z.string().max(10).optional(),
   /** Imagen inicial antes de cada toma de apoyo (sin valor = sí). */
   imagenInicial: z.boolean().optional(),
+  /** Modelo para generar la imagen inicial de cada escena (gpt-image-2, gemini-3-pro-image-preview…). */
+  modeloImagen: z.string().max(100).optional(),
   avatarId: z.string().max(100).nullable(),
   presupuestoUSD: z.number().min(0.1).max(100),
 });
@@ -139,6 +141,7 @@ export const ActionBody = z.discriminatedUnion('accion', [
     modelo: z.string().max(100).nullable().optional(),
     resolucion: z.string().max(10).nullable().optional(),
     imagenInicial: z.boolean().nullable().optional(),
+    modeloImagen: z.string().max(100).nullable().optional(),
   }),
   // Referencias y etiquetas (paso 2). Subir archivos va por /api/director-mode/[id]/referencias (multipart).
   z.object({ accion: z.literal('proponer_etiquetas'), refIds: z.array(RefId).max(40).optional() }),

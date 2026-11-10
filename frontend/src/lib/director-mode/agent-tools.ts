@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { listAvatars } from '@/lib/avatars/avatar-store';
 import { BROLL_MODELS, VOICE_MODES, brollPriceLabel, clipCostUSD } from '@/config/broll-models';
 import { imageUnitPrice } from '@/lib/generation/image';
-import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
+import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS } from '@/config/image-models';
 import { sceneClipChoice } from './durations';
 import type { DirectorScene, DirectorState } from './types';
 import { ProductionError } from '@/lib/director/production-store';
@@ -77,11 +77,13 @@ function clipSummary(s: DirectorScene, d: DirectorState) {
   const c = sceneClipChoice(s, d.ajustes);
   const seg = s.clipSeg ?? s.duracionSeg;
   const conAudio = d.ajustes.modoVoz === 'native' && Boolean(s.dialogo.trim());
-  const imagenUSD = c.imagenInicial ? imageUnitPrice(DEFAULT_IMAGE_MODEL, '1K').unit : 0;
+  const imgRes = c.imageModel.resolutions.includes('1K') ? '1K' : c.imageModel.resolutions[0];
+  const imagenUSD = c.imagenInicial ? imageUnitPrice(c.imageModel.id, imgRes).unit : 0;
   return {
     modelo: c.model.id,
     resolucion: c.resolucion,
     imagenInicial: c.imagenInicial,
+    modeloImagen: c.imageModel.id,
     elegidoParaEstaEscena: c.propia,
     estimadoUSD: Math.round((clipCostUSD(c.model, seg, { withAudio: conAudio, resolution: c.resolucion }) + imagenUSD) * 1000) / 1000,
   };
@@ -119,6 +121,15 @@ const verProyecto = tool({
       opciones: {
         modosVoz: VOICE_MODES.map((m) => ({ id: m.id, nombre: m.label })),
         modelosToma: clipModelsCatalog(),
+        modelosImagen: IMAGE_MODELS.map((im) => ({
+          id: im.id,
+          aliases: im.aliases,
+          nombre: im.name,
+          proveedor: im.provider,
+          maxReferencias: im.maxRefs,
+          resoluciones: im.resolutions,
+          preciosUSD: im.pricePerImage,
+        })),
         imagenInicial: { modelo: DEFAULT_IMAGE_MODEL, resolucion: '1K', precioUSD: imageUnitPrice(DEFAULT_IMAGE_MODEL, '1K').unit },
         avatares: avatars.map((a) => ({ id: a.id, nombre: a.name, descripcion: a.description })),
         formatos: ['9:16', '16:9', '1:1'],

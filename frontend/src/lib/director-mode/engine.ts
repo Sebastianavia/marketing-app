@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import { orchestrateObject } from '@/lib/ai/orchestrator';
 import { getAvatar } from '@/lib/avatars/avatar-store';
 import { BROLL_MODELS, DEFAULT_BROLL_MODEL, clipChoiceProblem, getBrollModel, isBrollModel } from '@/config/broll-models';
+import { DEFAULT_IMAGE_MODEL, getImageModel, isValidImageModelId } from '@/config/image-models';
 import { sttCost } from '@/config/cost-rates';
 import { getDirectorSkill } from '@/config/director-skills';
 import { normalizeWords } from '@/lib/scenes/scene-plan';
@@ -420,6 +421,9 @@ async function saveSettings(id: string, s: SettingsInput): Promise<ActionResult>
     const problem = clipChoiceProblem(getBrollModel(s.modeloBroll), { formato: s.formato, resolucion: s.resolucionBroll });
     if (problem) throw new ProductionError(problem);
   }
+  if (s.modeloImagen && !isValidImageModelId(s.modeloImagen)) {
+    throw new ProductionError(`Ese modelo de imagen no existe ("${s.modeloImagen}").`);
+  }
   let avatarNombre: string | undefined;
   if (s.avatarId) {
     avatarNombre = (await getAvatar(s.avatarId).catch(() => null))?.name;
@@ -481,6 +485,12 @@ async function adjustClip(id: string, a: Extract<ActionInput, { accion: 'ajustar
     if (a.imagenInicial !== undefined) {
       if (a.imagenInicial === null) delete next.imagenInicial;
       else next.imagenInicial = a.imagenInicial;
+    }
+    if (a.modeloImagen !== undefined) {
+      const defImg = d.ajustes.modeloImagen || DEFAULT_IMAGE_MODEL;
+      if (a.modeloImagen === null || getImageModel(a.modeloImagen).id === getImageModel(defImg).id) delete next.modeloImagen;
+      else if (!isValidImageModelId(a.modeloImagen)) throw new ProductionError(`No existe el modelo de imagen "${a.modeloImagen}".`);
+      else next.modeloImagen = getImageModel(a.modeloImagen).id;
     }
     const choice = sceneClipChoice({ clipOpciones: next }, d.ajustes);
     const problem = clipChoiceProblem(choice.model, {

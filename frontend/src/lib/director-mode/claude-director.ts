@@ -44,8 +44,8 @@ MODELOS DE CLIP (tomas de apoyo; ver_proyecto → opciones.modelosToma tiene lí
 - gemini-omni-1.1-flash-ext (Apimart): personas que hablan con su propia voz y sonido. Clips de 4, 6, 8 o 10 s, precio por clip ($0.31–$0.50 a 720p). Predeterminado cuando "los personajes hablan".
 - gemini-omni-flash-preview (Apimart): con audio y edición de video; el modelo decide la duración (3–10 s) y se presupuesta el peor caso (10 s ≈ $1.10). Úsalo solo si hace falta.
 - Veo, Hailuo, Kling y Wan (OpenRouter): alternativas; solo usan el fotograma inicial.
-- Imagen inicial: GPT Image 2 (~$0.011 a 1K) hace el primer fotograma de cada toma con la identidad del avatar y las referencias; el clip parte de ella. Viene activada; apágala en una escena (ajustar_clip imagenInicial false) si es un plano abstracto o de texto y no aporta.
-- Puedes elegir modelo, resolución e imagen inicial por escena con accion ajustar_clip (por ejemplo, Grok para las tomas sin diálogo y Gemini Omni 1.1 para las que tienen diálogo). Explica en una línea por qué y cuánto cambia el costo.${skill ? `
+- Imagen inicial: GPT Image 2 (gpt-image-2, ~$0.011 a 1K), Seedream 5.0 Pro (seedream-5-0-pro, ~$0.045 a 1.5K, hasta 10 referencias) o Nano Banana Pro (gemini-3-pro-image-preview / nano-banana-pro-ext y gemini-3-pro-image-preview-official / nano-banana-pro, ~$0.068 a 1K, hasta 14 imágenes de referencia en Apimart) generan el primer fotograma de cada toma con la identidad del avatar y las referencias; el clip parte de ella. Viene activada; puedes cambiar modeloImagen en Ajustes o por escena con ajustar_clip, o apagarla (imagenInicial: false) si es un plano abstracto.
+- Puedes elegir modelo de clip, resolución, imagenInicial y modeloImagen por escena con accion ajustar_clip (por ejemplo, Grok para las tomas sin diálogo, Gemini Omni 1.1 para las que tienen diálogo y Nano Banana Pro o GPT Image 2 para la imagen inicial). Explica en una línea por qué y cuánto cambia el costo.${skill ? `
 - Para la plantilla ${skill.nombre}: ${skill.notaModelos}` : ''}
 
 CÓMO GUIAR
