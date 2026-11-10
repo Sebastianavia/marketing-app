@@ -685,7 +685,7 @@ export interface RhythmReport {
 
 /** Analiza el plan (tiempos del video FINAL) contra el presupuesto de ritmo. */
 export function analyzeRhythm(
-  d: Pick<DirectionInput, 'camara' | 'elementos' | 'transiciones' | 'sonidos'>,
+  d: Pick<DirectionInput, 'camara' | 'elementos' | 'transiciones' | 'sonidos' | 'palabrasClave'>,
   graphicStarts: number[],
   total: number,
   subtituloPx?: number
@@ -763,6 +763,23 @@ export function analyzeRhythm(
   }
   if (sfx < B.sfxPorSegundo[0]) avisos.push(`Pocos efectos de sonido (${sfx.toFixed(2)}/s): cada evento visual lleva su sonido.`);
   if (sfx > B.sfxPorSegundo[1]) avisos.push(`Demasiados efectos de sonido (${sfx.toFixed(2)}/s): satura; deja solo los que acompañan un evento.`);
+  // Variedad: que ningún recurso se coma el video (la gente desliza cuando todo es igual)
+  const share = <T>(xs: T[], key: (x: T) => string) => {
+    const counts = new Map<string, number>();
+    for (const x of xs) counts.set(key(x), (counts.get(key(x)) ?? 0) + 1);
+    const [top, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? ['', 0];
+    return { top, n, frac: xs.length ? n / xs.length : 0 };
+  };
+  const files = share(els, (e) => e.archivo);
+  if (files.n > 3) avisos.push(`Repites el recurso «${files.top}» ${files.n} veces: varía (otra ayuda, otro formato o solo cámara).`);
+  const modes = share(els, (e) => e.modo);
+  if (els.length >= 5 && modes.frac > 0.7) avisos.push(`El ${Math.round(modes.frac * 100)} % de las ayudas son «${modes.top}»: mezcla formatos (capa, flotante, split, pantalla completa, solo cámara).`);
+  const sounds = share(d.sonidos ?? [], (x) => (x.tipo === 'archivo' ? `archivo:${x.archivo}` : x.tipo));
+  if ((d.sonidos ?? []).length >= 10 && sounds.frac > 0.4) avisos.push(`El ${Math.round(sounds.frac * 100)} % de los efectos son «${sounds.top}»: varía los sonidos según el evento.`);
+  const cams = share(d.camara ?? [], (c) => c.tipo);
+  if ((d.camara ?? []).length >= 6 && cams.frac > 0.7) avisos.push(`El ${Math.round(cams.frac * 100)} % de los movimientos de cámara son «${cams.top}»: alterna planos, punch, acercar/alejar y paneos.`);
+  const keyFx = share(d.palabrasClave ?? [], (k) => k.efecto);
+  if ((d.palabrasClave ?? []).length >= 6 && keyFx.frac > 0.8) avisos.push(`Casi todas las palabras clave llevan «${keyFx.top}»: varía el efecto según el peso de cada palabra.`);
   if (subtituloPx !== undefined && subtituloPx < 64) avisos.push(`Subtítulos pequeños (${subtituloPx} px): en vertical usa 72–100 px para que se lean en el móvil.`);
 
   return {
