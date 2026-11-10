@@ -231,6 +231,18 @@ export function ClaudeAgentChat({
 
   const info = modo ? MODE_INFO[modo] : null;
   const busy = Boolean(live) || sending;
+  const attachFiles = async (files: File[]) => {
+    if (!onAttach || !files.length) return;
+    setAttaching(true);
+    try {
+      const rutas = await onAttach(files);
+      setInput((t) => `${t ? `${t.trim()}\n` : ''}Adjunté: ${rutas.join(', ')}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudieron adjuntar.');
+    } finally {
+      setAttaching(false);
+    }
+  };
   const working = Boolean(live);
   const onWorkingRef = useRef(onWorkingChange);
   useEffect(() => {
@@ -316,19 +328,10 @@ export function ClaudeAgentChat({
                 multiple
                 hidden
                 accept={attachAccept}
-                onChange={async (e) => {
+                onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);
                   e.target.value = '';
-                  if (!files.length) return;
-                  setAttaching(true);
-                  try {
-                    const rutas = await onAttach(files);
-                    setInput((t) => `${t ? `${t.trim()}\n` : ''}Adjunté: ${rutas.join(', ')}`);
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'No se pudieron adjuntar.');
-                  } finally {
-                    setAttaching(false);
-                  }
+                  void attachFiles(files);
                 }}
               />
               <button
@@ -346,6 +349,13 @@ export function ClaudeAgentChat({
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => {
+              // ⌘V / Ctrl+V con archivos o capturas: se adjuntan como con el clip
+              const files = Array.from(e.clipboardData.files ?? []);
+              if (!onAttach || !files.length) return;
+              e.preventDefault();
+              void attachFiles(files);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

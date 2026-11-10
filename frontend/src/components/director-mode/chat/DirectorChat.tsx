@@ -296,6 +296,13 @@ export function DirectorChat({ dm, production, focusId, onClearFocus, onFocus, p
           e.preventDefault();
           void send();
         }}
+        onPaste={(e) => {
+          // ⌘V / Ctrl+V con archivos o capturas: se suben como + Ref
+          const files = Array.from(e.clipboardData.files ?? []);
+          if (!files.length || dm.busy) return;
+          e.preventDefault();
+          void handleFiles(files, nextTarget.current ?? uploadTarget(focus));
+        }}
       >
         <input
           ref={fileInput}

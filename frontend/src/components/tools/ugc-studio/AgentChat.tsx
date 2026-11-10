@@ -392,6 +392,13 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // ⌘V / Ctrl+V con una imagen: pasa a referencia pendiente de etiquetar
+              const file = Array.from(e.clipboardData.files ?? []).find((f) => f.type.startsWith('image/'));
+              if (!file || busy || pending) return;
+              e.preventDefault();
+              setPending({ file, preview: URL.createObjectURL(file), role: references.some((r) => r.role === 'personaje') ? 'producto' : 'personaje', label: '' });
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

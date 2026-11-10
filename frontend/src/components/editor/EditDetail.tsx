@@ -163,7 +163,7 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
         </div>
       </div>
 
-      <Stepper edit={edit} />
+      {!showDraft && <Stepper edit={edit} />}
 
       {actionError && (
         <p className="flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-[12px] text-rose-600 dark:text-rose-400">
@@ -179,10 +179,7 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
           <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-accent" />
           <div className="space-y-0.5">
             <p className="font-medium text-fg">Claude está editando tu video</p>
-            <p className="text-fg-muted">
-              Puede tardar 10–20 minutos: crea una versión, la revisa fotograma a fotograma, la corrige y vuelve a renderizarla. Las versiones que aparezcan
-              mientras tanto son borradores intermedios; cuando termine te lo dirá en el chat y podrás aprobar la última.
-            </p>
+            <p className="text-fg-muted">Puede tardar 10–20 min. Las versiones que veas mientras tanto son intermedias; podrás aprobar cuando termine.</p>
           </div>
         </div>
       )}
@@ -199,38 +196,27 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
 
       {showDraft && <DraftCard edit={edit} busy={busy} run={run} claudeWorking={claudeWorking} showVideo={!showChat} />}
 
-      {edit.direccion && (
-        <div className="flex flex-wrap items-start gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 text-[12px]">
-          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-          <div className="min-w-0 flex-1 space-y-0.5">
-            <p className="font-medium text-fg">Edición dirigida por Claude</p>
-            <p className="text-fg-muted">
-              {edit.direccion.resumen || 'Claude decidió cámara, sonido, música, subtítulos y elementos visuales.'} Su plan manda sobre el estilo del perfil: para cambiar algo, pídeselo en el chat.
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={!!busy || working}
-            onClick={() => void run('quitar_direccion', { accion: 'quitar_direccion' })}
-            className="btn-secondary h-8 shrink-0 px-3 text-[11px]"
-            title="El próximo render usa el estilo automático del perfil"
-          >
-            Volver al estilo del perfil
-          </button>
-        </div>
-      )}
-
       {!showDraft && showChat && <ClaudeEditChat edit={edit} onWorkingChange={setClaudeWorking} onChanged={chatChanged} />}
 
-      {hasScript && edit.estado !== 'error' && (
-        <ScriptReview
-          key={`${edit.id}-${edit.transcripcion?.creada}-${edit.borrador?.version ?? 0}-${edit.resumenIA ?? ''}-${edit.estado}-${(edit.graficos ?? []).map((g) => g.id).join(',')}`}
-          edit={edit}
-          perfiles={perfiles}
-          busy={busy}
-          run={run}
-        />
-      )}
+      {hasScript && edit.estado !== 'error' && (() => {
+        const review = (
+          <ScriptReview
+            key={`${edit.id}-${edit.transcripcion?.creada}-${edit.borrador?.version ?? 0}-${edit.resumenIA ?? ''}-${edit.estado}-${(edit.graficos ?? []).map((g) => g.id).join(',')}`}
+            edit={edit}
+            perfiles={perfiles}
+            busy={busy}
+            run={run}
+          />
+        );
+        return showDraft ? (
+          <details className="group rounded-xl border border-line bg-surface px-4 py-3">
+            <summary className="cursor-pointer text-[13px] text-fg-muted hover:text-fg">Editar cortes y subtítulos a mano</summary>
+            <div className="mt-4">{review}</div>
+          </details>
+        ) : (
+          review
+        );
+      })()}
 
       {edit.actividad.length > 0 && !working && <ActivityLog edit={edit} />}
     </div>
@@ -427,56 +413,69 @@ function DraftCard({
 }) {
   const b = edit.borrador!;
   const approved = edit.estado === 'aprobado';
+  const avisos = (b.calidad ?? []).filter((c) => c.ok === false).length;
   return (
-    <section className={`grid gap-5 rounded-xl border border-line bg-surface p-5 ${showVideo ? 'md:grid-cols-[auto_minmax(0,1fr)]' : ''}`}>
-      {showVideo && (
-        <video
-          key={b.version}
-          src={mediaUrl(edit.id, 'borrador', b.version)}
-          controls
-          playsInline
-          className="mx-auto max-h-[560px] w-full max-w-[320px] rounded-xl bg-black"
-        />
-      )}
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-[15px] font-semibold text-fg">{approved ? 'Reel aprobado' : claudeWorking ? 'Borrador intermedio · Claude lo está mejorando' : 'Tu reel está listo'}</h3>
-          <p className="text-[12px] text-fg-muted">
-            Versión {b.version} · {formatClock(b.duracion)} (antes {formatClock(edit.original.duracion)}) · look {edit.perfil.nombre}
-          </p>
-        </div>
-        {approved ? (
-          <p className="flex items-center gap-2 text-[13px] text-fg">
-            <CheckCircle2 className="h-4 w-4 text-accent" /> Guardado en Proyectos → Edición de video.
-          </p>
-        ) : (
-          <p className="text-[13px] text-fg-muted">
-            Míralo. Si te gusta, apruébalo y queda en Proyectos. Si no, cambia lo que quieras en el guion de abajo y vuelve a crearlo.
-          </p>
+    <section className="space-y-3 rounded-xl border border-line bg-surface p-4">
+      <div className={showVideo ? 'grid gap-5 md:grid-cols-[auto_minmax(0,1fr)]' : ''}>
+        {showVideo && (
+          <video key={b.version} src={mediaUrl(edit.id, 'borrador', b.version)} controls playsInline className="mx-auto max-h-[560px] w-full max-w-[320px] rounded-xl bg-black" />
         )}
-        <div className="flex flex-wrap gap-2">
-          {!approved && !claudeWorking && (
-            <button type="button" disabled={!!busy} onClick={() => void run('aprobar', { accion: 'aprobar' })} className="btn-primary h-10 px-5 text-[13px]">
-              {busy === 'aprobar' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Aprobar
-            </button>
-          )}
-          <a href={downloadUrl(edit.id)} className="btn-secondary h-10 px-4 text-[13px]">
-            <Download className="h-4 w-4" /> Descargar MP4
-          </a>
-          {b.portada && (
-            <a href={downloadUrl(edit.id, 'portada')} className="btn-secondary h-10 px-4 text-[13px]">
-              <ImageDown className="h-4 w-4" /> Portada
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-1.5 text-[14px] font-semibold text-fg">
+              {approved && <CheckCircle2 className="h-4 w-4 text-accent" />}
+              {approved ? 'Aprobado · guardado en Proyectos' : claudeWorking ? 'Borrador intermedio' : 'Tu reel está listo'}
+            </p>
+            <p className="text-[12px] text-fg-muted">
+              Versión {b.version} · {formatClock(b.duracion)} (antes {formatClock(edit.original.duracion)})
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!approved && !claudeWorking && (
+              <button type="button" disabled={!!busy} onClick={() => void run('aprobar', { accion: 'aprobar' })} className="btn-primary h-9 px-4 text-[13px]">
+                {busy === 'aprobar' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Aprobar
+              </button>
+            )}
+            <a href={downloadUrl(edit.id)} className="btn-secondary h-9 px-3 text-[13px]">
+              <Download className="h-4 w-4" /> MP4
             </a>
-          )}
+            {b.portada && (
+              <a href={downloadUrl(edit.id, 'portada')} className="btn-secondary h-9 px-3 text-[13px]">
+                <ImageDown className="h-4 w-4" /> Portada
+              </a>
+            )}
+          </div>
         </div>
-        <FeedbackButton key={b.version} fuente={{ tipo: 'edicion', id: edit.id }} />
+      </div>
 
-        {b.calidad && b.calidad.length > 0 && (
-          <div className="space-y-2 rounded-xl border border-line p-3">
-            <p className="text-[12px] font-medium text-fg">Control de calidad</p>
+      <FeedbackButton key={b.version} fuente={{ tipo: 'edicion', id: edit.id }} />
+
+      <details className="text-[12px]">
+        <summary className="cursor-pointer text-fg-muted hover:text-fg">
+          Detalles{avisos ? ` · ${avisos} aviso${avisos === 1 ? '' : 's'}` : ''}
+        </summary>
+        <div className="mt-3 space-y-3">
+          {edit.direccion && (
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2">
+              <p className="min-w-0 flex-1 text-fg-muted">
+                <Sparkles className="mr-1 inline h-3.5 w-3.5 text-accent" />
+                <b className="text-fg">Dirigida por Claude.</b> {edit.direccion.resumen ?? ''} Para cambiar estilo, efectos o gráficos, pídeselo en el chat.
+              </p>
+              <button
+                type="button"
+                disabled={!!busy || claudeWorking}
+                onClick={() => void run('quitar_direccion', { accion: 'quitar_direccion' })}
+                className="btn-secondary h-7 shrink-0 px-2.5 text-[11px]"
+                title="El próximo render usa el estilo automático del perfil"
+              >
+                Volver al estilo del perfil
+              </button>
+            </div>
+          )}
+          {b.calidad && b.calidad.length > 0 && (
             <ul className="space-y-1.5">
               {b.calidad.map((c, i) => (
-                <li key={i} className="flex items-start gap-2 text-[12px] text-fg-muted">
+                <li key={i} className="flex items-start gap-2 text-fg-muted">
                   {c.ok === true ? (
                     <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
                   ) : c.ok === false ? (
@@ -488,14 +487,14 @@ function DraftCard({
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-        {b.notas && b.notas.length > 0 && <p className="text-[11px] text-fg-subtle">Sonido: {b.notas.join(' ')}</p>}
-        {b.portada && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={mediaUrl(edit.id, 'portada', b.version)} alt="Portada del reel" className="h-32 w-auto rounded-lg border border-line" />
-        )}
-      </div>
+          )}
+          {b.notas && b.notas.length > 0 && <p className="text-[11px] text-fg-subtle">{b.notas.join(' ')}</p>}
+          {b.portada && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={mediaUrl(edit.id, 'portada', b.version)} alt="Portada del reel" className="h-28 w-auto rounded-lg border border-line" />
+          )}
+        </div>
+      </details>
     </section>
   );
 }
@@ -563,31 +562,19 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
   const toggle = (id: string) => setRows((r) => ({ ...r, [id]: { ...r[id], cortar: !r[id].cortar } }));
   const allKept = cuts === 0;
   const isDraft = edit.estado === 'borrador' || edit.estado === 'aprobado';
+  // Ediciones dirigidas por Claude: gancho, palabras clave, gráficos y estilo se piden en el chat
+  const directed = !!edit.direccion;
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h3 className="text-[15px] font-semibold text-fg">{isDraft ? 'Cambiar algo' : edit.direccion ? 'Revisa la propuesta de Claude' : 'Revisa el guion'}</h3>
-          {edit.direccion && isDraft && (
-            <p className="max-w-[80ch] rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-fg">
-              Este video lo dirigió <b>Claude</b>: sus palabras clave, efectos, ayudas visuales, música y cámara están en su plan (por eso aquí pueden verse
-              vacíos el gancho o las palabras a resaltar). Para cambiar algo de eso, <b>pídeselo en el chat</b>; aquí solo ajustas cortes y textos de los
-              subtítulos.
-            </p>
-          )}
-          {edit.direccion && !isDraft && (
-            <p className="max-w-[80ch] rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-fg">
-              Esto no es otro generador: es lo que decidió <b>Claude</b> (cortes, gancho, palabras clave y gráficos), y detrás va su plan de cámara,
-              sonido y música. <b>Si te gusta, pulsa «Crear video».</b> Si quieres cambios, pídeselos a Claude en el chat de arriba o ajústalos aquí y luego
-              crea el video.
-            </p>
-          )}
-          <p className="max-w-[70ch] text-[12px] text-fg-muted">
-            Las frases en rojo se cortan. Toca una para conservarla o cortarla, corrige el texto de los subtítulos escribiendo encima y escucha
-            cualquier frase con ▶.
+          <p className="max-w-[80ch] text-[12px] text-fg-muted">
+            {edit.direccion && !isDraft ? 'Propuesta de Claude: si te gusta, pulsa «Crear video»; si no, pídele cambios en el chat. ' : ''}
+            Toca una frase para cortarla o conservarla, corrige el subtítulo escribiendo encima y escúchala con ▶.
           </p>
-          {edit.resumenIA && <p className="mt-1 text-[12px] text-fg"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-accent" />{edit.resumenIA}</p>}
+          {edit.resumenIA && !edit.direccion && <p className="mt-1 text-[12px] text-fg"><Sparkles className="mr-1 inline h-3.5 w-3.5 text-accent" />{edit.resumenIA}</p>}
         </div>
         <p className="text-[12px] text-fg-muted">
           {cuts} frase{cuts === 1 ? '' : 's'} cortada{cuts === 1 ? '' : 's'} · queda <b className="tabular-nums text-fg">{formatClock(estimate)}</b> de{' '}
@@ -616,6 +603,7 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
             />
           </div>
 
+          {!directed && (<>
           <label className="block space-y-1 text-[12px] text-fg-muted">
             <span className="block">Texto gancho {perfil.gancho.activo ? '' : '(apagado en este perfil)'}</span>
             <input value={gancho} onChange={(e) => setGancho(e.target.value)} maxLength={120} className="input-clean h-9 w-full px-3 text-[13px]" />
@@ -687,18 +675,19 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
             </div>
             <p className="text-[11px] text-fg-subtle">No vuelve a transcribir: solo cuesta la llamada a la IA.</p>
           </div>
+          </>)}
         </div>
 
         {/* Frases */}
         <div className="min-w-0 space-y-4">
-        <GraphicsReview
+        {!directed && <GraphicsReview
           graficos={graficos}
           setGraficos={setGraficos}
           frases={edit.frases}
           rows={rows}
           busy={busy}
           onPropose={() => void run('graficos', { accion: 'proponer_graficos' })}
-        />
+        />}
         <ol className="max-h-[720px] space-y-1.5 overflow-y-auto pr-1 desktop-scroll">
           {edit.frases.map((f) => {
             const r = rows[f.id];
