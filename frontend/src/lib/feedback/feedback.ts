@@ -6,7 +6,7 @@ import { getSettings } from '@/lib/data/settings';
 import { getStorageBasePath } from '@/lib/storage/project-storage';
 import { isInside } from '@/lib/fs/inside';
 import { errorMessage } from '@/lib/errors';
-import { FEEDBACK_SUFFIX, FeedbackError, LULO_SUFFIX, VIDEO_EXT, feedbackConfigured, getJson, listAll, putJson, putVideo, reviewUrl } from './r2';
+import { FEEDBACK_SUFFIX, FeedbackError, LULO_SUFFIX, VIDEO_EXT, feedbackConfigured, getJson, listAll, objectExists, putJson, putVideo, reviewUrl } from './r2';
 
 /**
  * Lulo Studio ↔ app de feedback (ver docs/feedback.md):
@@ -287,13 +287,47 @@ async function writeLuloStatus(e: FeedbackEntry) {
   await putJson(e.key + LULO_SUFFIX, body, meta);
 }
 
+/** El `.lulo.json` del bucket manda (lo puede haber escrito otro PC): lo que no trae se borra; si no existe, todo. */
 function applyLulo(e: FeedbackEntry, st: LuloStatus | null) {
-  if (!st) return;
+  if (!st) {
+    delete e.claude;
+    delete e.respuesta;
+    delete e.siguiente;
+    return;
+  }
   // Formato del 10 nov (claude.en) por compatibilidad
   const c = st.claude as (FeedbackEntry['claude'] & { en?: string }) | null | undefined;
   if (c && (c.tomadoEn || c.en)) e.claude = { destino: c.destino, tomadoEn: c.tomadoEn || c.en!, notas: c.notas ?? 0, ...(c.edicionId ? { edicionId: c.edicionId } : {}) };
+  else delete e.claude;
   if (st.respuesta?.texto) e.respuesta = st.respuesta;
+  else delete e.respuesta;
   if (st.siguiente) e.siguiente = st.siguiente;
+  else delete e.siguiente;
+}
+
+/** Hora que nunca queda antes de `after` (el reloj del PC puede ir atrasado respecto al de Cloudflare). */
+function stampAfter(...after: Array<string | undefined>): string {
+  const min = Math.max(0, ...after.filter(Boolean).map((t) => Date.parse(t!) + 1).filter(Number.isFinite));
+  return new Date(Math.max(Date.now(), min)).toISOString();
+}
+
+/**
+ * Clave libre para esta versión: si ya hay otro video con ese nombre en el proyecto (de otra versión,
+ * otro video u otro PC), se añade « (2)», « (3)»… para no pisarlo ni heredar sus notas.
+ * Subir otra vez la misma versión sí reutiliza su clave.
+ */
+async function freeKey(proyecto: string, nombre: string, fuente: string): Promise<{ key: string; nombre: string }> {
+  const reg = await readRegistry();
+  const { name, ext } = path.parse(nombre);
+  for (let i = 1; i <= 50; i++) {
+    const n = i === 1 ? nombre : `${name} (${i})${ext}`;
+    const key = `${proyecto}/${n}`;
+    const known = reg.entradas[key];
+    if (known?.fuente === fuente) return { key, nombre: n };
+    if (known) continue;
+    if (!(await objectExists(key))) return { key, nombre: n };
+  }
+  throw new FeedbackError('Hay demasiados videos con ese nombre en el proyecto: cambia el nombre.', 409);
 }
 
 export async function uploadToFeedback(source: FeedbackSource, opts: { proyecto?: string; nombre?: string } = {}): Promise<FeedbackEntry> {
@@ -305,8 +339,7 @@ export async function uploadToFeedback(source: FeedbackSource, opts: { proyecto?
   const ext = path.extname(r.ruta).toLowerCase() || '.mp4';
   if (!VIDEO_EXT.test(ext)) throw new FeedbackError('Solo se pueden subir videos (.mp4, .mov, .webm…).');
   const proyecto = segment(opts.proyecto ?? r.proyecto, 'Lulo Studio');
-  const nombre = videoName(opts.nombre ?? r.nombre, ext);
-  const key = `${proyecto}/${nombre}`;
+  const { key, nombre } = await freeKey(proyecto, videoName(opts.nombre ?? r.nombre, ext), r.fuente);
   const persona = (await getSettings()).personName?.trim() || '';
 
   const bytes = await putVideo(key, r.ruta, {
@@ -318,6 +351,7 @@ export async function uploadToFeedback(source: FeedbackSource, opts: { proyecto?
   });
 
   const { entry, previous } = await withRegistry((reg) => {
+    const previous: FeedbackEntry[] = [];
     const old = reg.entradas[key];
     const entry: FeedbackEntry = {
       ...(old ?? {}),
@@ -334,20 +368,19 @@ export async function uploadToFeedback(source: FeedbackSource, opts: { proyecto?
     // Mismo video subido otra vez (la app de feedback conserva sus notas y su decisión)
     delete entry.siguiente;
     reg.entradas[key] = entry;
-    // Versión nueva de algo ya subido (misma edición, producción o proyecto del estudio)
-    let previous: FeedbackEntry | undefined;
+    // Versión nueva de algo ya subido (misma edición, producción o archivo): todas las anteriores apuntan a la nueva
     if (r.origen.id && r.origen.version) {
       for (const e of Object.values(reg.entradas)) {
         if (e.key === key || !e.origen || e.origen.servicio !== r.origen.servicio || e.origen.id !== r.origen.id) continue;
         if ((e.origen.version ?? 0) < r.origen.version && e.siguiente !== key) {
           e.siguiente = key;
-          previous = e;
+          previous.push({ ...e });
         }
       }
     }
     return { entry, previous };
   });
-  if (previous) await writeLuloStatus(previous).catch(() => {});
+  await Promise.all(previous.map((p) => writeLuloStatus(p).catch(() => {})));
   return entry;
 }
 
@@ -363,6 +396,9 @@ export function syncFeedback(force = false): Promise<void> {
   if (!force && g.__luloFeedbackLastSync && Date.now() - g.__luloFeedbackLastSync < 10_000) return Promise.resolve();
   g.__luloFeedbackSync = (async () => {
     try {
+      // Lo que se suba o se extraiga mientras se lee el bucket no aparece en el listado: no se toca
+      const listedAt = new Date().toISOString();
+      const before = (t?: string) => !t || t < listedAt;
       const objects = await listAll();
       const videos = new Set<string>();
       const fbMod = new Map<string, string>();
@@ -381,18 +417,25 @@ export function syncFeedback(force = false): Promise<void> {
       const st = new Map<string, LuloStatus | null>();
       for (const [key, mod] of fbMod) {
         if (videos.has(key) && reg.entradas[key]?.feedbackModificado !== mod) {
-          jobs.push(async () => void fb.set(key, normalize(await getJson<Partial<FeedbackData>>(key + FEEDBACK_SUFFIX).catch(() => null))));
+          // Si falla la lectura no se guarda nada: se reintenta en la próxima
+          jobs.push(async () => {
+            const raw = await getJson<Partial<FeedbackData>>(key + FEEDBACK_SUFFIX).catch(() => undefined);
+            if (raw !== undefined) fb.set(key, normalize(raw));
+          });
         }
       }
       for (const [key, mod] of luloMod) {
         if (videos.has(key) && reg.entradas[key]?.luloModificado !== mod) {
-          jobs.push(async () => void st.set(key, await getJson<LuloStatus>(key + LULO_SUFFIX).catch(() => null)));
+          jobs.push(async () => {
+            const raw = await getJson<LuloStatus>(key + LULO_SUFFIX).catch(() => undefined);
+            if (raw !== undefined) st.set(key, raw);
+          });
         }
       }
       for (let i = 0; i < jobs.length; i += 8) await Promise.all(jobs.slice(i, i + 8).map((j) => j()));
 
       await withRegistry((r) => {
-        for (const e of Object.values(r.entradas)) e.enBucket = videos.has(e.key);
+        for (const e of Object.values(r.entradas)) if (before(e.subidoEn)) e.enBucket = videos.has(e.key);
         for (const key of videos) {
           if (!r.entradas[key] && !fbMod.has(key) && !luloMod.has(key)) continue;
           const e = (r.entradas[key] ??= foreignEntry(key));
@@ -404,6 +447,15 @@ export function syncFeedback(force = false): Promise<void> {
           if (st.has(key)) {
             applyLulo(e, st.get(key) ?? null);
             e.luloModificado = luloMod.get(key);
+          }
+          // Si ya no están en el bucket (alguien los borró), tampoco aquí
+          if (!fbMod.has(key)) {
+            delete e.feedback;
+            delete e.feedbackModificado;
+          }
+          if (!luloMod.has(key) && before(e.claude?.tomadoEn) && before(e.respuesta?.en) && !(e.siguiente && !before(r.entradas[e.siguiente]?.subidoEn))) {
+            applyLulo(e, null);
+            delete e.luloModificado;
           }
         }
         r.ultimaSync = new Date().toISOString();
@@ -435,7 +487,9 @@ export async function refreshEntry(key: string): Promise<FeedbackEntry> {
   ]);
   return withRegistry((r) => {
     const e = (r.entradas[key] ??= foreignEntry(key));
+    // Lo que hay en el bucket manda (getJson devuelve null si el archivo no existe)
     if (data) e.feedback = data;
+    else delete e.feedback;
     applyLulo(e, st);
     return { ...e };
   });
@@ -578,27 +632,32 @@ export async function takeFeedback(key: string, destino: string, edicionId?: str
       409
     );
   }
-  const e = await withRegistry((r) => {
+  const next: FeedbackEntry = {
+    ...fresh,
+    claude: { destino, tomadoEn: stampAfter(fresh.feedback?.decision?.en), notas: fresh.feedback?.notes.length ?? 0, ...(edicionId ? { edicionId } : {}) },
+  };
+  delete next.respuesta;
+  // Primero el bucket (lo que ve el equipo); si falla, el registro local no cambia
+  await writeLuloStatus(next);
+  return withRegistry((r) => {
     const e = r.entradas[key]!;
-    e.claude = { destino, tomadoEn: new Date().toISOString(), notas: e.feedback?.notes.length ?? 0, ...(edicionId ? { edicionId } : {}) };
+    e.claude = next.claude;
     delete e.respuesta;
     return { ...e };
   });
-  await writeLuloStatus(e);
-  return e;
 }
 
 /** Claude deja su respuesta (nota por nota) para el equipo: el video pasa a «Claude respondió». */
 export async function respondFeedback(key: string, texto: string): Promise<FeedbackEntry> {
-  const e = await withRegistry((r) => {
-    const e = r.entradas[key];
-    if (!e) throw new FeedbackError('Ese video no está en la app de feedback.', 404);
-    if (!e.claude) throw new FeedbackError('Primero toma el feedback con tomar_feedback.', 409);
-    e.respuesta = { texto: texto.trim().slice(0, 4000), en: new Date().toISOString() };
+  const current = await getEntry(key);
+  if (!current.claude) throw new FeedbackError('Primero extrae las notas con tomar_feedback.', 409);
+  const respuesta = { texto: texto.trim().slice(0, 4000), en: stampAfter(current.claude.tomadoEn) };
+  await writeLuloStatus({ ...current, respuesta });
+  return withRegistry((r) => {
+    const e = r.entradas[key]!;
+    e.respuesta = respuesta;
     return { ...e };
   });
-  await writeLuloStatus(e);
-  return e;
 }
 
 function claudeMessage(e: FeedbackEntry, extra = ''): string {
@@ -619,7 +678,11 @@ function claudeMessage(e: FeedbackEntry, extra = ''): string {
  */
 export async function sendFeedbackToClaude(key: string, appUrl: string): Promise<{ destino: string; edicionId?: string }> {
   const e = await refreshEntry(key);
-  if (stateOf(e) !== 'enviado') await takeFeedback(key, 'Claude'); // lanza con el motivo
+  const estado = stateOf(e);
+  if (estado === 'en_proceso') {
+    throw new FeedbackError(`${e.claude?.destino ?? 'Claude'} ya está trabajando en estas notas desde ${e.claude?.tomadoEn.slice(11, 16) ?? 'hace un rato'} (UTC).`, 409);
+  }
+  if (estado !== 'enviado') await takeFeedback(key, 'Claude'); // lanza con el motivo
   const o = e.origen;
 
   if (o?.servicio === 'edicion' && o.id) {
@@ -694,7 +757,7 @@ function assertOrigin(e: FeedbackEntry, origin?: { servicio: FeedbackService; id
 
 /** tomar_feedback: deja el video en «Claude trabajando» y devuelve las notas para aplicarlas. */
 export async function takeFeedbackFromAgent(key: string, destino: string, origin?: { servicio: FeedbackService; id: string }) {
-  assertOrigin(await getEntry(key), origin);
+  if (origin) assertOrigin(await getEntry(key), origin);
   const e = await takeFeedback(key, destino);
   return { ...entryForClaude(e), siguientePaso: 'Aplica cada nota, deja lista la versión nueva y termina con responder_feedback.' };
 }

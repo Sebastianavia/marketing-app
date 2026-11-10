@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client, type _Object } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client, type _Object } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 
 /**
@@ -72,6 +72,8 @@ function client(): { s3: S3Client; bucket: string } {
 /** S3 solo admite ASCII en los metadatos: se codifican (la app de feedback los decodifica). */
 const asciiMeta = (meta: Record<string, string>) => Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, encodeURIComponent(v).slice(0, 500)]));
 
+const VIDEO_MIME: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg' };
+
 export async function putVideo(key: string, file: string, meta: Record<string, string>, onProgress?: (pct: number) => void) {
   const { s3, bucket } = client();
   const size = fs.statSync(file).size;
@@ -81,7 +83,7 @@ export async function putVideo(key: string, file: string, meta: Record<string, s
       Bucket: bucket,
       Key: key,
       Body: fs.createReadStream(file),
-      ContentType: 'video/mp4',
+      ContentType: VIDEO_MIME[key.split('.').pop()?.toLowerCase() ?? ''] ?? 'video/mp4',
       ContentLength: size,
       Metadata: asciiMeta(meta),
     },
@@ -91,6 +93,19 @@ export async function putVideo(key: string, file: string, meta: Record<string, s
   if (onProgress) up.on('httpUploadProgress', (p) => p.loaded && onProgress(Math.round((p.loaded / size) * 100)));
   await up.done();
   return size;
+}
+
+/** ¿Existe ese objeto en el bucket? */
+export async function objectExists(key: string): Promise<boolean> {
+  const { s3, bucket } = client();
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return true;
+  } catch (err) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e.name === 'NotFound' || e.name === 'NoSuchKey' || e.$metadata?.httpStatusCode === 404) return false;
+    throw err;
+  }
 }
 
 export async function putJson(key: string, data: unknown, meta: Record<string, string> = {}) {
