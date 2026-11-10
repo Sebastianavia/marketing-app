@@ -1,13 +1,32 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, ExternalLink, Loader2, MessageSquareText, Sparkles, UploadCloud, X } from 'lucide-react';
-import { FEEDBACK_EVENT, feedbackApi, notifyFeedback, type FeedbackItem, type FeedbackSourceClient } from './feedback-api';
+import { ExternalLink, Loader2, RefreshCw, Sparkles, UploadCloud, X } from 'lucide-react';
+import { FEEDBACK_EVENT, STATE_STYLE, feedbackApi, notifyFeedback, type FeedbackItem, type FeedbackSourceClient } from './feedback-api';
+
+/** Qué significa cada estado para quien está en Lulo. */
+function stateHint(e: FeedbackItem): string {
+  const por = e.decision?.por ? ` por ${e.decision.por}` : '';
+  switch (e.estado) {
+    case 'por_revisar':
+      return 'Esperando que el equipo lo revise en la app de feedback.';
+    case 'cambios_pedidos':
+      return `Cambios pedidos${por}: listos para que Claude los aplique.`;
+    case 'en_proceso':
+      return `${e.claude?.destino ?? 'Claude'} está aplicando los cambios.`;
+    case 'respondido':
+      return 'Claude respondió al equipo; falta que lo revisen otra vez.';
+    case 'aprobado':
+      return `Aprobado${por}.`;
+    case 'reemplazado':
+      return 'Ya hay una versión nueva en Feedback.';
+  }
+}
 
 /**
  * Botón «Subir a Feedback» para un video final o borrador de cualquier servicio.
- * Sube el video a la app de feedback del equipo (Cloudflare R2) y, cuando alguien deja notas,
- * permite mandárselas al Claude que hizo el video para que las aplique.
+ * Sube el video a la app de feedback del equipo (Cloudflare R2), muestra su estado de revisión y,
+ * cuando el equipo pide cambios, deja que Claude los aplique. El estado se lee al mostrarse (sin consultas periódicas).
  */
 export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSourceClient | null; className?: string }) {
   const sig = fuente ? JSON.stringify(fuente) : '';
@@ -15,7 +34,7 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
   const [sugerido, setSugerido] = useState<{ proyecto: string; nombre: string } | null>(null);
   const [disponible, setDisponible] = useState(false);
   const [form, setForm] = useState<{ proyecto: string; nombre: string } | null>(null);
-  const [busy, setBusy] = useState<'subir' | 'claude' | null>(null);
+  const [busy, setBusy] = useState<'subir' | 'claude' | 'estado' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -36,11 +55,9 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
     const onEvt = () => void refresh();
     const first = setTimeout(onEvt, 0);
     window.addEventListener(FEEDBACK_EVENT, onEvt);
-    const t = setInterval(onEvt, 90_000);
     return () => {
       clearTimeout(first);
       window.removeEventListener(FEEDBACK_EVENT, onEvt);
-      clearInterval(t);
     };
   }, [refresh]);
 
@@ -68,9 +85,8 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
     setError(null);
     try {
       const r = await feedbackApi.claude(entrada.key);
-      setAviso(`Notas enviadas a ${r.destino}.`);
+      setAviso(`Cambios enviados a ${r.destino}.`);
       notifyFeedback();
-      void refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar a Claude.');
     } finally {
@@ -78,7 +94,11 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
     }
   };
 
-  const hasNotes = Boolean(entrada && (entrada.notas > 0 || entrada.general));
+  const recheck = async () => {
+    setBusy('estado');
+    await refresh();
+    setBusy(null);
+  };
 
   return (
     <div className={`space-y-1.5 ${className}`}>
@@ -87,7 +107,7 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
           type="button"
           onClick={() => setForm(sugerido ?? { proyecto: 'Lulo Studio', nombre: 'video.mp4' })}
           className="btn-secondary inline-flex h-8 items-center gap-1.5 px-3 text-[12px]"
-          title="Sube este video a la app de feedback para que el equipo deje notas"
+          title="Sube este video a la app de feedback para que el equipo lo revise"
         >
           <UploadCloud className="h-3.5 w-3.5" /> Subir a Feedback
         </button>
@@ -108,7 +128,7 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
           <div className="flex items-center gap-2">
             <button type="button" disabled={busy === 'subir' || !form.proyecto.trim() || !form.nombre.trim()} onClick={upload} className="btn-primary inline-flex h-8 items-center gap-1.5 px-3 text-[12px]">
               {busy === 'subir' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
-              {busy === 'subir' ? 'Subiendo…' : 'Subir'}
+              {busy === 'subir' ? 'Subiendo…' : 'Subir para revisión'}
             </button>
             {busy !== 'subir' && (
               <button type="button" onClick={() => setForm(null)} className="btn-secondary inline-flex h-8 items-center gap-1 px-2.5 text-[12px]">
@@ -120,35 +140,25 @@ export function FeedbackButton({ fuente, className = '' }: { fuente: FeedbackSou
       )}
 
       {entrada && (
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={entrada.enlace}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-secondary inline-flex h-8 items-center gap-1.5 px-3 text-[12px]"
-            title={`${entrada.proyecto} / ${entrada.nombre}`}
-          >
-            <MessageSquareText className="h-3.5 w-3.5" />
-            En Feedback · {entrada.notas} {entrada.notas === 1 ? 'nota' : 'notas'}
-            {entrada.nuevo && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-accent" aria-label="Notas nuevas" />}
-            <ExternalLink className="h-3 w-3 opacity-60" />
-          </a>
-          {hasNotes && (
-            <button
-              type="button"
-              disabled={busy === 'claude'}
-              onClick={toClaude}
-              className={`${entrada.nuevo ? 'btn-primary' : 'btn-secondary'} inline-flex h-8 items-center gap-1.5 px-3 text-[12px]`}
-              title="Claude lee las notas y aplica los cambios"
-            >
-              {busy === 'claude' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {entrada.nuevo ? 'Enviar notas a Claude' : 'Enviar otra vez a Claude'}
-            </button>
-          )}
-          {entrada.claude && !entrada.nuevo && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-fg-subtle">
-              <Check className="h-3 w-3" /> Claude recibió {entrada.claude.notas} {entrada.claude.notas === 1 ? 'nota' : 'notas'}
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`inline-flex h-6 items-center rounded-full px-2.5 text-[11px] font-medium ${STATE_STYLE[entrada.estado]}`}>Feedback · {entrada.estadoTexto}</span>
+            <span className="text-[11px] text-fg-subtle">
+              {entrada.notas} {entrada.notas === 1 ? 'nota' : 'notas'}
             </span>
+            <a href={entrada.enlace} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-fg-muted hover:text-fg" title={`${entrada.proyecto} / ${entrada.nombre}`}>
+              Ver en Feedback <ExternalLink className="h-3 w-3" />
+            </a>
+            <button type="button" onClick={recheck} disabled={!!busy} className="rounded p-0.5 text-fg-subtle hover:text-fg" title="Volver a mirar el estado">
+              <RefreshCw className={`h-3 w-3 ${busy === 'estado' ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          <p className="text-[11px] text-fg-muted">{stateHint(entrada)}</p>
+          {entrada.estado === 'cambios_pedidos' && (
+            <button type="button" disabled={busy === 'claude'} onClick={toClaude} className="btn-primary inline-flex h-8 items-center gap-1.5 px-3 text-[12px]" title="Claude descarga las notas y aplica los cambios">
+              {busy === 'claude' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Aplicar cambios con Claude
+            </button>
           )}
         </div>
       )}

@@ -9,11 +9,9 @@ export async function register() {
     const { startRunner } = await import('@/lib/jobs/runner');
     const { startSceneRunner } = await import('@/lib/scenes/scene-runner');
     const { startEditRunner } = await import('@/lib/editor/edit-runner');
-    const { startFeedbackPoller } = await import('@/lib/feedback/feedback');
     await ensureDataDir();
     startRunner();
     startSceneRunner();
     startEditRunner();
-    startFeedbackPoller(); // lee cada 3 min el feedback del equipo (si está configurado)
   }
 }

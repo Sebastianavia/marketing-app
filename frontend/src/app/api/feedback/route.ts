@@ -5,11 +5,11 @@ import { AgentBusyError } from '@/lib/ai/claude-code/agent-runner';
 import { errorMessage, errorStatus } from '@/lib/errors';
 import {
   FeedbackSourceSchema,
+  REVIEW_LABEL,
   entryForSource,
-  isNew,
   listFeedback,
-  markReviewed,
   reviewUrl,
+  stateOf,
   sendFeedbackToClaude,
   syncFeedback,
   uploadToFeedback,
@@ -23,7 +23,12 @@ export const maxDuration = 900;
 
 /** Lo que ve la pantalla (sin rutas absolutas). */
 function view(e: FeedbackEntry) {
+  const estado = stateOf(e);
   return {
+    estado,
+    estadoTexto: REVIEW_LABEL[estado],
+    decision: e.feedback?.decision ?? null,
+    respuesta: e.respuesta ?? null,
     key: e.key,
     proyecto: e.proyecto,
     nombre: e.nombre,
@@ -33,7 +38,6 @@ function view(e: FeedbackEntry) {
     notas: e.feedback?.notes.length ?? 0,
     general: Boolean(e.feedback?.general.trim()),
     feedbackEn: e.feedback?.updatedAt ?? null,
-    nuevo: isNew(e),
     claude: e.claude ?? null,
     siguiente: e.siguiente ?? null,
     enlace: reviewUrl(e.key),
@@ -52,7 +56,7 @@ function fail(err: unknown, fallback: string) {
   return NextResponse.json({ error: msg }, { status });
 }
 
-/** GET [?sync=1]: bandeja de feedback (videos subidos y notas del equipo). */
+/** GET [?sync=1]: bandeja de feedback. Con sync=1 lee el bucket (solo cuando se abre la bandeja; nunca en segundo plano). */
 export async function GET(req: NextRequest) {
   try {
     if (req.nextUrl.searchParams.get('sync') === '1') await syncFeedback();
@@ -63,7 +67,8 @@ export async function GET(req: NextRequest) {
       app: feedbackAppUrl(),
       ultimaSync: r.ultimaSync,
       errorSync: r.errorSync,
-      nuevos: entradas.filter((e) => e.nuevo).length,
+      // Videos con cambios pedidos que esperan a Claude
+      pendientes: entradas.filter((e) => e.estado === 'cambios_pedidos').length,
       entradas,
     });
   } catch (err) {
@@ -80,12 +85,11 @@ const Body = z.discriminatedUnion('accion', [
     nombre: z.string().trim().max(120).optional(),
   }),
   z.object({ accion: z.literal('claude'), key: z.string().min(1).max(400) }),
-  z.object({ accion: z.literal('revisado'), key: z.string().min(1).max(400) }),
 ]);
 
 /**
- * estado: ¿ya se subió este video? (para el botón)
- * subir: sube el video a R2 · claude: manda las notas al Claude que lo hizo · revisado: marcar sin enviar.
+ * estado: ¿ya se subió este video y en qué estado está? (lee ese video del bucket: 2 lecturas)
+ * subir: sube el video a R2 · claude: manda los cambios pedidos al Claude que lo hizo.
  * Todo solo desde la ventana de la app.
  */
 export async function POST(req: NextRequest) {
@@ -101,10 +105,6 @@ export async function POST(req: NextRequest) {
     }
     if (a.accion === 'subir') {
       const e = await uploadToFeedback(a.fuente, { proyecto: a.proyecto, nombre: a.nombre });
-      return NextResponse.json({ entrada: view(e) });
-    }
-    if (a.accion === 'revisado') {
-      const e = await markReviewed(a.key, 'Marcado como revisado');
       return NextResponse.json({ entrada: view(e) });
     }
     const out = await sendFeedbackToClaude(a.key, `http://localhost:${req.nextUrl.port || '3000'}`);
