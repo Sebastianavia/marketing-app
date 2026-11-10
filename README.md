@@ -1,5 +1,7 @@
 # 🚀 Marketing AI Studio (Next.js + Vercel AI SDK + CrewAI + HeyGen)
 
+> **¿Vienes a actualizar y probar los últimos cambios?** Lee [`ACTUALIZAR-Y-PROBAR.md`](ACTUALIZAR-Y-PROBAR.md): `git pull`, `npm install`, claves de la app de feedback y cómo probar el flujo con Claude.
+
 Plataforma integral para ideación, redacción estratégica y producción audiovisual de anuncios de marketing en formato vertical (TikTok, Reels, Shorts) combinando **Next.js**, **Vercel AI SDK**, **CrewAI** y la API de **HeyGen**.
 
 ---
