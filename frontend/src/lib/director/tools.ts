@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { feedbackForClaude, markReviewedFromAgent } from '@/lib/feedback/feedback';
 import { listAvatars } from '@/lib/avatars/avatar-store';
 import { getStoredVoices } from '@/lib/storage/voice-storage';
 import { getAllProjects } from '@/lib/storage/project-storage';
@@ -454,6 +455,25 @@ const tomaDeApoyo = defineTool({
   },
 });
 
+// ── feedback del equipo ───────────────────────────────────────────────────────
+
+const feedbackPendiente = defineTool({
+  name: 'feedback_pendiente',
+  description:
+    'Notas que el equipo dejó en la app de feedback (videos subidos desde Lulo con «Subir a Feedback»). Por defecto solo las que Claude aún no recibió; `todos: true` = todos los videos con notas. No gasta dinero.',
+  spends: false,
+  schema: z.object({ todos: z.boolean().default(false).describe('true = también el feedback que ya se recibió.') }),
+  run: async ({ todos }) => feedbackForClaude(todos),
+});
+
+const marcarFeedbackRevisado = defineTool({
+  name: 'marcar_feedback_revisado',
+  description: 'Marca el feedback de un video como recibido por Claude (el equipo lo ve en la app de feedback). `key` sale de feedback_pendiente. No gasta dinero.',
+  spends: false,
+  schema: z.object({ key: z.string().min(1).max(400) }),
+  run: async ({ key }) => markReviewedFromAgent(key, 'Claude Code'),
+});
+
 // ── Registro ──────────────────────────────────────────────────────────────────
 
 export const DIRECTOR_TOOLS: DirectorTool[] = [
@@ -467,6 +487,8 @@ export const DIRECTOR_TOOLS: DirectorTool[] = [
   crearImagen,
   videoAvatar,
   tomaDeApoyo,
+  feedbackPendiente,
+  marcarFeedbackRevisado,
 ] as DirectorTool[];
 
 export function getDirectorTool(name: string): DirectorTool | undefined {

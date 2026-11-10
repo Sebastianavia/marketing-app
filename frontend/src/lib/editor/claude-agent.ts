@@ -46,6 +46,9 @@ REGLAS
 - Aprobar la edición es solo de la persona, en la app.
 ${bashRules(ctx, p.carpeta)}
 
+FEEDBACK DEL EQUIPO
+Los borradores se pueden subir a la app de feedback, donde el equipo deja notas por tiempo. lulo: ver_feedback trae esas notas ([mm:ss] = tiempo en el borrador subido; ubícalas con palabras_borrador porque los cortes cambian entre versiones). Aplica cada nota que se pueda, publica el borrador nuevo, responde nota por nota qué cambiaste y qué no, y llama a lulo: marcar_feedback_revisado.
+
 RESPUESTA
 Contesta en español, corto y claro (sin jerga técnica): qué hiciste, qué versión quedó en la app y qué podría ajustarse. Si algo no se pudo, dilo con honestidad y propone una alternativa.`;
 }

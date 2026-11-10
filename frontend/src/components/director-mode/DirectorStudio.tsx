@@ -23,6 +23,8 @@ type View = 'lienzo' | 'lista';
 
 const CLAUDE_STEP_NAMES: Record<string, string> = {
   'lulo: ver_proyecto': 'Mirando el proyecto',
+  'lulo: ver_feedback': 'Leyendo el feedback del equipo',
+  'lulo: marcar_feedback_revisado': 'Marcando el feedback como recibido',
   'lulo: accion': 'Trabajando en el proyecto',
   'lulo: preparar_produccion': 'Preparando el presupuesto',
   'lulo: generar': 'Generando imágenes y clips',

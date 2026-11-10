@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { markReviewedFromAgent, originFeedbackForClaude } from '@/lib/feedback/feedback';
 import { listAvatars } from '@/lib/avatars/avatar-store';
 import { BROLL_MODELS, VOICE_MODES, brollPriceLabel, clipCostUSD } from '@/config/broll-models';
 import { imageUnitPrice } from '@/lib/generation/image';
@@ -246,7 +247,21 @@ const montarVideo = tool({
   run: (id, { pulirConClaude }) => assembleFinal(id, { pulirConClaude }),
 });
 
-export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo];
+const verFeedback = tool({
+  name: 'ver_feedback',
+  description: 'Notas que dejó el equipo en la app de feedback sobre los videos finales de esta producción que se subieron (formato [mm:ss] del video subido). $0.',
+  schema: z.object({}),
+  run: async (productionId) => originFeedbackForClaude('director', productionId),
+});
+
+const marcarFeedback = tool({
+  name: 'marcar_feedback_revisado',
+  description: 'Cuando ya aplicaste o respondiste el feedback de un video de esta producción, márcalo (el equipo lo verá en la app de feedback). `key` sale de ver_feedback.',
+  schema: z.object({ key: z.string().min(1).max(400) }),
+  run: async (productionId, { key }) => markReviewedFromAgent(key, 'Claude · director', { servicio: 'director', id: productionId }),
+});
+
+export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo, verFeedback, marcarFeedback];
 
 export function directorAgentToolsManifest() {
   return DIRECTOR_AGENT_TOOLS.map((t) => ({

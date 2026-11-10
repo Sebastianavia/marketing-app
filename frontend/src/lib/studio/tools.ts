@@ -36,6 +36,7 @@ import type { SeedanceModelId, SeedanceResolution, SeedanceSize, SeedanceTransfo
 import { downloadToLibrary } from '@/lib/storage/generated-library';
 import { assertWithinDailyLimit, recordUsage } from '@/lib/usage/usage-store';
 import { getSettings } from '@/lib/data/settings';
+import { feedbackForClaude, markReviewedFromAgent, originFeedbackForClaude, reviewUrl, uploadToFeedback } from '@/lib/feedback/feedback';
 
 /**
  * Herramientas de Claude en el Estudio Claude (MCP lulo-studio-chat, LULO_TOOLSET=studio).
@@ -876,7 +877,64 @@ const clonacionVideo = tool({
   },
 });
 
+// ── App de feedback ─────────────────────────────────────────────────────────
+
+const subirAFeedback = tool({
+  name: 'subir_a_feedback',
+  description:
+    'Sube un video del proyecto a la app de feedback del equipo (Cloudflare) para que dejen notas por tiempo. $0. Úsalo cuando la persona lo pida (o lo haya pedido para la entrega). `archivo`: ruta relativa a tu carpeta o absoluta en la carpeta de proyectos, o `mediaId` de algo ya mostrado. Devuelve el enlace para revisar.',
+  schema: z.object({
+    archivo: z.string().min(1).max(500).optional(),
+    mediaId: z.string().min(1).max(80).optional(),
+    titulo: z.string().min(1).max(120).describe('Nombre del video en Feedback, p. ej. "Anuncio v2".'),
+  }),
+  run: async (id, { archivo, mediaId, titulo }) => {
+    const p = await getStudioProject(id);
+    let mid = mediaId;
+    let ruta: string;
+    if (mid) {
+      const m = p.medios.find((x) => x.id === mid && x.tipo === 'video');
+      if (!m) throw new StudioError('Ese mediaId no es un video del proyecto.', 404);
+      ruta = m.ruta;
+    } else {
+      if (!archivo) throw new StudioError('Pasa `archivo` o `mediaId`.');
+      ruta = await resolveFile(p, archivo);
+      if (!fsSync.existsSync(ruta)) throw new StudioError(`No existe ${archivo}.`, 404);
+      if (kindOf(ruta) !== 'video') throw new StudioError('Solo se suben videos a Feedback.');
+      mid = await registerMedia(id, ruta, titulo);
+    }
+    const e = await uploadToFeedback({ tipo: 'studio', id, mediaId: mid }, { nombre: `${titulo}${path.extname(ruta) || '.mp4'}` });
+    return { subido: true, key: e.key, enlace: reviewUrl(e.key), token: token(mid), nota: 'Comparte el enlace con la persona. Cuando el equipo deje notas, léelas con ver_feedback.' };
+  },
+});
+
+const verFeedback = tool({
+  name: 'ver_feedback',
+  description: 'Notas que dejó el equipo en la app de feedback sobre los videos de ESTE proyecto (formato [mm:ss] del video subido). $0.',
+  schema: z.object({}),
+  run: async (id) => originFeedbackForClaude('studio', id),
+});
+
+const feedbackPendiente = tool({
+  name: 'feedback_pendiente',
+  description:
+    'Feedback del equipo de TODOS los videos subidos a la app de feedback (de cualquier herramienta o persona) que Claude aún no recibió; `todos: true` incluye lo ya recibido. Para recolectar y revisar todas las notas. $0.',
+  schema: z.object({ todos: z.boolean().default(false) }),
+  run: async (_id, { todos }) => feedbackForClaude(todos),
+});
+
+const marcarFeedback = tool({
+  name: 'marcar_feedback_revisado',
+  description: 'Marca el feedback de un video como recibido por Claude (el equipo lo ve en la app de feedback). Úsalo después de aplicarlo o responderlo. `key` sale de ver_feedback o feedback_pendiente.',
+  schema: z.object({ key: z.string().min(1).max(400) }),
+  run: async (_id, { key }) => markReviewedFromAgent(key, 'Estudio Claude'),
+});
+
 export const STUDIO_TOOLS: StudioTool[] = [
+  subirAFeedback,
+  verFeedback,
+  feedbackPendiente,
+  marcarFeedback,
   servicios,
   verProyecto,
   pedirAprobacion,
