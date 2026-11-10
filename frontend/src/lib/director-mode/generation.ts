@@ -17,7 +17,7 @@ import {
   type ProductionScene,
   type SceneSpec,
 } from '@/lib/director/production-store';
-import { proposeScenes, runAvatarScene, runBrollScene, runImageScene, runVoiceScene } from '@/lib/director/production';
+import { changeScene, proposeScenes, runAvatarScene, runBrollScene, runImageScene, runVoiceScene } from '@/lib/director/production';
 import { reconcileProduction } from '@/lib/director/production-jobs';
 import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
 import { clipChoiceProblem } from '@/config/broll-models';
@@ -118,6 +118,7 @@ function buildPlan(d: DirectorState): { specs: SceneSpec[]; gen: Omit<DirectorGe
         ...(referencias.length ? { referencias } : {}),
       });
     }
+    const prevClip = choice.continuarAnterior && mapa.length > 0 ? mapa[mapa.length - 1].clip : undefined;
     const clip = add({
       tipo: 'toma_de_apoyo',
       titulo: `Escena ${s.orden} · ${s.queSeVe.slice(0, 60)}`,
@@ -127,6 +128,7 @@ function buildPlan(d: DirectorState): { specs: SceneSpec[]; gen: Omit<DirectorGe
       resolucion: choice.resolucion,
       conAudio,
       ...(imagen ? { imagenDeEscena: imagen } : {}),
+      ...(prevClip ? { continuarDeEscena: prevClip } : {}),
       // Fotos del avatar como referencias extra (solo Apimart admite varias imágenes)
       ...(avatarId && choice.model.provider === 'apimart' ? { avatarReferencias: avatarId } : {}),
     });
@@ -185,13 +187,22 @@ export async function prepareGeneration(id: string) {
 /** Imágenes iniciales a la vez (GPT Image 2 tarda ~30–60 s cada una). */
 const IMAGE_PARALLEL = 4;
 
+export interface RunGenerationOptions {
+  /** 'storyboard' = solo voces e imágenes iniciales; 'clips' = solo clips de video; 'todo' = ambos. */
+  fase?: 'todo' | 'storyboard' | 'clips';
+  /** Si se indica, ejecuta únicamente esa escena de pago (p. ej. 'e2'). */
+  escenaPagoId?: string;
+}
+
 /**
  * Lanza lo aprobado: las voces primero (las necesita el avatar), luego las imágenes iniciales
  * (de 4 en 4, se esperan: son el primer fotograma de cada clip) y por último los clips, que el
  * runner procesa en segundo plano (máx. 4 a la vez).
  */
-export async function runGeneration(id: string) {
+export async function runGeneration(id: string, opts: RunGenerationOptions = {}) {
   let p = await reconcileProduction(id);
+  const fase = opts.fase ?? 'todo';
+  const targetId = opts.escenaPagoId;
   const lanzadas: string[] = [];
   const errores: string[] = [];
   const ready = (s: ProductionScene) => s.estado === 'aprobada' || (s.estado === 'fallida' && !s.falloConCobro && !s.reintentoUsado && s.aprobadaUSD !== null);
@@ -207,11 +218,39 @@ export async function runGeneration(id: string) {
       errores.push(`${s.id}: ${err instanceof Error ? err.message : 'error'}`);
     }
   };
-  const todo = p.escenas.filter(ready);
-  for (const s of todo.filter((x) => x.spec.tipo === 'voz')) await run(s);
-  const images = todo.filter((x) => x.spec.tipo === 'imagen');
-  for (let i = 0; i < images.length; i += IMAGE_PARALLEL) await Promise.all(images.slice(i, i + IMAGE_PARALLEL).map(run));
-  for (const s of todo.filter((x) => x.spec.tipo === 'avatar' || x.spec.tipo === 'toma_de_apoyo')) await run(s);
+
+  if (targetId) {
+    const target = p.escenas.find((s) => s.id === targetId);
+    if (!target) throw new ProductionError(`No existe la escena de pago "${targetId}".`, 404);
+    // Si pide lanzar un clip cuya imagen inicial aún está aprobada por generar, se genera primero la imagen
+    if (target.spec.imagenDeEscena) {
+      const imgScene = p.escenas.find((s) => s.id === target.spec.imagenDeEscena);
+      if (imgScene && ready(imgScene)) await run(imgScene);
+    }
+    p = await reconcileProduction(id);
+    const refreshed = p.escenas.find((s) => s.id === targetId);
+    if (refreshed && ready(refreshed)) await run(refreshed);
+  } else {
+    const todo = p.escenas.filter(ready);
+    if (fase === 'todo' || fase === 'storyboard') {
+      for (const s of todo.filter((x) => x.spec.tipo === 'voz')) await run(s);
+      const images = todo.filter((x) => x.spec.tipo === 'imagen');
+      for (let i = 0; i < images.length; i += IMAGE_PARALLEL) await Promise.all(images.slice(i, i + IMAGE_PARALLEL).map(run));
+    }
+    if (fase === 'todo' || fase === 'clips') {
+      p = await reconcileProduction(id);
+      const clipsReady = p.escenas.filter(ready).filter((x) => x.spec.tipo === 'avatar' || x.spec.tipo === 'toma_de_apoyo');
+      for (const s of clipsReady) {
+        // Si depende del último fotograma del clip anterior y ese clip aún se está generando, se lanzará en generationStatus al terminar
+        if (s.spec.continuarDeEscena) {
+          const prev = p.escenas.find((x) => x.id === s.spec.continuarDeEscena);
+          if (prev && prev.estado !== 'lista') continue;
+        }
+        await run(s);
+      }
+    }
+  }
+
   p = await reconcileProduction(id);
   const pendientes = p.escenas.filter((s) => s.estado === 'pendiente').map((s) => s.id);
   return {
@@ -222,8 +261,28 @@ export async function runGeneration(id: string) {
   };
 }
 
-export async function generationStatus(id: string) {
+/** Pide rehacer una sola escena de pago (imagen o clip) archivando su versión anterior y pidiendo aprobación. */
+export async function redoPaidScene(id: string, escenaPagoId: string) {
+  await changeScene(id, escenaPagoId, {}, true);
   return generationSummary(await reconcileProduction(id));
+}
+
+export async function generationStatus(id: string) {
+  let p = await reconcileProduction(id);
+  // Si hay escenas encadenadas (continuarDeEscena) aprobadas cuyo clip anterior ya terminó, se lanzan en cadena
+  const ready = (s: ProductionScene) => s.estado === 'aprobada' && Boolean(s.spec.continuarDeEscena);
+  for (const s of p.escenas.filter(ready)) {
+    const prev = p.escenas.find((x) => x.id === s.spec.continuarDeEscena);
+    if (prev?.estado === 'lista') {
+      try {
+        await runBrollScene(id, s.id);
+      } catch {
+        // el error ya queda anotado en la escena
+      }
+    }
+  }
+  p = await reconcileProduction(id);
+  return generationSummary(p);
 }
 
 function clipOf(p: Production, sceneId: string): string {

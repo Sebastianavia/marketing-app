@@ -64,14 +64,21 @@ interface Props {
   onSelect: (id: string | null) => void;
   /** Cambiar modelo, calidad o imagen inicial de un clip (nodo Clip). */
   onClip?: CanvasActions['onClip'];
+  /** Generar una sola escena de pago desde su nodo en el lienzo. */
+  onRunPaidScene?: CanvasActions['onRunPaidScene'];
+  /** Pedir rehacer una sola escena de pago desde su nodo en el lienzo. */
+  onRedoPaidScene?: CanvasActions['onRedoPaidScene'];
   busy?: boolean;
 }
 
-function CanvasInner({ productionId, d, paid, selectedId, onSelect, onClip, busy }: Props) {
+function CanvasInner({ productionId, d, paid, selectedId, onSelect, onClip, onRunPaidScene, onRedoPaidScene, busy }: Props) {
   const theme = useThemeStore((s) => s.theme);
   const { fitView } = useReactFlow();
   const graph = useMemo(() => buildGraph(d, productionId, paid), [d, productionId, paid]);
-  const actions = useMemo<CanvasActions>(() => ({ onClip, busy }), [onClip, busy]);
+  const actions = useMemo<CanvasActions>(
+    () => ({ onClip, onRunPaidScene, onRedoPaidScene, busy }),
+    [onClip, onRunPaidScene, onRedoPaidScene, busy]
+  );
   const [nodes, setNodes] = useState<DirectorNode[]>(() => place(graph.nodes, [], readPositions(productionId)));
   const [prevGraph, setPrevGraph] = useState(graph);
 

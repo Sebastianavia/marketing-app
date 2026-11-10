@@ -47,6 +47,8 @@ export interface SceneSpec {
   cantidad?: number;
   /** Id de una escena de imagen de esta producción que sirve de foto/fotograma inicial. */
   imagenDeEscena?: string;
+  /** Id de una escena de clip anterior cuyo último fotograma sirve de inicio para esta toma (continuidad). */
+  continuarDeEscena?: string;
   /** Imagen: fotos de referencia de la producción (rutas relativas a su carpeta, con '/'). */
   referencias?: string[];
   /** Toma de apoyo: avatar cuyas fotos van como referencias extra además del fotograma inicial. */

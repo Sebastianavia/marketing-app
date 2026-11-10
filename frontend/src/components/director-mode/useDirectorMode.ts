@@ -234,7 +234,10 @@ export function useDirectorMode(enabled = true) {
    * estado o montar. Devuelve el resultado del servidor (o null si falló; el error queda en `error`).
    */
   const produce = useCallback(
-    async (accion: 'preparar' | 'generar' | 'estado' | 'montar', extra: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> => {
+    async (
+      accion: 'preparar' | 'generar' | 'rehacer_pago' | 'estado' | 'montar',
+      extra: Record<string, unknown> = {}
+    ): Promise<Record<string, unknown> | null> => {
       const current = prodRef.current;
       if (!current) return null;
       if (accion !== 'estado') {

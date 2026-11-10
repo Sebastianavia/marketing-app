@@ -83,6 +83,7 @@ function clipSummary(s: DirectorScene, d: DirectorState) {
     modelo: c.model.id,
     resolucion: c.resolucion,
     imagenInicial: c.imagenInicial,
+    continuarAnterior: c.continuarAnterior,
     modeloImagen: c.imageModel.id,
     elegidoParaEstaEscena: c.propia,
     estimadoUSD: Math.round((clipCostUSD(c.model, seg, { withAudio: conAudio, resolution: c.resolucion }) + imagenUSD) * 1000) / 1000,
@@ -143,7 +144,7 @@ const accion = tool({
   description: `Ejecuta una acción del Director sobre el proyecto (las mismas que los botones de la app). Las principales:
 - {"accion":"responder_preguntas","respuestas":{"<idPregunta>":"respuesta"}} o {"accion":"saltar_preguntas"}
 - {"accion":"guardar_ajustes","ajustes":{formato, duracionSeg, modoVoz, modeloBroll, resolucionBroll?, imagenInicial?, avatarId|null, presupuestoUSD}}
-- {"accion":"ajustar_clip","escenaId":"e2","modelo":"gemini-omni-1.1-flash-ext"|null,"resolucion":"720p"|null,"imagenInicial":true|false|null} → modelo/resolución/imagen inicial SOLO de esa escena ($0; null = volver a lo de los ajustes). Valida formato, resolución y audio; si cambia la duración, avisa.
+- {"accion":"ajustar_clip","escenaId":"e2","modelo":"gemini-omni-1.1-flash-ext"|null,"resolucion":"720p"|null,"imagenInicial":true|false|null,"continuarAnterior":true|false|null} → modelo/resolución/imagen inicial/continuar fotograma de la escena anterior SOLO de esa escena ($0; null = volver a lo de los ajustes). Valida formato, resolución y audio; si cambia la duración, avisa.
 - {"accion":"generar_guion","indicacion":"opcional"} → escribe el guion por escenas (las duraciones se ajustan solas al modelo)
 - {"accion":"rehacer_escena","escenaId":"e2","indicacion":"…"} / {"accion":"editar_escena","escenaId":"e2","cambios":{tipo?, duracionSeg?, queSeVe?, dialogo?}}
 - {"accion":"generar_prompts","soloFaltantes":false} / {"accion":"rehacer_prompt",…} / {"accion":"editar_prompt","escenaId":"e2","texto":"prompt en inglés"}

@@ -79,7 +79,7 @@ export function DirectorModeView({ dm: shared, embedded }: { dm?: DirectorModeSt
             <X className="h-3.5 w-3.5" /> Volver al borrador
           </button>
         )}
-        <span className="ml-auto font-mono text-[10.5px] uppercase tracking-wide text-fg-subtle">Fase 1 · solo texto · sin gastos de video</span>
+        <span className="ml-auto font-mono text-[10.5px] uppercase tracking-wide text-fg-subtle">Estudio Director · con control de presupuesto</span>
       </div>
       )}
 

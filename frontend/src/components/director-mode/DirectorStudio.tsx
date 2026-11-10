@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { AlertCircle, ChevronDown, List, Loader2, MessageSquare, Network, Plus, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { getDirectorSkill } from '@/config/director-skills';
 import { DirectorCanvas } from './canvas/DirectorCanvas';
+import { NodeInspector } from './canvas/NodeInspector';
 import { DirectorChat } from './chat/DirectorChat';
 import { DirectorModeView } from './DirectorModeView';
 import { ProductionBar } from './ProductionBar';
@@ -301,8 +302,11 @@ export function DirectorStudio() {
               selectedId={focusId}
               onSelect={setFocusId}
               onClip={onClip}
+              onRunPaidScene={(paidId) => void dm.produce('generar', { escenaPagoId: paidId })}
+              onRedoPaidScene={(paidId) => void dm.produce('rehacer_pago', { escenaPagoId: paidId })}
               busy={!!busy}
             />
+            <NodeInspector dm={dm} selectedId={focusId} onClose={() => setFocusId(null)} />
             {dragging && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-bg/60 text-[13px] text-fg">
                 Suelta para añadir referencias{' '}

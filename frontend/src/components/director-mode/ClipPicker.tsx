@@ -43,6 +43,7 @@ interface Props {
     resolucion?: string | null;
     imagenInicial?: boolean | null;
     modeloImagen?: string | null;
+    continuarAnterior?: boolean | null;
   }) => void;
 }
 
@@ -54,8 +55,13 @@ export function ClipPicker({ scene, d, disabled, compact, onChange }: Props) {
     (m) => !clipChoiceProblem(m, { formato: d.ajustes.formato, conAudio: e.conAudio, duracionSeg: scene.audio ? scene.duracionSeg : undefined })
   );
   const cls = `input-clean nodrag nopan ${compact ? 'h-7 text-[11px]' : 'h-8 text-[12px]'} px-1.5`;
-  const send = (patch: { modelo?: string | null; resolucion?: string | null; imagenInicial?: boolean | null; modeloImagen?: string | null }) =>
-    onChange({ accion: 'ajustar_clip', escenaId: scene.id, ...patch });
+  const send = (patch: {
+    modelo?: string | null;
+    resolucion?: string | null;
+    imagenInicial?: boolean | null;
+    modeloImagen?: string | null;
+    continuarAnterior?: boolean | null;
+  }) => onChange({ accion: 'ajustar_clip', escenaId: scene.id, ...patch });
 
   return (
     <div className={`nodrag nopan ${compact ? 'space-y-1' : 'flex flex-wrap items-center gap-2'}`} onClick={(ev) => ev.stopPropagation()}>
@@ -93,6 +99,20 @@ export function ClipPicker({ scene, d, disabled, compact, onChange }: Props) {
           <input type="checkbox" checked={e.imagenInicial} disabled={disabled} onChange={(ev) => send({ imagenInicial: ev.target.checked })} />
           Imagen inicial
         </label>
+        {scene.orden > 1 && (
+          <label
+            className={`flex items-center gap-1 ${compact ? 'text-[10.5px]' : 'text-[11.5px]'} text-fg-muted`}
+            title="Usa el último fotograma del clip anterior como inicio de esta escena para una transición continua ($0 en imagen)"
+          >
+            <input
+              type="checkbox"
+              checked={e.continuarAnterior}
+              disabled={disabled}
+              onChange={(ev) => send({ continuarAnterior: ev.target.checked })}
+            />
+            🔗 Continuar anterior
+          </label>
+        )}
         {e.imagenInicial && (
           <select
             aria-label="Modelo de imagen inicial"
@@ -114,6 +134,7 @@ export function ClipPicker({ scene, d, disabled, compact, onChange }: Props) {
       <p className={`${compact ? 'text-[10px]' : 'text-[11px]'} text-fg-subtle`}>
         ≈ {usd(e.clipUSD + e.imagenUSD)}
         {e.imagenUSD > 0 ? ` (clip ${usd(e.clipUSD)} + ${e.imageModel.name.replace(/\s*\(.*\)$/, '')} ${usd(e.imagenUSD)})` : ''}
+        {e.continuarAnterior ? ' · continúa desde el último fotograma anterior ($0 img)' : ''}
         {e.model.durationByModel ? ' · peor caso 10 s' : ''}
         {e.conAudio ? ' · con voz' : ''}
       </p>

@@ -11,6 +11,7 @@ import { DEFAULT_IMAGE_MODEL, getImageModel } from '@/config/image-models';
 import { DEFAULT_BROLL_MODEL, brollResolution, clipCostUSD, getBrollModel, pickBrollDuration } from '@/config/broll-models';
 import { refAbsPath } from '@/lib/director-mode/references';
 import { videoRate } from '@/config/cost-rates';
+import { runFfmpeg } from '@/lib/video/ffmpeg';
 import { generateImages, ImageRequestSchema } from '@/lib/generation/image';
 import { synthesizeSpeechWithTimestamps } from '@/lib/generation/voice';
 import { createRenderJob } from '@/lib/jobs/create-job';
@@ -95,6 +96,14 @@ async function validateSpec(spec: SceneSpec, n: number, all: SceneSpec[]) {
     const ref = all[idx];
     if (!ref || ref.tipo !== 'imagen') fail(`"imagenDeEscena" debe ser el id de una escena de imagen de esta producción (p. ej. "e1").`);
     if (idx >= n - 1) fail('"imagenDeEscena" debe apuntar a una escena anterior.');
+  }
+  if (spec.continuarDeEscena) {
+    const idx = Number(spec.continuarDeEscena.replace(/^e/, '')) - 1;
+    const ref = all[idx];
+    if (!ref || (ref.tipo !== 'toma_de_apoyo' && ref.tipo !== 'avatar')) {
+      fail(`"continuarDeEscena" debe apuntar al clip de una escena anterior.`);
+    }
+    if (idx >= n - 1) fail('"continuarDeEscena" debe apuntar a una escena anterior.');
   }
   switch (spec.tipo) {
     case 'avatar':
@@ -442,8 +451,20 @@ function fileRecord(s: ProductionScene, data: Omit<ProductionFile, 'id' | 'versi
 
 // ── Fotos de entrada ──────────────────────────────────────────────────────────
 
-/** Ruta local de la foto/fotograma de la escena: imagen de otra escena (lista) o portada del avatar. */
+/** Ruta local de la foto/fotograma de la escena: imagen de otra escena, último fotograma del clip anterior o portada del avatar. */
 async function sceneFrame(p: Production, spec: SceneSpec): Promise<string | null> {
+  if (spec.continuarDeEscena) {
+    const ref = findScene(p, spec.continuarDeEscena);
+    const clip = currentFiles(ref, 'clip')[0];
+    if (ref.estado !== 'lista' || !clip || !fsSync.existsSync(clip.ruta)) {
+      throw new ProductionError(`Primero debe terminar el clip de la escena ${ref.orden} (esta toma continúa desde su último fotograma).`, 409);
+    }
+    const outFrame = path.join(/*turbopackIgnore: true*/ p.carpeta, `.lastframe-${ref.id}-v${ref.version}.jpg`);
+    if (!fsSync.existsSync(outFrame)) {
+      await runFfmpeg(['-y', '-hide_banner', '-sseof', '-0.15', '-i', clip.ruta, '-frames:v', '1', '-q:v', '2', outFrame]);
+    }
+    return outFrame;
+  }
   if (spec.imagenDeEscena) {
     const ref = findScene(p, spec.imagenDeEscena);
     const img = currentFiles(ref, 'imagen')[0];

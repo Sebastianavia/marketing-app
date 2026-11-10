@@ -34,10 +34,16 @@ export type DirectorNodeData =
       estado: string;
       detalle?: string;
       compacto?: boolean;
+      /** Id de la escena de pago en Production.escenas (p. ej. 'e2') para acciones individuales en el nodo. */
+      paidSceneId?: string;
+      paidEstado?: PaidSceneLite['estado'];
       /** Miniatura (imagen inicial lista). */
       thumb?: string;
+      /** Video reproducible en el nodo (clip o video final). */
+      videoUrl?: string;
       /** Enlace para ver el archivo (clip o video final). */
       href?: string;
+      aspectRatio?: '9:16' | '16:9' | '1:1';
     };
 
 /** Lo mínimo de una escena de pago (Production.escenas) que el lienzo necesita. */
@@ -214,10 +220,14 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
           estado: PAID_STATE[img.estado].label,
           detalle: detail(img),
           compacto: true,
+          paidSceneId: img.id,
+          paidEstado: img.estado,
+          aspectRatio: d.ajustes.formato,
           ...(img.estado === 'lista' ? { thumb: media(img.id, 'imagen', Math.round(img.gastoUSD * 1e4)) } : {}),
         });
         link(nodeId.prompt(s.id), nodeId.imagen(s.id), img.estado !== 'lista');
       }
+      const clipMediaUrl = clip.estado === 'lista' ? media(clip.id, 'clip', Math.round(clip.gastoUSD * 1e4)) : undefined;
       add(nodeId.clip(s.id), m.imagen ? X.clip + 40 : X.imagen + 60, y + 40, {
         kind: 'produccion',
         tone: voz && voz.estado !== 'lista' && clip.estado === 'lista' ? PAID_STATE[voz.estado].tone : st.tone,
@@ -225,7 +235,10 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
         estado: st.label,
         detalle: detail(clip),
         compacto: true,
-        ...(clip.estado === 'lista' ? { href: media(clip.id, 'clip', Math.round(clip.gastoUSD * 1e4)) } : {}),
+        paidSceneId: clip.id,
+        paidEstado: clip.estado,
+        aspectRatio: d.ajustes.formato,
+        ...(clipMediaUrl ? { videoUrl: clipMediaUrl, href: clipMediaUrl } : {}),
       });
       link(m.imagen ? nodeId.imagen(s.id) : nodeId.prompt(s.id), nodeId.clip(s.id), clip.estado !== 'lista');
     } else if (s.tipo === 'broll') {
@@ -253,6 +266,7 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
     const ready = all.length > 0 && all.every((x) => x.estado === 'lista');
     const spent = all.reduce((t, x) => t + x.gastoUSD, 0);
     const vozGeneral = gen.vozGeneral ? paidById.get(gen.vozGeneral) : undefined;
+    const finalUrl = gen.final ? `/api/director-mode/${pid}/produccion?final=1&v=${gen.final.version}` : undefined;
     add(nodeId.final, X.final + 40, midY + 30, {
       kind: 'produccion',
       tone: gen.final ? 'ok' : ready ? 'review' : all.some((x) => x.estado === 'fallida') ? 'error' : 'pending',
@@ -265,7 +279,8 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
       ]
         .filter(Boolean)
         .join(' · '),
-      ...(gen.final ? { href: `/api/director-mode/${pid}/produccion?final=1&v=${gen.final.version}` } : {}),
+      aspectRatio: d.ajustes.formato,
+      ...(finalUrl ? { videoUrl: finalUrl, href: finalUrl } : {}),
     });
   } else {
     add(nodeId.final, X.final + 40, midY + 30, { kind: 'futuro', tone: 'future', titulo: 'Video final', fase: 4 });

@@ -142,6 +142,7 @@ export const ActionBody = z.discriminatedUnion('accion', [
     resolucion: z.string().max(10).nullable().optional(),
     imagenInicial: z.boolean().nullable().optional(),
     modeloImagen: z.string().max(100).nullable().optional(),
+    continuarAnterior: z.boolean().nullable().optional(),
   }),
   // Referencias y etiquetas (paso 2). Subir archivos va por /api/director-mode/[id]/referencias (multipart).
   z.object({ accion: z.literal('proponer_etiquetas'), refIds: z.array(RefId).max(40).optional() }),

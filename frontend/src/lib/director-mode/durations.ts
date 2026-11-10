@@ -18,12 +18,14 @@ export function sceneClipChoice(
   const imageModel = getImageModel(o.modeloImagen || ajustes.modeloImagen || DEFAULT_IMAGE_MODEL);
   // La resolución de los ajustes solo vale si la escena usa el mismo modelo
   const res = o.resolucion ?? (model.id === ajustes.modeloBroll ? ajustes.resolucionBroll : undefined);
+  const continuarAnterior = Boolean(o.continuarAnterior);
   return {
     model,
     imageModel,
     resolucion: brollResolution(model, res),
-    imagenInicial: o.imagenInicial ?? ajustes.imagenInicial ?? true,
-    propia: Boolean(o.modelo || o.resolucion || o.imagenInicial !== undefined || o.modeloImagen),
+    imagenInicial: continuarAnterior ? false : (o.imagenInicial ?? ajustes.imagenInicial ?? true),
+    continuarAnterior,
+    propia: Boolean(o.modelo || o.resolucion || o.imagenInicial !== undefined || o.modeloImagen || o.continuarAnterior),
   };
 }
 

@@ -115,6 +115,8 @@ export interface SceneClipOptions {
   resolucion?: string;
   imagenInicial?: boolean;
   modeloImagen?: string;
+  /** Usar el último fotograma del clip de la escena anterior como fotograma inicial ($0 en imagen). */
+  continuarAnterior?: boolean;
 }
 
 export interface DirectorScript {

@@ -484,7 +484,18 @@ async function adjustClip(id: string, a: Extract<ActionInput, { accion: 'ajustar
     }
     if (a.imagenInicial !== undefined) {
       if (a.imagenInicial === null) delete next.imagenInicial;
-      else next.imagenInicial = a.imagenInicial;
+      else {
+        next.imagenInicial = a.imagenInicial;
+        if (a.imagenInicial) delete next.continuarAnterior;
+      }
+    }
+    if (a.continuarAnterior !== undefined) {
+      if (!a.continuarAnterior) delete next.continuarAnterior;
+      else {
+        if (s.orden <= 1) throw new ProductionError('La escena 1 no tiene una escena anterior de la que continuar.');
+        next.continuarAnterior = true;
+        next.imagenInicial = false;
+      }
     }
     if (a.modeloImagen !== undefined) {
       const defImg = d.ajustes.modeloImagen || DEFAULT_IMAGE_MODEL;

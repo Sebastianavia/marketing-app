@@ -1,8 +1,8 @@
 'use client';
 
-import React, { createContext, memo, useContext } from 'react';
+import React, { createContext, memo, useContext, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { AudioLines, Clapperboard, ExternalLink, FileText, ImageIcon, Lock, Paperclip, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { AudioLines, Clapperboard, ExternalLink, FileText, ImageIcon, Lock, Paperclip, Play, RefreshCw, Sparkles, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react';
 import { VOICE_MODES, getBrollModel } from '@/config/broll-models';
 import { getDirectorSkill } from '@/config/director-skills';
 import { formatTime } from '@/lib/director-mode/durations';
@@ -22,7 +22,12 @@ export interface CanvasActions {
     resolucion?: string | null;
     imagenInicial?: boolean | null;
     modeloImagen?: string | null;
+    continuarAnterior?: boolean | null;
   }) => void;
+  /** Ejecutar individualmente una escena de pago aprobada desde el nodo del lienzo. */
+  onRunPaidScene?: (paidSceneId: string) => void;
+  /** Pedir rehacer individualmente una imagen o clip desde el nodo del lienzo. */
+  onRedoPaidScene?: (paidSceneId: string) => void;
   busy?: boolean;
 }
 export const CanvasActionsContext = createContext<CanvasActions>({});
@@ -257,26 +262,7 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
       );
     }
     case 'produccion':
-      return (
-        <Shell selected={false} tone={data.tone} width={data.compacto ? 170 : 220}>
-          <Header icon={<Clapperboard className="h-3 w-3 text-fg-subtle" />} title={data.titulo} />
-          {data.thumb && (
-            <a href={data.thumb} target="_blank" rel="noreferrer" className="nodrag mt-1.5 block">
-              {/* eslint-disable-next-line @next/next/no-img-element -- archivo local servido por la app */}
-              <img src={data.thumb} alt="Imagen inicial" className="max-h-28 w-full rounded-md border border-line object-cover" />
-            </a>
-          )}
-          <div className="mt-1">
-            <Status tone={data.tone} label={data.estado} />
-          </div>
-          {data.detalle && <p className="mt-1 text-[10px] leading-snug text-fg-subtle">{data.detalle}</p>}
-          {data.href && (
-            <a href={data.href} target="_blank" rel="noreferrer" className="nodrag mt-1 inline-flex items-center gap-1 text-[10.5px] text-accent hover:underline">
-              <ExternalLink className="h-3 w-3" /> Ver video
-            </a>
-          )}
-        </Shell>
-      );
+      return <ProductionNodeView data={data} />;
     case 'imagen-config':
       return <ImageConfigNode d={data.d} sceneId={data.scene.id} />;
     case 'clip-config':
@@ -291,17 +277,153 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
   }
 }
 
+function ProductionNodeView({ data }: { data: Extract<DirectorNode['data'], { kind: 'produccion' }> }) {
+  const { onRunPaidScene, onRedoPaidScene, busy } = useContext(CanvasActionsContext);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
+  const canRunSingle = Boolean(
+    data.paidSceneId &&
+      onRunPaidScene &&
+      (data.paidEstado === 'aprobada' || data.paidEstado === 'fallida')
+  );
+  const canRedoSingle = Boolean(
+    data.paidSceneId &&
+      onRedoPaidScene &&
+      (data.paidEstado === 'lista' || data.paidEstado === 'fallida')
+  );
+  const isVertical = data.aspectRatio === '9:16';
+
+  return (
+    <Shell selected={false} tone={data.tone} width={data.compacto ? 185 : 230}>
+      <Header
+        icon={data.titulo === 'Imagen inicial' ? <ImageIcon className="h-3 w-3 text-fg-subtle" /> : <Clapperboard className="h-3 w-3 text-fg-subtle" />}
+        title={data.titulo}
+      />
+
+      {data.thumb && (
+        <div className="nodrag nopan group relative mt-1.5 overflow-hidden rounded-md border border-line bg-surface-2">
+          <a href={data.thumb} target="_blank" rel="noreferrer" className="block" title="Abrir imagen en tamaño completo">
+            {/* eslint-disable-next-line @next/next/no-img-element -- archivo local servido por la app */}
+            <img
+              src={data.thumb}
+              alt="Imagen inicial"
+              className={`w-full object-cover transition-transform duration-200 group-hover:scale-[1.02] ${isVertical ? 'max-h-40' : 'max-h-28'}`}
+            />
+          </a>
+        </div>
+      )}
+
+      {data.videoUrl && (
+        <div
+          className="nodrag nopan group relative mt-1.5 overflow-hidden rounded-md border border-line bg-black"
+          onMouseEnter={() => {
+            void videoRef.current?.play().catch(() => undefined);
+          }}
+          onMouseLeave={() => {
+            if (videoRef.current && muted) {
+              videoRef.current.pause();
+            }
+          }}
+        >
+          <video
+            ref={videoRef}
+            src={data.videoUrl}
+            muted={muted}
+            loop
+            playsInline
+            preload="metadata"
+            className={`w-full object-cover ${isVertical ? 'max-h-40' : 'max-h-28'}`}
+          />
+          <button
+            type="button"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              const nextMuted = !muted;
+              setMuted(nextMuted);
+              if (videoRef.current) {
+                videoRef.current.muted = nextMuted;
+                if (!nextMuted) void videoRef.current.play().catch(() => undefined);
+              }
+            }}
+            className="absolute bottom-1.5 right-1.5 rounded-full bg-black/65 p-1 text-white hover:bg-black/85 cursor-pointer"
+            title={muted ? 'Activar sonido del clip' : 'Silenciar clip'}
+          >
+            {muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+          </button>
+          <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-black/60 px-1 py-0.5 text-[9.5px] text-white opacity-80 group-hover:opacity-0">
+            Hover para reproducir
+          </span>
+        </div>
+      )}
+
+      <div className="mt-1.5 flex items-center justify-between gap-1">
+        <Status tone={data.tone} label={data.estado} />
+        {data.href && (
+          <a
+            href={data.href}
+            target="_blank"
+            rel="noreferrer"
+            className="nodrag inline-flex items-center gap-0.5 text-[10px] text-accent hover:underline"
+            title="Abrir en pestaña nueva"
+          >
+            <ExternalLink className="h-2.5 w-2.5" /> Abrir
+          </a>
+        )}
+      </div>
+
+      {data.detalle && <p className="mt-1 text-[10px] leading-snug text-fg-subtle">{data.detalle}</p>}
+
+      {(canRunSingle || canRedoSingle) && (
+        <div className="nodrag nopan mt-1.5 flex flex-wrap items-center gap-1 border-t border-line pt-1.5" onClick={(ev) => ev.stopPropagation()}>
+          {canRunSingle && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => data.paidSceneId && onRunPaidScene?.(data.paidSceneId)}
+              className="btn-primary h-6 flex-1 px-2 text-[10.5px]"
+              title="Generar únicamente este elemento ahora"
+            >
+              <Play className="h-2.5 w-2.5" /> Generar esta
+            </button>
+          )}
+          {canRedoSingle && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => data.paidSceneId && onRedoPaidScene?.(data.paidSceneId)}
+              className="btn-secondary h-6 flex-1 px-2 text-[10.5px]"
+              title="Archivar versión actual y pedir nueva aprobación para rehacer solo este nodo"
+            >
+              <RefreshCw className="h-2.5 w-2.5" /> Rehacer
+            </button>
+          )}
+        </div>
+      )}
+    </Shell>
+  );
+}
+
 function ImageConfigNode({ d, sceneId }: { d: DirectorState; sceneId: string }) {
   const s = d.guion?.escenas.find((x) => x.id === sceneId);
   if (!s) return null;
   const e = sceneClipEstimate(s, d);
   return (
-    <Shell selected={false} tone="pending" width={170} dashed={!e.imagenInicial}>
-      <Header icon={<ImageIcon className="h-3 w-3 text-fg-subtle" />} title="Imagen inicial" />
+    <Shell selected={false} tone="pending" width={170} dashed={!e.imagenInicial && !e.continuarAnterior}>
+      <Header icon={<ImageIcon className="h-3 w-3 text-fg-subtle" />} title={e.continuarAnterior ? 'Continuidad' : 'Imagen inicial'} />
       <p className="mt-1 text-[10.5px] text-fg-muted">
-        {e.imagenInicial ? `${e.imageModel.name.replace(/\s*\(.*\)$/, '')} · ≈ $${e.imagenUSD.toFixed(3)}` : 'Desactivada: el clip parte solo del texto'}
+        {e.continuarAnterior
+          ? '🔗 Último fotograma anterior · $0'
+          : e.imagenInicial
+            ? `${e.imageModel.name.replace(/\s*\(.*\)$/, '')} · ≈ $${e.imagenUSD.toFixed(3)}`
+            : 'Desactivada: el clip parte solo del texto'}
       </p>
-      <p className="mt-0.5 text-[10px] text-fg-subtle">{e.imagenInicial ? 'Primer fotograma con tu avatar y tus referencias.' : 'Actívala en el clip.'}</p>
+      <p className="mt-0.5 text-[10px] text-fg-subtle">
+        {e.continuarAnterior
+          ? 'Extrae el cierre del clip anterior para transición continua.'
+          : e.imagenInicial
+            ? 'Primer fotograma con tu avatar y tus referencias.'
+            : 'Actívala en el clip.'}
+      </p>
     </Shell>
   );
 }
