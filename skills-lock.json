@@ -29,27 +29,6 @@
       "computedHash": "c7593153c627ecb96d93c65d6908475cc3f7faefc398c0b9176b15063e917e2e",
       "installMode": "copy"
     },
-    "heygen-avatar": {
-      "source": "heygen-com/skills",
-      "sourceType": "github",
-      "skillPath": "heygen-avatar/SKILL.md",
-      "computedHash": "c58cb4db3b2fd3a6ca81b2c0dfc16abab2e17fc77c4c5a613a3eb83fc215ed22",
-      "installMode": "copy"
-    },
-    "heygen-translate": {
-      "source": "heygen-com/skills",
-      "sourceType": "github",
-      "skillPath": "heygen-translate/SKILL.md",
-      "computedHash": "e6e5839c5637ca417f32a61159a10a5674a561c1d0a6d7835812ed8d82704b2d",
-      "installMode": "copy"
-    },
-    "heygen-video": {
-      "source": "heygen-com/skills",
-      "sourceType": "github",
-      "skillPath": "heygen-video/SKILL.md",
-      "computedHash": "15e19b8aca06f767574382f1323f6cb5b9cc0e964295ca8a75835c6bd87ce12c",
-      "installMode": "copy"
-    },
     "hyperframes": {
       "source": "heygen-com/hyperframes",
       "sourceType": "github",
