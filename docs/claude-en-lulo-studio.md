@@ -87,6 +87,18 @@ oficiales de FFmpeg. Más dominios: `LULO_CLAUDE_DOMINIOS=dominio1.com,dominio2.
    dentro de `"deny"`, añadir `"Bash(*api/studio*approvals*)"` y
    `"PowerShell(*api/studio*approvals*)"`, para que Claude Code en la terminal tampoco apruebe
    gastos del Estudio Claude.
+8. **Skills de video (HyperFrames) en los Claude de la app** (2026-11-10):
+   - **Node 22 o más** (`node -v`); con Node 20 la app arranca, pero HyperFrames no y Claude lo dice.
+   - `ffprobe` junto a `ffmpeg` en el PATH (viene en la versión «full» de gyan.dev) o `FFPROBE_PATH`.
+   - Nada más que instalar: las skills vienen con `git pull` (`.agents/skills/`) y la app las copia sola a
+     `%APPDATA%\LuloStudio\claude-skills\lulo-video\` en el primer turno de Claude. La primera vez
+     que se renderiza, `npx` descarga `hyperframes@0.9.28` y un Chrome propio (un par de minutos).
+   - Probar: Estudio Claude → «con HyperFrames haz un título animado vertical de 3 s que diga Lulo
+     Studio, renderízalo en draft y muéstramelo». Debe usar la skill `hyperframes`, `revisar_html_video`
+     y `renderizar_html_video` y enseñar el video. Luego en una edición: «añade un título animado al
+     inicio con HyperFrames» → nueva versión del borrador.
+   - Si falla, mirar el texto del error en el chat (Node, FFmpeg/ffprobe o descarga de Chrome bloqueada
+     por el antivirus/proxy) y probar a mano en PowerShell: `npx -y hyperframes@0.9.28 doctor`.
 
 ### Lo que se corrigió pensando en Windows
 
@@ -96,6 +108,11 @@ oficiales de FFmpeg. Más dominios: `LULO_CLAUDE_DOMINIOS=dominio1.com,dominio2.
   caracteres de `cmd.exe` con `claude.cmd`); esquemas JSON largos van en el mensaje.
 - Comprobación de «archivo dentro de la carpeta» sin distinguir mayúsculas.
 - La carpeta de proyectos por defecto ya no crea `C:\…` relativo en macOS/Linux.
+- Skills de video: `.gitattributes` fuerza LF en `.agents/skills` y `.claude/skills` (los `.sh` con CRLF
+  fallan en Git Bash); `npx.cmd` vía cross-spawn con rutas con espacios; al cortar un render se mata el
+  árbol entero (`taskkill /T`, si no Chrome queda vivo); la copia del plugin reintenta si Windows tiene
+  la carpeta bloqueada y, si no puede, sigue con la anterior; solo se pasan a HyperFrames rutas de
+  FFmpeg/ffprobe que existen; rutas de las skills < 160 caracteres (límite 260).
 
 > Todo esto se probó en macOS. **En Windows no se ha probado todavía**: es el primer paso pendiente.
 
@@ -110,6 +127,7 @@ oficiales de FFmpeg. Más dominios: `LULO_CLAUDE_DOMINIOS=dominio1.com,dominio2.
 | `LULO_CLAUDE_DOMINIOS` | Dominios extra para descargas de Claude (macOS/Linux). |
 | `LULO_CLAUDE_BASH_SIN_AISLAMIENTO=0` | Windows: apagar los comandos de Claude (solo herramientas de Lulo). |
 | `FFMPEG_PATH`, `FFPROBE_PATH` | FFmpeg completo si no está en el PATH. |
+| `LULO_HYPERFRAMES_VERSION` | Versión de HyperFrames para los Claude de la app (por defecto `0.9.28`). |
 
 ---
 

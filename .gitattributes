@@ -1,0 +1,6 @@
+# Las skills (scripts .sh/.py/.mjs, plantillas HTML) se ejecutan en Git Bash y Node también en
+# Windows: siempre con finales de línea LF, aunque Git tenga core.autocrlf=true.
+/.agents/skills/** text=auto eol=lf
+/.claude/skills/** text=auto eol=lf
+*.sh text eol=lf
+*.bash text eol=lf

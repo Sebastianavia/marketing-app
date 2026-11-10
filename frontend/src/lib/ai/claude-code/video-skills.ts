@@ -3,6 +3,7 @@ import fsSync from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { getDataDir } from '@/lib/data/data-dir';
+import { HYPERFRAMES_VERSION } from './code-video';
 
 /**
  * Skills de video para los Claude de la app (editor, director, Estudio Claude).
@@ -98,13 +99,33 @@ async function build(): Promise<string | null> {
       await fs.cp(path.join(/*turbopackIgnore: true*/ src, n), path.join(/*turbopackIgnore: true*/ tmp, 'skills', n), { recursive: true, dereference: true });
     }
     await fs.writeFile(path.join(/*turbopackIgnore: true*/ tmp, '.huella'), fp);
-    await fs.rm(dest, { recursive: true, force: true });
-    await fs.rename(tmp, dest);
+    if (!(await swap(tmp, dest))) {
+      // Windows: otro Claude, el antivirus o el indexador tienen abierta la copia anterior. Se sigue
+      // con ella (la nueva se instala en el próximo turno).
+      await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+      return fsSync.existsSync(path.join(/*turbopackIgnore: true*/ dest, '.claude-plugin', 'plugin.json')) ? dest : null;
+    }
     return dest;
   } catch (err) {
     console.error('[skills-video]', err);
     return null;
   }
+}
+
+/** Cambia la carpeta vieja por la nueva; en Windows reintenta ante bloqueos pasajeros (EPERM/EBUSY). */
+async function swap(tmp: string, dest: string): Promise<boolean> {
+  for (let i = 0; i < 5; i++) {
+    try {
+      await fs.rm(dest, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+      await fs.rename(tmp, dest);
+      return true;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (!['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY'].includes(code ?? '')) throw err;
+      await new Promise((r) => setTimeout(r, 300 * (i + 1)));
+    }
+  }
+  return false;
 }
 
 /** Bloque del prompt de sistema: qué skills hay y cómo encajan con las herramientas de Lulo. */
@@ -115,7 +136,7 @@ Tienes skills de video (plugin lulo-video): hyperframes (léela primero para cua
 Reglas al usarlas dentro de Lulo Studio:
 - No ejecutes \`npx hyperframes events\`, \`feedback\`, \`auth\`, \`publish\`, \`cloud\`, \`lambda\` ni \`cloudrun\`; la telemetría está apagada.
 - No uses HeyGen ni otros servicios de pago que mencionen las skills (voz, avatar, video generado): esos pasos van por las herramientas de Lulo, que piden aprobación. Lo gratis y local (FFmpeg, bloques del registry, fuentes, imágenes de la carpeta) sí.
-- Crea el proyecto HyperFrames dentro de tu carpeta, p. ej. \`claude/<nombre>/\` (\`npx hyperframes init claude/<nombre> --non-interactive --skip-skills --resolution portrait\`; para bloques: \`npx hyperframes add …\`). Copia dentro los videos, audios e imágenes que use (sin enlaces simbólicos).
+- Crea el proyecto HyperFrames dentro de tu carpeta, p. ej. \`claude/<nombre>/\` (\`npx hyperframes@${HYPERFRAMES_VERSION} init claude/<nombre> --non-interactive --skip-skills --resolution portrait\`; para bloques: \`npx hyperframes@${HYPERFRAMES_VERSION} add …\`; usa siempre esa versión, es la que renderiza la app). Si no tienes Bash, escribe los archivos con Write siguiendo la skill.. Copia dentro los videos, audios e imágenes que use (sin enlaces simbólicos).
 ${o.renderTool ? `- Para revisar usa \`revisar_html_video\` y para renderizar \`${o.renderTool}\` (no \`npx hyperframes check\`, \`render\`, \`preview\` ni \`snapshot\`: en tu Bash no arranca Chrome; \`npx hyperframes lint\` sí funciona). \`calidad: draft\` mientras pruebas. Para superponer gráficos sobre un video: renderiza en webm (transparente) o con el video dentro de la composición, y combina con FFmpeg.` : '- Aquí no puedes renderizar HyperFrames: si hace falta, déjalo indicado para el editor de video.'}
 - Mira los fotogramas del resultado (FFmpeg + Read) antes de entregarlo. ${o.entregar}`;
 }

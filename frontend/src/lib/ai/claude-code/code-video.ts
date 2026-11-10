@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import os from 'os';
 import path from 'path';
 import spawn from 'cross-spawn';
@@ -83,15 +84,21 @@ async function assertSafeProject(dir: string) {
 function run(args: string[], timeoutMs: number): Promise<{ code: number | null; out: string; stdout: string }> {
   const ffmpeg = resolveFfmpegPath();
   const extra: Record<string, string> = { HYPERFRAMES_NO_TELEMETRY: '1', HYPERFRAMES_SKIP_SKILLS: '1', CI: '1' };
-  if (path.isAbsolute(ffmpeg)) {
+  // Solo rutas que existen: una ruta configurada que falta HyperFrames la da por «sin FFmpeg».
+  // ffmpeg-static (respaldo de la app) no trae ffprobe: entonces HyperFrames lo busca en el PATH.
+  if (path.isAbsolute(ffmpeg) && fsSync.existsSync(ffmpeg)) {
     extra.HYPERFRAMES_FFMPEG_PATH = ffmpeg;
     const probe = path.join(path.dirname(ffmpeg), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
-    extra.HYPERFRAMES_FFPROBE_PATH = probe;
+    if (fsSync.existsSync(probe)) extra.HYPERFRAMES_FFPROBE_PATH = probe;
   }
+  // FFPROBE_PATH de .env.local (la guía de Windows la usa cuando FFmpeg no está en el PATH)
+  const probeEnv = process.env.FFPROBE_PATH?.trim();
+  if (probeEnv && fsSync.existsSync(probeEnv)) extra.HYPERFRAMES_FFPROBE_PATH = probeEnv;
   return new Promise((resolve) => {
     // childEnv: lista blanca, ninguna clave de .env.local llega al render
     // cwd neutro: dentro del proyecto npx usaría un node_modules/.npmrc que Claude hubiera puesto ahí
-    // y ese código correría fuera del aislamiento
+    // y ese código correría fuera del aislamiento. cross-spawn encuentra npx.cmd en Windows y cita
+    // bien las rutas con espacios (D:\github\app- marketing, carpetas de proyectos con título).
     const child = spawn('npx', ['-y', `hyperframes@${HYPERFRAMES_VERSION}`, ...args], {
       cwd: os.tmpdir(),
       env: childEnv(extra),
@@ -108,7 +115,7 @@ function run(args: string[], timeoutMs: number): Promise<{ code: number | null; 
       if (stdout.length < 2_000_000) stdout += d.toString();
     });
     child.stderr?.on('data', keep);
-    const timer = setTimeout(() => child.kill(), timeoutMs);
+    const timer = setTimeout(() => killTree(child.pid, () => child.kill()), timeoutMs);
     child.on('error', (err) => {
       clearTimeout(timer);
       resolve({ code: -1, out: out + String(err), stdout });
@@ -118,6 +125,27 @@ function run(args: string[], timeoutMs: number): Promise<{ code: number | null; 
       resolve({ code, out, stdout });
     });
   });
+}
+
+/**
+ * Corta el render con todo lo que lanzó. En Windows npx corre dentro de cmd.exe y Chrome cuelga de
+ * node: matar solo el primer proceso dejaría Chrome y node vivos.
+ */
+function killTree(pid: number | undefined, fallback: () => void) {
+  if (process.platform === 'win32' && pid) {
+    const k = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    k.on('error', fallback);
+    return;
+  }
+  fallback();
+}
+
+/** HyperFrames necesita Node 22 o más (la app arranca con Node 20.9+). */
+function assertNodeVersion() {
+  const major = Number(process.versions.node.split('.')[0]);
+  if (major < 22) {
+    throw new CodeVideoError(`HyperFrames necesita Node 22 o más y este PC tiene Node ${process.versions.node}. Actualízalo (nodejs.org, versión LTS) y reinicia la app.`, 500);
+  }
 }
 
 /** Carpeta del proyecto validada (dentro de la base, existe, sin enlaces). */
@@ -130,6 +158,7 @@ async function projectDir(base: string, proyecto: string, composicion?: string) 
     throw new CodeVideoError(`No existe ${path.relative(base, entry)}.`, 404);
   });
   await assertSafeProject(dir);
+  assertNodeVersion();
   return { dir, entry };
 }
 
