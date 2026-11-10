@@ -8,6 +8,7 @@ import {
   stopAgentTurn,
   type AgentSpec,
 } from '@/lib/ai/claude-code/agent-runner';
+import { EDITOR_FIRST_PASS, VIRAL_DIRECTION_PRINCIPLES } from '@/lib/ai/claude-code/creative-direction';
 import { EditError, getEdit, updateEdit } from './edit-store';
 import type { EditProject } from './types';
 
@@ -32,14 +33,16 @@ Modelos descargados (recorte de persona, etc.): ${ctx.modelos}
 
 CÓMO TRABAJAR
 1. Empieza con lulo: ver_edicion para conocer el perfil, las frases y el borrador actual.
-2. Si el pedido se puede hacer con el motor de la app (subtítulos, colores, fuente, posición, gancho, cortes, zoom, música, gráficos, formato), usa cambiar_perfil / cambiar_guion y luego renderizar. Es lo más fiable. Lo que sale de renderizar YA aparece en la app como borrador: no lo vuelvas a publicar.
-3. Si el motor no lo hace (efectos especiales, b-roll, transiciones, cambiar fondo, velocidad, superponer imágenes, color grading, lo que sea), hazlo tú con FFmpeg, Python u otra herramienta que instales, trabajando sobre el borrador actual o el original. Guarda tu resultado como MP4 (H.264 + AAC, mismo formato vertical) dentro de la carpeta, en una subcarpeta \`claude/\`, y usa lulo: publicar_borrador para que la persona lo vea en la app.
-   Respeta el perfil también en lo que hagas tú: si perfil.sonido.efectos es false (o efectosGancho / efectosCortes / efectosGraficos están en false), NO añadas efectos de sonido (whoosh, golpes, pops, dings) en esos momentos, ni al salir textos, subtítulos o gráficos. Usa sus fuentes, colores y firma.
+2. Las decisiones creativas son TUYAS y van en el plan de dirección (lulo: dirigir_edicion): cámara, transiciones, color, diseño de subtítulos, palabras clave, gancho, gráficos, elementos visuales, efectos de sonido y música. El motor lo ejecuta tal cual al renderizar (sin reglas automáticas). Cortes y textos de las frases: cambiar_guion. Formato, red, firma o perfil base: cambiar_perfil. Lo que sale de renderizar YA aparece en la app como borrador: no lo vuelvas a publicar.
+   El perfil es el punto de partida de MARCA (sus fuentes, colores, firma, formato y red): úsalo como base del diseño, pero el resto lo decides tú. Respeta siempre lo que la persona escribió en perfil.sobreTi y perfil.instrucciones o pida en el chat (si pide «sin música» o «sin efectos», no los pongas).
+3. Si algo no se puede con el plan (efectos muy especiales, cambiar el fondo, velocidad, máscaras), hazlo tú con FFmpeg, Python o HyperFrames, trabajando sobre el borrador actual o el original. Guarda tu resultado como MP4 (H.264 + AAC, mismo formato vertical) dentro de la carpeta, en una subcarpeta \`claude/\`, y usa lulo: publicar_borrador para que la persona lo vea en la app.
 4. Para sincronizar algo con lo que se dice (textos, capturas, zooms, efectos), usa lulo: palabras_borrador: da cada palabra con su tiempo en el borrador. La transcripción de la app es la buena: no la deduzcas de subtitulos.ass ni digas que "faltan palabras" sin comprobarlo ahí.
 5. Comprueba tu resultado antes de publicarlo: MIRA (fotogramas con FFmpeg a \`./claude/fotogramas/\`, varios por segundo en los tramos con movimiento, y míralos con Read) y ESCUCHA (lulo: escuchar_audio sobre tu archivo: volumen total cerca de −14 LUFS, pico ≤ −1 dBFS, los efectos aparecen como picos donde los pusiste, sin silencios raros y sin que la voz baje bajo los efectos o la música). Si algo falla, corrígelo antes de publicar. No uses /tmp ni otras carpetas: fuera de la carpeta de la edición no puedes leer.
 6. Coherencia: cualquier texto en pantalla (gancho, rótulos, CTA) debe ir de acuerdo con lo que la persona dice en ese momento. El gancho de los primeros segundos refuerza o resume la primera frase que se oye; no puede contar otra cosa.
 7. En tu respuesta, cuenta solo lo que comprobaste. Si no pudiste verificar algo, dilo como duda, no como hecho.
 8. No pidas permiso para cada paso: decide tú. Pregunta solo si el pedido es ambiguo de verdad.
+
+${VIRAL_DIRECTION_PRINCIPLES}
 
 REGLAS
 - No gastas dinero: no tienes herramientas de pago. Si algo requiere un proveedor de pago (voz nueva, video generado), explícalo y deja que la persona lo haga desde la app.
@@ -111,9 +114,13 @@ export async function startClaudeFirstPass(editId: string): Promise<void> {
   const p = await getEdit(editId);
   const pedido = p.pedido?.trim() || 'Haz un reel con este video: quita pausas y errores y déjalo listo para redes.';
   const final = p.revisarAntes
-    ? 'La persona marcó "Enséñame el guion antes de crear el video": deja el guion, el estilo y los gráficos listos con cambiar_guion / cambiar_perfil / planear_graficos, pero NO renderices ni publiques. Termina explicándole en pocas líneas qué propones para que lo revise.'
-    : 'Renderiza para dejar el borrador listo en la app y revisa fotogramas del borrador antes de contestar (si el pedido lo necesita, mejóralo con tus herramientas y publica tu versión).';
-  const instrucciones = `Esta es una edición nueva: el audio ya está transcrito y nadie ha decidido nada todavía. Haz la edición completa según el pedido de la persona. ANTES de decidir nada, extrae fotogramas del original con FFmpeg (p. ej. una hoja de 8 imágenes en ./claude/fotogramas/) y míralos con Read: qué se ve, si hay una persona o un producto, y si el audio es voz o una canción (con canción no añadas música). Luego decide qué frases cortar (falsos comienzos, repeticiones, muletillas, errores, lo que sobra), el gancho, las palabras a resaltar y los gráficos (planear_graficos si el perfil los usa), y ajusta el estilo si el pedido lo pide. ${final}
+    ? 'La persona marcó "Enséñame el guion antes de crear el video": haz los pasos 1–4 (cortes, gancho y el plan de dirección completo con dirigir_edicion) pero NO renderices ni publiques. Termina explicándole en pocas líneas qué propones (estilo, música, ideas visuales) para que lo revise.'
+    : 'Haz todos los pasos, renderiza y revisa (y corrige) antes de contestar.';
+  const instrucciones = `Esta es una edición nueva: el audio ya está transcrito y nadie ha decidido nada todavía. Haz la edición completa según el pedido de la persona, dirigiendo tú cada detalle (si el audio es una canción en vez de voz, no añadas música).
+
+${EDITOR_FIRST_PASS}
+
+${final}
 
 Pedido de la persona: «${pedido}»`;
   await sendToClaude(editId, instrucciones, defaultAppUrl(), { mostrar: pedido });

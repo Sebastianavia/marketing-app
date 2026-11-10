@@ -9,9 +9,9 @@ import fs from 'fs/promises';
  */
 
 export const SR = 48000;
-const TAU = Math.PI * 2;
+export const TAU = Math.PI * 2;
 
-function rng(seed: number) {
+export function rng(seed: number) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -22,8 +22,8 @@ function rng(seed: number) {
   };
 }
 
-const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
-const lpCoef = (fc: number) => 1 - Math.exp((-TAU * fc) / SR);
+export const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
+export const lpCoef = (fc: number) => 1 - Math.exp((-TAU * fc) / SR);
 
 /** WAV estéreo de 16 bits a 48 kHz. */
 export async function writeWav(file: string, left: Float32Array, right: Float32Array = left) {
@@ -49,7 +49,7 @@ export async function writeWav(file: string, left: Float32Array, right: Float32A
   await fs.writeFile(file, buf);
 }
 
-function normalizePeak(chs: Float32Array[], peak = 0.89) {
+export function normalizePeak(chs: Float32Array[], peak = 0.89) {
   let max = 0;
   for (const c of chs) for (let i = 0; i < c.length; i++) max = Math.max(max, Math.abs(c[i]));
   if (max <= 0) return;

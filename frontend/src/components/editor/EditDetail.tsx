@@ -170,6 +170,27 @@ export function EditDetail({ id, perfiles, onBack, onChanged }: Props) {
         <DraftCard edit={edit} busy={busy} run={run} />
       )}
 
+      {edit.direccion && (
+        <div className="flex flex-wrap items-start gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 text-[12px]">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p className="font-medium text-fg">Edición dirigida por Claude</p>
+            <p className="text-fg-muted">
+              {edit.direccion.resumen || 'Claude decidió cámara, sonido, música, subtítulos y elementos visuales.'} Su plan manda sobre el estilo del perfil: para cambiar algo, pídeselo en el chat.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!!busy || working}
+            onClick={() => void run('quitar_direccion', { accion: 'quitar_direccion' })}
+            className="btn-secondary h-8 shrink-0 px-3 text-[11px]"
+            title="El próximo render usa el estilo automático del perfil"
+          >
+            Volver al estilo del perfil
+          </button>
+        </div>
+      )}
+
       {(edit.frases.length > 0 || edit.borrador) && (
         <ClaudeEditChat
           edit={edit}

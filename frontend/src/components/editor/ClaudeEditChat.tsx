@@ -31,6 +31,8 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: renderizar': 'Armando el video con el motor',
   'lulo: esperar_render': 'Esperando el render',
   'lulo: publicar_borrador': 'Publicando la nueva versión',
+  'lulo: catalogo_edicion': 'Mirando efectos, música y recursos',
+  'lulo: dirigir_edicion': 'Dirigiendo la edición (cámara, sonido, música, gráficos)',
   'lulo: revisar_html_video': 'Revisando la animación (HyperFrames)',
   'lulo: renderizar_html_video': 'Renderizando la animación (HyperFrames)',
 };

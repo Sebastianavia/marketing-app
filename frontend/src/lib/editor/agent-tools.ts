@@ -13,6 +13,13 @@ import { keptIntervals, phraseText, subtitleWords } from './timeline';
 import { snapToFrames } from './render';
 import { ACTIVE_STATUSES, type EditProject } from './types';
 import { isInside } from '@/lib/fs/inside';
+import { CAMERA_TYPES, DirectionError, DirectionInputSchema, ELEMENT_ENTRIES, ELEMENT_MODES, ELEMENT_POSITIONS, KEY_EFFECTS, TRANSITION_TYPES, AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, describeDirection, directionInFinal, prepareDirection } from './direction';
+import { SFX_CATALOG } from './sfx';
+import { MUSIC_CATALOG } from './music';
+import { listMusic, musicDir } from './audio';
+import { fontsDir } from './media';
+import { totalDuration } from './timeline';
+import { FONT_SUGGESTIONS, SUBTITLE_STYLES } from '@/config/editor-looks';
 import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_DESCRIPTION, CodeCheckSchema, CodeVideoError, CodeVideoSchema, checkCodeVideo, renderCodeVideo } from '@/lib/ai/claude-code/code-video';
 
 /**
@@ -59,10 +66,17 @@ function snapshot(p: EditProject) {
       motivo: f.motivo,
     })),
     graficos: p.graficos ?? [],
+    direccion: p.direccion ? planInFinal(p) : null,
     borrador: p.borrador,
     error: p.error?.mensaje,
     ultimaActividad: p.actividad.slice(-8),
   };
+}
+
+/** El plan de dirección con tiempos del video final (los cortes actuales). */
+function planInFinal(p: EditProject) {
+  const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+  return directionInFinal(p.direccion!, intervals, totalDuration(intervals));
 }
 
 function assertIdle(p: EditProject) {
@@ -246,7 +260,7 @@ const escucharAudio = tool({
 const planearGraficos = tool({
   name: 'planear_graficos',
   description:
-    'Crea (o rehace) el plan de gráficos animados (tarjetas, números, listas, texto detrás de la persona) según el guion actual y el perfil. Devuelve los gráficos con su id; después puedes editarlos o quitarlos con cambiar_guion.',
+    'Propuesta AUTOMÁTICA de gráficos (otra IA, según el guion y el perfil). Mejor escríbelos tú en dirigir_edicion (campo graficos), con tu criterio y en el segundo exacto; usa esta solo como punto de partida si quieres. Devuelve los gráficos con su id.',
   schema: z.object({}),
   run: async (editId) => {
     const edit = await runAction(editId, { accion: 'proponer_graficos' }).catch((err) => {
@@ -370,7 +384,95 @@ const renderizarHtmlVideo = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+const catalogoEdicion = tool({
+  name: 'catalogo_edicion',
+  description:
+    'Todo lo que puedes usar en el plan de dirección (dirigir_edicion): efectos de sonido con cuándo usar cada uno, estilos de música (BPM y para qué), movimientos de cámara, transiciones, modos de elementos visuales, animaciones de subtítulos, efectos de palabra clave, fuentes, música propia de la persona y los archivos (imágenes, videos, audios) que hay en la carpeta de la edición. $0.',
+  schema: z.object({}),
+  run: async (editId) => {
+    const p = await getEdit(editId);
+    const walk = async (dir: string, depth: number): Promise<string[]> => {
+      const out: string[] = [];
+      for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        if (e.name.startsWith('.') || /^(plate|voz|matte|caras|borrador|portada|musica|sfx|mezcla|master|video-sin-audio)/.test(e.name)) continue;
+        const full = path.join(/*turbopackIgnore: true*/ dir, e.name);
+        if (e.isDirectory() && depth < 4) out.push(...(await walk(full, depth + 1)));
+        else if (e.isFile()) out.push(path.relative(p.carpeta, full).split(path.sep).join('/'));
+      }
+      return out;
+    };
+    const files = (await walk(p.carpeta, 0)).filter((f) => f !== p.original.archivo);
+    const of = (exts: string[]) => files.filter((f) => exts.includes(path.extname(f).toLowerCase())).slice(0, 150);
+    const fuentesPropias = (await fs.readdir(await fontsDir()).catch(() => [] as string[])).filter((f) => /\.(ttf|otf)$/i.test(f));
+    return {
+      efectosDeSonido: SFX_CATALOG,
+      musicaGenerada: MUSIC_CATALOG,
+      musicaPropia: { carpeta: await musicDir(), archivos: await listMusic() },
+      camara: {
+        tipos: CAMERA_TYPES,
+        explicacion:
+          'plano = encuadre fijo con ese zoom (cambiar de plano entre tramos = corte de ángulo); punch = acercamiento brusco (0,12 s) para enfatizar; acercar/alejar = movimiento suave de zoom a zoomFinal; paneo = mueve el centro de x a xFinal; sacudida = temblor que se apaga (golpes, sorpresas). zoom 1 = normal, 1,15 medio, 1,3 primer plano, 1,5+ muy cerrado. x/y −1…1 mueven el centro respecto a la cara. Los tramos no se pueden pisar; fuera de ellos el encuadre es normal.',
+      },
+      transiciones: { tipos: TRANSITION_TYPES, explicacion: 'flash = destello blanco; negro = fundido a negro breve; glitch = desfase RGB; desenfoque = blur. Centradas en t, con su duración (0,15–0,4 s suele ir bien).' },
+      elementos: {
+        modos: ELEMENT_MODES,
+        posiciones: ELEMENT_POSITIONS,
+        entradas: ELEMENT_ENTRIES,
+        explicacion:
+          'pantalla_completa = el archivo tapa el video (b-roll, captura); pantalla_dividida = mitad arriba o abajo (los subtítulos van solos a la unión); flotante = recuadro con borde (tamano = ancho respecto al video). Imágenes y videos de la carpeta de la edición; .mov/.webm con transparencia sirven para gráficos de HyperFrames.',
+        formatos: [...IMAGE_EXT, ...VIDEO_EXT],
+      },
+      subtitulos: {
+        animaciones: SUBTITLE_STYLES.map((x) => ({ id: x.id, que: x.hint })),
+        efectosPalabraClave: KEY_EFFECTS,
+        fuentesSugeridas: FONT_SUGGESTIONS,
+        fuentesPropias,
+        nota: 'Puedes cambiar cualquier campo de los subtítulos del perfil (fuente, tamano, colores, grosorBorde, caja, posicion, palabrasPorLinea, mayusculas, escalaClave) y además sombra/colorSombra.',
+      },
+      archivosEnLaCarpeta: { imagenes: of(IMAGE_EXT), videos: of(VIDEO_EXT), audios: of(AUDIO_EXT) },
+      tiempos: 'Todas las marcas de tiempo del plan son del VIDEO FINAL: sácalas de palabras_borrador.',
+    };
+  },
+});
+
+const dirigirEdicion = tool({
+  name: 'dirigir_edicion',
+  description:
+    'Guarda TU plan de dirección y el motor lo ejecuta tal cual al renderizar (sin reglas automáticas): camara, transiciones, color, subtitulos (diseño y animación), palabrasClave (color/tamaño/efecto por palabra), gancho (texto y estilo), graficos (los escribes tú: tarjeta|numero|lista|detras en el segundo t), estiloGraficos, elementos (imágenes/videos de la carpeta en pantalla completa, flotantes o pantalla dividida), sonidos (efectos en su segundo exacto, todos los que quieras) y musica (generada por estilo con secciones suave/completa/silencio, o un archivo). TIEMPOS EN SEGUNDOS DEL VIDEO FINAL (palabras_borrador). Cada sección que mandes reemplaza a la anterior; las que no mandes se conservan. `borrar: true` quita el plan entero (vuelve al estilo automático del perfil). Mira catalogo_edicion. Después, renderizar.',
+  schema: DirectionInputSchema.extend({ borrar: z.boolean().optional() }),
+  run: async (editId, input) => {
+    const { borrar, ...plan } = input;
+    let resumen = '';
+    let avisos: string[] = [];
+    const lib = await musicDir();
+    const { edit } = await updateEdit(editId, (p) => {
+      assertIdle(p);
+      if (borrar) {
+        p.direccion = undefined;
+        logActivity(p, 'Claude quitó su plan de dirección.');
+        return;
+      }
+      const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+      try {
+        const r = prepareDirection(p, plan, intervals, totalDuration(intervals), p.direccion, lib);
+        p.direccion = r.direccion;
+        if (r.graficos) p.graficos = r.graficos;
+        if (plan.gancho?.texto !== undefined) p.gancho = plan.gancho.texto;
+        avisos = r.avisos;
+        resumen = describeDirection(r.direccion, (p.graficos ?? []).filter((g) => g.activo).length);
+        logActivity(p, `Claude dirigió la edición: ${resumen}.`);
+      } catch (err) {
+        if (err instanceof DirectionError) throw new AgentToolError(`El plan tiene problemas, corrígelos y vuelve a mandarlo:\n${err.message}`);
+        throw err;
+      }
+    });
+    return borrar
+      ? { ok: true, plan: null }
+      : { ok: true, resumen, avisos, siguiente: 'renderizar y después revisa fotogramas en los momentos clave y escuchar_audio.', direccion: planInFinal(edit) };
+  },
+});
+
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [catalogoEdicion, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

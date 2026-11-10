@@ -3,7 +3,8 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import { formatSize, networkInfo, safeZone } from '@/config/editor-looks';
 import { errorMessage } from '@/lib/errors';
-import { buildFinalAudio, measureLoudness, type SfxEvent } from './audio';
+import { buildFinalAudio, measureLoudness, musicDir, type SfxEvent } from './audio';
+import { cameraFilter, colorFilter, describeDirection, directedProfile, elementsFilter, faceCenter, resolveDirection } from './direction';
 import { buildAss, buildBehindAss, defaultSubMargin } from './ass';
 import { cardStyle, faceWindow, graphicsEvents, placeGraphics } from './graphics';
 import { ffmpeg, filterScriptArgs, hasSubtitlesFilter, stageFonts } from './media';
@@ -64,7 +65,8 @@ export async function renderEdit(
   version: number,
   onProgress?: (pct: number, etapa?: RenderStage, detalle?: string) => void
 ): Promise<RenderResult> {
-  const perfil = p.perfil;
+  // Con plan de dirección de Claude, el perfil efectivo es el del plan y no hay reglas mecánicas
+  const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
   const raw = keptIntervals(p.frases, perfil.ritmo, p.original.duracion);
   const intervals = snapToFrames(raw);
   if (!intervals.length) throw new Error('Con los cortes elegidos no queda nada del video. Vuelve a marcar alguna frase para conservar.');
@@ -73,6 +75,10 @@ export async function renderEdit(
   const notas: string[] = [];
   const calidad: QualityCheck[] = [];
   const f = (name: string) => editFile(p, name);
+  const dir = p.direccion ? resolveDirection(p, p.direccion, intervals, total, await musicDir()) : null;
+  if (p.direccion) notas.push(`Dirigido por Claude: ${describeDirection(p.direccion, p.graficos?.filter((g) => g.activo).length)}.`);
+  // dirigir_edicion copia el texto del gancho a p.gancho: así, si la persona lo cambia en la app, manda su cambio
+  const ganchoTexto = p.gancho;
 
   // Gráficos y subtítulos
   const placed = placeGraphics(p, intervals, total);
@@ -169,10 +175,12 @@ export async function renderEdit(
   const r = perfil.ritmo;
   const factor = 1 + Math.max(0, Math.min(25, r.zoomPct)) / 100;
   const smoothAmount = Math.min(0.06, (r.zoomPct / 100) * 0.5);
-  const zoomMax = (r.zoomEnCortes ? factor : 1) * (r.zoomSuave ? 1 + smoothAmount : 1);
-  const hookOn = perfil.gancho.activo && p.gancho.trim().length > 0;
+  const zoomMax = dir
+    ? Math.max(1, ...dir.camara.map((c) => Math.max(c.zoom, c.zoomFinal ?? 1)))
+    : (r.zoomEnCortes ? factor : 1) * (r.zoomSuave ? 1 + smoothAmount : 1);
+  const hookOn = perfil.gancho.activo && ganchoTexto.trim().length > 0;
   let faces: FaceTrack | null = null;
-  if (placed.length || perfil.subtitulos.activo) {
+  if (placed.length || perfil.subtitulos.activo || (dir && dir.camara.length)) {
     const cf = `caras-${key}.json`;
     try {
       if (fsSync.existsSync(f(cf))) faces = JSON.parse(await fs.readFile(f(cf), 'utf-8')) as FaceTrack;
@@ -214,8 +222,11 @@ export async function renderEdit(
   const subs = buildAss({
     perfil,
     words,
-    gancho: p.gancho,
+    gancho: ganchoTexto,
     resaltar: p.resaltar,
+    claves: dir?.palabrasClave,
+    centrar: dir?.divididas,
+    sombra: dir?.sombra,
     duracionFinal: total,
     graficos: gfx.front,
     ocultar: gfx.hide,
@@ -248,7 +259,19 @@ export async function renderEdit(
   // Efectos de sonido: cada tipo se puede apagar en el perfil (Sonido)
   const sfx = perfil.sonido;
   const eventos: SfxEvent[] = hookOn && sfx.efectosGancho !== false ? [{ tipo: 'impacto', t: 0 }] : [];
-  if (r.zoomEnCortes || r.zoomSuave) {
+  const firstElementInput = matte ? 2 : 1;
+  let elementInputs: string[] = [];
+  if (dir) {
+    // Plan de Claude: cámara → color → imágenes/videos → transiciones (todo con sus tiempos)
+    const cam = cameraFilter(dir.camara, W, H, FPS, faceCenter(faces));
+    const col = colorFilter(dir.color, dir.transiciones);
+    // El color es de la toma (las capturas y fotos quedan con su color); los destellos y glitch, de todo
+    c.push(`[comp]${[cam, col.grade].filter(Boolean).join(',') || 'null'}[cam]`);
+    const els = elementsFilter(dir.elementos, firstElementInput, 'cam', 'elx', perfil, FPS);
+    c.push(...els.graph);
+    c.push(`[elx]${col.fx ?? 'null'}[zc]`);
+    elementInputs = els.inputs;
+  } else if (r.zoomEnCortes || r.zoomSuave) {
     const n = intervals.length;
     c.push(n > 1 ? `[comp]split=${n}${intervals.map((_, i) => `[c${i}]`).join('')}` : `[comp]null[c0]`);
     let zoomed = false;
@@ -299,6 +322,7 @@ export async function renderEdit(
     args: [
       '-y', '-hide_banner', '-i', plate,
       ...(matte ? ['-i', matte] : []),
+      ...elementInputs,
       ...(await filterScriptArgs('filtros.txt')),
       '-map', '[vout]', '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-r', String(FPS), '-pix_fmt', 'yuv420p', videoOnly,
     ],
@@ -308,7 +332,7 @@ export async function renderEdit(
 
   // ── D. Sonido ──
   onProgress?.(91, 'sonido', 'Efectos, música y volumen');
-  const audio = await buildFinalAudio({ carpeta: p.carpeta, voz: f(voz), duracion: total, perfil, eventos: spaced, seed: seedFrom(p.id) });
+  const audio = await buildFinalAudio({ carpeta: p.carpeta, voz: f(voz), duracion: total, perfil, eventos: dir ? [] : spaced, seed: seedFrom(p.id), direccion: dir });
   notas.push(...audio.notas);
   const out = `borrador-v${version}.mp4`;
   await ffmpeg({

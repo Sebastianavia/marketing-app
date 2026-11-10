@@ -1,4 +1,5 @@
 import type { EditProfile } from '@/config/editor-looks';
+import type { EditDirection } from './direction';
 
 /**
  * Proyecto de edición: un video en bruto que se transcribe, la IA propone cortes,
@@ -99,6 +100,12 @@ export interface EditProject {
   frases: EditPhrase[];
   /** Plan de gráficos (propuesto por la IA, revisado por la persona). */
   graficos?: EditGraphic[];
+  /**
+   * Plan de dirección de Claude (lib/editor/direction.ts): cámara, transiciones, color, diseño de
+   * subtítulos, palabras clave, elementos visuales, efectos de sonido y música, con tiempos del
+   * ORIGINAL. Si existe, el render lo ejecuta y apaga las reglas mecánicas del perfil.
+   */
+  direccion?: EditDirection;
   gancho: string;
   resaltar: string[];
   /** Explicación corta de la IA sobre lo que hizo. */

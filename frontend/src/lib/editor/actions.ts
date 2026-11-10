@@ -181,6 +181,7 @@ export const ActionSchema = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('aprobar') }),
   z.object({ accion: z.literal('proponer_graficos') }),
   z.object({ accion: z.literal('renombrar'), titulo: z.string().trim().min(1).max(80) }),
+  z.object({ accion: z.literal('quitar_direccion') }),
 ]);
 
 export type EditAction = z.infer<typeof ActionSchema>;
@@ -244,6 +245,11 @@ export async function runAction(id: string, raw: unknown): Promise<EditProject> 
     switch (a.accion) {
       case 'renombrar':
         p.titulo = a.titulo;
+        return;
+      case 'quitar_direccion':
+        assertIdle(p);
+        p.direccion = undefined;
+        logActivity(p, 'Se quitó el plan de dirección de Claude: el próximo render usa el estilo del perfil.');
         return;
       case 'guardar_revision':
         if (!p.frases.length) throw new EditError('Todavía no hay guion para revisar.', 409);

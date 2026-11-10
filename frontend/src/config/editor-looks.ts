@@ -9,7 +9,7 @@ import { z } from 'zod';
  */
 
 export type EditFormat = '9:16' | '4:5' | '1:1';
-export type SubtitleStyle = 'karaoke' | 'frase' | 'palabra';
+export type SubtitleStyle = 'karaoke' | 'frase' | 'palabra' | 'pop' | 'caja_activa';
 export type SubtitlePosition = 'arriba' | 'centro' | 'abajo';
 
 export const EDIT_FORMATS: Array<{ id: EditFormat; label: string; size: { width: number; height: number } }> = [
@@ -66,6 +66,8 @@ export const SUBTITLE_STYLES: Array<{ id: SubtitleStyle; label: string; hint: st
   { id: 'karaoke', label: 'Karaoke', hint: 'Frase corta y la palabra que suena se pinta' },
   { id: 'palabra', label: 'Palabra a palabra', hint: 'Una palabra a la vez, con un pequeño salto' },
   { id: 'frase', label: 'Frase fija', hint: 'Frase corta sin animación; las palabras clave en color' },
+  { id: 'pop', label: 'Aparecen al hablar', hint: 'Cada palabra entra con un rebote justo cuando se dice (estilo viral)' },
+  { id: 'caja_activa', label: 'Caja en la palabra', hint: 'La palabra que suena lleva un bloque de color detrás' },
 ];
 
 export const SUBTITLE_POSITIONS: Array<{ id: SubtitlePosition; label: string }> = [
@@ -262,7 +264,7 @@ export const ProfileInputSchema = z.object({
   red: z.enum(['instagram', 'tiktok', 'shorts']).default('instagram'),
   subtitulos: z.object({
     activo: z.boolean(),
-    estilo: z.enum(['karaoke', 'frase', 'palabra']),
+    estilo: z.enum(['karaoke', 'frase', 'palabra', 'pop', 'caja_activa']),
     fuente: z
       .string()
       .trim()

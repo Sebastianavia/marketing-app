@@ -54,6 +54,27 @@ export interface AssInput {
   cardStyle?: string;
   /** Margen inferior/superior de los subtítulos calculado según la cara (si no, el del perfil). */
   marginV?: number;
+  /** Palabras clave del plan de Claude (tiempos del video final): color, tamaño y efecto propios. */
+  claves?: KeywordStyle[];
+  /** Ventanas con pantalla dividida: los subtítulos van al centro (sobre la unión). */
+  centrar?: Array<[number, number]>;
+  /** Sombra de los subtítulos (px y color). */
+  sombra?: { px: number; color: string };
+}
+
+export interface KeywordStyle {
+  palabra: string;
+  t?: number;
+  color?: string;
+  escala?: number;
+  efecto: 'ninguno' | 'rebote' | 'sacudida' | 'crecer' | 'brillo';
+}
+
+/** Negro o blanco, lo que mejor se lea sobre ese color. */
+function textOn(hexColor: string): string {
+  const h = /^#?([0-9a-f]{6})$/i.exec(hexColor.trim())?.[1] ?? 'FFFFFF';
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? '#000000' : '#FFFFFF';
 }
 
 /** Margen vertical por defecto de los subtítulos (para saber si chocan con la cara). */
@@ -101,7 +122,7 @@ function mergeShort(chunks: SubWord[][], max: number): SubWord[][] {
   return out;
 }
 
-export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFinal, graficos = [], ocultar = [], cardStyle, marginV: marginOverride }: AssInput): AssResult {
+export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFinal, graficos = [], ocultar = [], cardStyle, marginV: marginOverride, claves = [], centrar = [], sombra }: AssInput): AssResult {
   const words = ocultar.length ? allWords.filter((w) => !ocultar.some(([a, b]) => w.s >= a - 0.05 && w.s < b)) : allWords;
   const { width, height } = formatSize(perfil.formato);
   const sub = perfil.subtitulos;
@@ -119,7 +140,8 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
         : 0);
   const marginL = 80;
   const marginR = Math.max(80, safe.right + 20);
-  const box = sub.caja;
+  // En «caja en la palabra» el bloque va solo detrás de la palabra activa (no en toda la línea)
+  const box = sub.caja && sub.estilo !== 'caja_activa';
   // Opacidad de la caja (100 % = opaca). En ASS el alfa va de 0 (opaco) a 255 (transparente).
   const boxAlpha = Math.round(255 * (1 - Math.max(30, Math.min(100, sub.opacidadCaja ?? 100)) / 100));
   const subStyle = [
@@ -129,11 +151,11 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
     assColor(sub.colorTexto),
     assColor(sub.colorResaltado),
     box ? assColor(sub.colorCaja, boxAlpha) : assColor(sub.colorBorde),
-    box ? assColor(sub.colorCaja, boxAlpha) : assColor('#000000', 140),
+    box ? assColor(sub.colorCaja, boxAlpha) : assColor(sombra?.color ?? '#000000', sombra ? 60 : 140),
     -1, 0, 0, 0, 100, 100, 0, 0,
     box ? 3 : 1,
     box ? Math.round(sub.tamano * 0.22) : sub.grosorBorde,
-    box ? 0 : sub.grosorBorde > 0 ? 2 : 0,
+    box ? 0 : sombra ? sombra.px : sub.grosorBorde > 0 ? 2 : 0,
     alignment,
     marginL, marginR, marginV, 1,
   ].join(',');
@@ -158,19 +180,50 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
   const keySet = new Set(resaltar.map(normalizeWord).filter(Boolean));
   const hi = `{\\1c${assColor(sub.colorResaltado)}&}`;
   const ks = Math.round(Math.max(100, Math.min(250, sub.escalaClave ?? 130)));
-  const keyTag = `{\\1c${assColor(sub.colorResaltado)}&\\fscx${ks}\\fscy${ks}}`;
   const label = (t: string) => escapeText(sub.mayusculas ? t.toLocaleUpperCase('es') : t);
-  const isKey = (t: string) => keySet.has(normalizeWord(t));
+  // Palabras clave: las del plan (con su color, tamaño y efecto; con t, solo esa aparición) y las de «resaltar»
+  const planKeys = claves.map((c) => ({ ...c, n: normalizeWord(c.palabra) })).filter((c) => c.n);
+  const keyInfo = (w: { t: string; s: number }): KeywordStyle | null => {
+    const n = normalizeWord(w.t);
+    if (!n) return null;
+    const exact = planKeys.find((c) => c.n === n && c.t !== undefined && Math.abs(c.t - w.s) < 0.4);
+    const any = exact ?? planKeys.find((c) => c.n === n && c.t === undefined);
+    if (any) return any;
+    return keySet.has(n) ? { palabra: w.t, efecto: 'ninguno' } : null;
+  };
+  /** Etiquetas de una palabra clave; `animar` = la palabra empieza en este evento (el efecto se dispara). */
+  const keyTag = (k: KeywordStyle, animar: boolean) => {
+    const sc = Math.round(Math.max(100, Math.min(250, k.escala ?? ks)));
+    const col = `\\1c${assColor(k.color ?? sub.colorResaltado)}&`;
+    const big = (f: number) => `\\fscx${Math.round(sc * f)}\\fscy${Math.round(sc * f)}`;
+    if (!animar || k.efecto === 'ninguno') return `{${col}${big(1)}}`;
+    switch (k.efecto) {
+      case 'rebote':
+        return `{${col}${big(0.7)}\\t(0,90,${big(1.15)})\\t(90,170,${big(1)})}`;
+      case 'crecer':
+        return `{${col}${big(0.55)}\\t(0,200,${big(1)})}`;
+      case 'sacudida':
+        return `{${col}${big(1)}\\t(0,50,\\frz7)\\t(50,100,\\frz-7)\\t(100,150,\\frz4)\\t(150,200,\\frz0)}`;
+      case 'brillo': {
+        const b = Math.max(2, sub.grosorBorde);
+        return `{${col}${big(1)}\\3c${assColor(k.color ?? sub.colorResaltado)}&\\bord${b}\\t(0,150,\\bord${b + 7}\\blur4)\\t(150,380,\\bord${b}\\blur0)}`;
+      }
+    }
+  };
 
   const events: string[] = [];
+  // Con pantalla dividida, los subtítulos van al centro (sobre la unión de las dos mitades)
+  const center = `{\\an5\\pos(${Math.round(width / 2)},${Math.round(height / 2)})}`;
   const add = (start: number, end: number, style: string, text: string) => {
     if (end - start < 0.03) return;
-    events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},${style},,0,0,0,,${text}`);
+    const centered = style === 'Sub' && centrar.some(([a, b]) => start >= a - 0.05 && start < b);
+    events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},${style},,0,0,0,,${centered ? center : ''}${text}`);
   };
   const lineSpans: number[] = [];
 
   if (sub.activo && words.length) {
     const max = sub.estilo === 'palabra' ? 1 : sub.palabrasPorLinea;
+    const activeBox = `{\\1c${assColor(textOn(sub.colorResaltado))}&\\3c${assColor(sub.colorResaltado)}&\\bord${Math.max(6, Math.round(sub.tamano * 0.26))}\\shad0}`;
     const chunks = mergeShort(chunkWords(words, max), max);
     chunks.forEach((chunk, ci) => {
       const nextStart = chunks[ci + 1]?.[0]?.s ?? duracionFinal;
@@ -178,14 +231,31 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
       const chunkEnd = Math.min(nextStart, Math.max(chunk[chunk.length - 1].e + 0.35, chunk[0].s + MIN_CAPTION_SEC), duracionFinal);
       lineSpans.push(chunkEnd - chunk[0].s);
 
-      if (sub.estilo === 'karaoke') {
+      if (sub.estilo === 'karaoke' || sub.estilo === 'caja_activa') {
         chunk.forEach((w, j) => {
           const start = w.s;
           const end = j < chunk.length - 1 ? chunk[j + 1].s : chunkEnd;
           const text = chunk
             .map((x, k) => {
-              if (isKey(x.t)) return `${keyTag}${label(x.t)}{\\r}`;
+              const key = keyInfo(x);
+              if (sub.estilo === 'caja_activa' && k === j) return `${activeBox}${key ? keyTag(key, true).replace(/\\1c[^\\}]+/, '') : ''}${label(x.t)}{\\r}`;
+              if (key) return `${keyTag(key, k === j)}${label(x.t)}{\\r}`;
               return k === j ? `${hi}{\\fscx108\\fscy108}${label(x.t)}{\\r}` : label(x.t);
+            })
+            .join(' ');
+          add(start, end, 'Sub', text);
+        });
+      } else if (sub.estilo === 'pop') {
+        // Cada palabra aparece cuando se dice, con rebote; las que faltan ocupan su sitio invisibles
+        chunk.forEach((w, j) => {
+          const start = w.s;
+          const end = j < chunk.length - 1 ? chunk[j + 1].s : chunkEnd;
+          const text = chunk
+            .map((x, k) => {
+              if (k > j) return `{\\alpha&HFF&}${label(x.t)}{\\r}`;
+              const key = keyInfo(x);
+              if (key) return `${keyTag(key, k === j)}${label(x.t)}{\\r}`;
+              return k === j ? `{\\fscx70\\fscy70\\t(0,80,\\fscx112\\fscy112)\\t(80,150,\\fscx100\\fscy100)}${label(x.t)}{\\r}` : label(x.t);
             })
             .join(' ');
           add(start, end, 'Sub', text);
@@ -193,12 +263,18 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
       } else if (sub.estilo === 'palabra') {
         // Palabra a palabra (si una dura menos de 0,4 s, se junta con la siguiente)
         const w = chunk[0];
-        const key = chunk.some((x) => isKey(x.t));
-        const to = key ? ks : 100;
-        const text = chunk.map((x) => (isKey(x.t) ? `${hi}${label(x.t)}{\\1c${assColor(sub.colorTexto)}&}` : label(x.t))).join(' ');
-        add(w.s, Math.max(chunkEnd, w.s + 0.12), 'Sub', `{\\fscx${Math.round(to * 0.8)}\\fscy${Math.round(to * 0.8)}\\t(0,90,\\fscx${to}\\fscy${to})}${text}`);
+        const key = chunk.map((x) => keyInfo(x)).find(Boolean) ?? null;
+        if (key) {
+          add(w.s, Math.max(chunkEnd, w.s + 0.12), 'Sub', chunk.map((x) => `${keyTag(keyInfo(x) ?? key, true)}${label(x.t)}{\\r}`).join(' '));
+        } else {
+          const text = chunk.map((x) => label(x.t)).join(' ');
+          add(w.s, Math.max(chunkEnd, w.s + 0.12), 'Sub', `{\\fscx80\\fscy80\\t(0,90,\\fscx100\\fscy100)}${text}`);
+        }
       } else {
-        const text = chunk.map((x) => (isKey(x.t) ? `${keyTag}${label(x.t)}{\\r}` : label(x.t))).join(' ');
+        const text = chunk.map((x) => {
+          const key = keyInfo(x);
+          return key ? `${keyTag(key, false)}${label(x.t)}{\\r}` : label(x.t);
+        }).join(' ');
         add(chunk[0].s, chunkEnd, 'Sub', text);
       }
     });

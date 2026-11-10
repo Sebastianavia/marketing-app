@@ -5,6 +5,9 @@ import { ensureDataDir } from '@/lib/data/data-dir';
 import type { EditProfile } from '@/config/editor-looks';
 import { ffmpeg } from './media';
 import { generateMusic, sfxImpact, sfxWhoosh, writeWav } from './synth';
+import { generateStyledMusic, MUSIC_CATALOG } from './music';
+import { buildSfxTrack, decodeMono, sfxSamples, type SfxPlacement } from './sfx';
+import type { ResolvedDirection } from './direction';
 
 /**
  * Pasada de sonido (después del video):
@@ -66,15 +69,38 @@ export async function buildFinalAudio(o: {
   perfil: EditProfile;
   eventos: SfxEvent[];
   seed: number;
+  /** Plan de Claude: su música y sus efectos sustituyen a los del perfil. */
+  direccion?: ResolvedDirection | null;
 }): Promise<FinalAudio> {
   const { carpeta, voz, duracion: D, perfil } = o;
   const sonido = perfil.sonido;
   const notas: string[] = [];
   const f = (name: string) => path.join(/*turbopackIgnore: true*/ carpeta, name);
 
-  // Música
+  // Música (la del plan de Claude manda; si el plan no dice nada, la del perfil)
   let music: string | null = null;
-  if (sonido.musica === 'pad' || sonido.musica === 'pulso') {
+  let musicBajoVoz = sonido.musicaBajoVozDb;
+  let ducking = sonido.duckingDb;
+  let musicStart = 0;
+  let musicSections: Array<{ desde: number; hasta: number; energia: string }> = [];
+  const dm = o.direccion?.musica;
+  if (dm) {
+    musicBajoVoz = dm.bajoVozDb;
+    ducking = dm.ducking;
+    if (dm.modo === 'generada' && dm.estilo) {
+      const g = generateStyledMusic(dm.estilo, D + 0.5, dm.secciones, o.seed);
+      music = f(`musica-${dm.estilo}.wav`);
+      await writeWav(music, g.left, g.right);
+      notas.push(`Música ${dm.estilo} generada (${MUSIC_CATALOG[dm.estilo].bpm} BPM${dm.secciones.length ? `, ${dm.secciones.length} secciones` : ''}).`);
+    } else if (dm.modo === 'archivo' && dm.abs) {
+      music = dm.abs;
+      musicStart = dm.inicioArchivo;
+      musicSections = dm.secciones;
+      notas.push(`Música: ${path.basename(dm.abs)}.`);
+    } else if (dm.modo === 'archivo') {
+      notas.push('No se encontró la música elegida por Claude: va sin música.');
+    }
+  } else if (sonido.musica === 'pad' || sonido.musica === 'pulso') {
     const g = generateMusic(sonido.musica, D + 2, o.seed);
     music = f(`musica-${sonido.musica}.wav`);
     await writeWav(music, g.left, g.right);
@@ -89,42 +115,74 @@ export async function buildFinalAudio(o: {
     notas.push(`Música: ${name}.`);
   }
 
-  // Efectos
-  const eventos = sonido.efectos ? o.eventos.filter((e) => e.t >= 0 && e.t < D - 0.2).slice(0, 16) : [];
+  // Efectos del plan de Claude: todos en una pista (sin límite práctico de cantidad)
+  let sfxTrack: string | null = null;
+  const plan = o.direccion?.sonidos ?? [];
+  if (plan.length) {
+    const placements: SfxPlacement[] = [];
+    const decoded = new Map<string, Float32Array>();
+    for (const s of plan) {
+      let muestras: Float32Array;
+      if (s.tipo === 'archivo' && s.abs) {
+        if (!decoded.has(s.abs)) decoded.set(s.abs, await decodeMono(s.abs).catch(() => new Float32Array(0)));
+        muestras = decoded.get(s.abs)!;
+      } else if (s.tipo !== 'archivo') muestras = sfxSamples(s.tipo);
+      else continue;
+      if (muestras.length) placements.push({ t: s.t, muestras, volumenDb: s.volumen, pan: s.pan });
+    }
+    const tr = buildSfxTrack(D, placements);
+    sfxTrack = f('sfx-pista.wav');
+    await writeWav(sfxTrack, tr.left, tr.right);
+    notas.push(`${placements.length} efectos de sonido elegidos por Claude, ~${sonido.efectosBajoVozDb} dB bajo la voz.`);
+  }
+
+  // Efectos automáticos del perfil (solo sin plan)
+  const eventos = sonido.efectos && !o.direccion ? o.eventos.filter((e) => e.t >= 0 && e.t < D - 0.2).slice(0, 16) : [];
   if (eventos.some((e) => e.tipo === 'impacto')) await writeWav(f('sfx-impacto.wav'), sfxImpact());
   if (eventos.some((e) => e.tipo === 'whoosh')) await writeWav(f('sfx-whoosh.wav'), sfxWhoosh());
 
   let premix = voz;
-  if (music || eventos.length) {
+  if (music || eventos.length || sfxTrack) {
     const vozLufs = (await measureLoudness(voz)).lufs;
     const args: string[] = ['-y', '-hide_banner', '-i', voz];
     const graph: string[] = [];
     const mixIn: string[] = [];
     let idx = 1;
 
-    graph.push(`[0:a]${STEREO}${music && sonido.duckingDb > 0 ? ',asplit=2[vo][vsc]' : '[vo]'}`);
+    graph.push(`[0:a]${STEREO}${music && ducking > 0 ? ',asplit=2[vo][vsc]' : '[vo]'}`);
     mixIn.push('[vo]');
 
     if (music) {
       const musicLufs = (await measureLoudness(music, 60)).lufs;
-      const gain = vozLufs - sonido.musicaBajoVozDb - musicLufs;
-      args.push('-stream_loop', '-1', '-i', music);
+      const gain = vozLufs - musicBajoVoz - musicLufs;
+      args.push('-stream_loop', '-1', ...(musicStart > 0 ? ['-ss', musicStart.toFixed(2)] : []), '-i', music);
       const fadeOut = Math.max(0, D - 1.5);
+      // Secciones sobre un archivo: silencio = 0, suave = −9 dB (rampas de 0,15 s)
+      const sectionVol = musicSections.length
+        ? `,volume='${musicSections
+            .filter((x) => x.energia !== 'completa')
+            .map((x) => {
+              const depth = x.energia === 'silencio' ? 1 : 0.65;
+              return `-${depth}*clip(min((t-${x.desde.toFixed(3)})/0.15,(${x.hasta.toFixed(3)}-t)/0.15),0,1)`;
+            })
+            .join('')
+            .replace(/^/, '1') || '1'}':eval=frame`
+        : '';
       graph.push(
-        `[${idx}:a]${STEREO},atrim=0:${D.toFixed(3)},asetpts=PTS-STARTPTS,volume=${gain.toFixed(2)}dB,` +
+        `[${idx}:a]${STEREO},atrim=0:${D.toFixed(3)},asetpts=PTS-STARTPTS,volume=${gain.toFixed(2)}dB${sectionVol},` +
           `afade=t=in:d=0.6,afade=t=out:st=${fadeOut.toFixed(3)}:d=1.5,apad=whole_dur=${D.toFixed(3)}[mq]`
       );
-      if (sonido.duckingDb > 0) {
+      if (ducking > 0) {
         // Umbral 14 dB por debajo de la voz: con este ratio la música baja ~duckingDb mientras hablas
         const th = Math.min(1, Math.max(0.001, Math.pow(10, (vozLufs - 14) / 20)));
-        const ratio = Math.min(20, 1 / Math.max(0.05, 1 - sonido.duckingDb / 14));
+        const ratio = Math.min(20, 1 / Math.max(0.05, 1 - ducking / 14));
         graph.push(`[mq][vsc]sidechaincompress=threshold=${th.toFixed(5)}:ratio=${ratio.toFixed(2)}:attack=40:release=450:knee=3[mus]`);
         mixIn.push('[mus]');
       } else {
         mixIn.push('[mq]');
       }
       idx++;
-      notas.push(`Música ${sonido.musicaBajoVozDb} dB bajo la voz${sonido.duckingDb > 0 ? `, baja ${sonido.duckingDb} dB más mientras hablas` : ''}.`);
+      notas.push(`Música ${musicBajoVoz} dB bajo la voz${ducking > 0 ? `, baja ${ducking} dB más mientras hablas` : ''}.`);
     }
 
     // Los efectos se normalizan a pico; un golpe corto suena ~12 dB por debajo de su pico
@@ -139,6 +197,13 @@ export async function buildFinalAudio(o: {
       idx++;
     }
     if (eventos.length) notas.push(`${eventos.length} efecto${eventos.length === 1 ? '' : 's'} de sonido, ~${sonido.efectosBajoVozDb} dB bajo la voz.`);
+    if (sfxTrack) {
+      // La pista de efectos tiene 6 dB de margen (buildSfxTrack): se compensa aquí
+      args.push('-i', sfxTrack);
+      graph.push(`[${idx}:a]${STEREO},volume=${(sfxDb + 6).toFixed(2)}dB,apad=whole_dur=${D.toFixed(3)},atrim=0:${D.toFixed(3)}[sfx]`);
+      mixIn.push('[sfx]');
+      idx++;
+    }
 
     // amix divide entre el número de entradas: todas duran D, así que se compensa con un volumen fijo
     graph.push(`${mixIn.join('')}amix=inputs=${mixIn.length}:duration=first:dropout_transition=0,volume=${mixIn.length},${STEREO}[mix]`);
