@@ -62,12 +62,16 @@ function SceneInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; onC
   const [indicacion, setIndicacion] = useState('');
   const tags = d.etiquetas ?? [];
 
-  useEffect(() => {
+  // Si la escena cambia por fuera (IA, otra pestaña), el formulario se pone al día (ajuste durante el render)
+  const sceneSig = `${scene.version}|${scene.tipo}|${scene.duracionSeg}|${scene.queSeVe}|${scene.dialogo}`;
+  const [syncedScene, setSyncedScene] = useState(sceneSig);
+  if (syncedScene !== sceneSig) {
+    setSyncedScene(sceneSig);
     setTipo(scene.tipo);
     setDuracionSeg(scene.duracionSeg);
     setQueSeVe(scene.queSeVe);
     setDialogo(scene.dialogo);
-  }, [scene.version, scene.tipo, scene.duracionSeg, scene.queSeVe, scene.dialogo]);
+  }
 
   const insertMention = (mencion: string) => {
     const token = `@${mencion}`;
@@ -198,9 +202,12 @@ function PromptInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; on
   const [texto, setTexto] = useState(scene.prompt?.texto ?? '');
   const [indicacion, setIndicacion] = useState('');
 
-  useEffect(() => {
-    setTexto(scene.prompt?.texto ?? '');
-  }, [scene.prompt?.texto]);
+  const promptText = scene.prompt?.texto ?? '';
+  const [syncedPrompt, setSyncedPrompt] = useState(promptText);
+  if (syncedPrompt !== promptText) {
+    setSyncedPrompt(promptText);
+    setTexto(promptText);
+  }
 
   const save = () => {
     if (!texto.trim()) return;
@@ -264,12 +271,15 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
   const [genModel, setGenModel] = useState<string>('gemini-3-pro-image-preview');
   const [generatingRef, setGeneratingRef] = useState(false);
 
-  useEffect(() => {
+  const tagSig = `${tag.rev}|${tag.nombre}|${tag.tipo}|${tag.descripcion}|${tag.avatarId ?? ''}`;
+  const [syncedTag, setSyncedTag] = useState(tagSig);
+  if (syncedTag !== tagSig) {
+    setSyncedTag(tagSig);
     setNombre(tag.nombre);
     setTipo(tag.tipo);
     setDescripcion(tag.descripcion);
     setAvatarId(tag.avatarId ?? '');
-  }, [tag.rev, tag.nombre, tag.tipo, tag.descripcion, tag.avatarId]);
+  }
 
   useEffect(() => {
     fetch('/api/avatars')

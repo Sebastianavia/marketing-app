@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { UploadZone } from '../ui/UploadZone';
 import { ShimmerLoader } from '../ui/ShimmerLoader';
 import { VideoPlayer } from '../ui/VideoPlayer';
@@ -122,12 +122,10 @@ export function DeepSwapView() {
     [model]
   );
 
-  // Si se cambia a un modelo que no soporta 1080p/4k, ajustar automáticamente a 720p
-  useEffect(() => {
-    if (!selectedModelSpec.resolutions.includes(resolution)) {
-      setResolution('720p');
-    }
-  }, [selectedModelSpec, resolution]);
+  // Si se cambia a un modelo que no soporta 1080p/4k, ajustar automáticamente a 720p (durante el render)
+  if (!selectedModelSpec.resolutions.includes(resolution)) {
+    setResolution('720p');
+  }
 
   // Validar duración del archivo de video local (regla Seedance: 1.8s a 15.2s)
   const handleSelectVideoFile = async (file: File | null) => {
