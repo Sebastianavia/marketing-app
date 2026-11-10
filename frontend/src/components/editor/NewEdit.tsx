@@ -5,6 +5,7 @@ import { AlertCircle, Clapperboard, FileVideo, FolderOpen, Loader2, Send, Upload
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditProject } from '@/lib/editor/types';
 import { editorApi, uploadEdit, type SystemStatus } from './editor-api';
+import { MaterialFolderField } from '@/components/material/MaterialFolderBar';
 import { LookDots, LookPreview } from './LookPreview';
 
 /**
@@ -48,6 +49,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
   const [picking, setPicking] = useState(false);
   const [perfilId, setPerfilId] = useState<string>(perfiles[0]?.id ?? '');
   const [revisarAntes, setRevisarAntes] = useState(true);
+  const [material, setMaterial] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +81,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
     if (!perfil || !hasVideo) return;
     setBusy(true);
     setError(null);
-    const meta = { titulo: titulo.trim(), pedido: pedido.trim(), perfilId: perfil.id, revisarAntes };
+    const meta = { titulo: titulo.trim(), pedido: pedido.trim(), perfilId: perfil.id, revisarAntes, ...(material ? { carpetaMaterial: material } : {}) };
     try {
       const edit = localVideo
         ? await editorApi.fromProjects({ ...meta, rutaLocal: localVideo.ruta })
@@ -87,6 +89,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
       setFile(null);
       setLocalVideo(null);
       setTitulo('');
+      setMaterial(null);
       setProgress(null);
       onCreated(edit);
     } catch (err) {
@@ -109,6 +112,10 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
             <span className="block">Describe lo que quieres, como se lo dirías a un editor</span>
             <textarea value={pedido} onChange={(e) => setPedido(e.target.value)} rows={4} className="input-clean w-full resize-y px-3 py-2 text-[13px]" />
           </label>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-subtle">
+            <MaterialFolderField value={material} onChange={setMaterial} />
+            <span>Opcional: tomas de apoyo, logos, música o el guion. Claude las verá (solo con «Claude · mi suscripción»).</span>
+          </div>
 
           {!hasVideo ? (
             <div

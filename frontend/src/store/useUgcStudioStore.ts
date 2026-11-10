@@ -90,7 +90,8 @@ interface UgcStudioState {
   confirmCard: (messageId: string, choice?: 'corte') => Promise<void>;
   cancelCard: (messageId: string) => void;
   cancel: () => void;
-  addReference: (file: File, role: ReferenceRole, label: string) => Promise<boolean>;
+  /** Una imagen subida o una de la carpeta de material ({ carpeta, archivo }). */
+  addReference: (file: File | { carpeta: string; archivo: string }, role: ReferenceRole, label: string) => Promise<boolean>;
   updateReference: (id: string, patch: Partial<Pick<UgcReference, 'role' | 'label'>>) => void;
   removeReference: (id: string) => void;
   setSettings: (patch: Partial<StudioSettings>) => void;
@@ -1152,9 +1153,18 @@ export const useUgcStudioStore = create<UgcStudioState>()(
         addReference: async (file, role, label) => {
           set({ uploading: true, error: null });
           try {
-            const form = new FormData();
-            form.append('file', file);
-            const res = await fetch('/api/ugc-studio/references', { method: 'POST', body: form });
+            let res: Response;
+            if (file instanceof File) {
+              const form = new FormData();
+              form.append('file', file);
+              res = await fetch('/api/ugc-studio/references', { method: 'POST', body: form });
+            } else {
+              res = await fetch('/api/ugc-studio/references', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(file),
+              });
+            }
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             set((st) => {

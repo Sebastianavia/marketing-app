@@ -1,4 +1,8 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { z } from 'zod';
+import { isInside } from '@/lib/fs/inside';
+import { usableMaterialFolder } from '@/lib/material/material';
 import { originFeedbackForClaude, respondFromAgent, takeFeedbackFromAgent } from '@/lib/feedback/feedback';
 import { listAvatars } from '@/lib/avatars/avatar-store';
 import { BROLL_MODELS, VOICE_MODES, brollPriceLabel, clipCostUSD } from '@/config/broll-models';
@@ -8,7 +12,7 @@ import { sceneClipChoice } from './durations';
 import type { DirectorScene, DirectorState } from './types';
 import { ProductionError } from '@/lib/director/production-store';
 import { errorMessage } from '@/lib/errors';
-import { getDirectorProduction, runDirectorAction } from './engine';
+import { addReferences, getDirectorProduction, runDirectorAction } from './engine';
 import { ActionBody } from './schemas';
 import { assembleFinal, generationStatus, prepareGeneration, runGeneration } from './generation';
 import type { Production } from '@/lib/director/production-store';
@@ -268,7 +272,32 @@ const responderFeedback = tool({
   run: async (productionId, { key, resumen }) => respondFromAgent(key, resumen, { servicio: 'director', id: productionId }),
 });
 
-export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo, verFeedback, tomarFeedback, responderFeedback];
+const agregarReferencia = tool({
+  name: 'agregar_referencia',
+  description:
+    'Registra fotos, audios o PDF como referencias del proyecto (como «+ Ref» en la app): luego se pueden etiquetar (personaje, producto, lugar…) con accion proponer_etiquetas/guardar_etiqueta, usar en las escenas o como locución. `archivos`: rutas absolutas dentro de la carpeta de material o relativas a la carpeta de la producción. `escenaId`: solo para esa escena. $0.',
+  schema: z.object({
+    archivos: z.array(z.string().min(1).max(1000)).min(1).max(10),
+    escenaId: z.string().max(80).optional(),
+  }),
+  run: async (productionId, { archivos, escenaId }) => {
+    const p = await getDirectorProduction(productionId);
+    const material = await usableMaterialFolder(`director:${productionId}`);
+    const files = [];
+    for (const a of archivos) {
+      const abs = path.resolve(/*turbopackIgnore: true*/ p.carpeta, a);
+      const real = await fs.realpath(abs).catch(() => '');
+      if (!real) throw new DirectorAgentToolError(`No existe ${a}.`, 404);
+      const ok = isInside(p.carpeta, real) || (material && isInside(material, real));
+      if (!ok) throw new DirectorAgentToolError(`${a} no está en la carpeta de material ni en la de la producción.`);
+      files.push({ name: path.basename(real), bytes: await fs.readFile(real) });
+    }
+    const r = await addReferences(productionId, files, { escenaId });
+    return { ok: true, nuevas: r.nuevas, siguiente: 'Míralas con ver_proyecto; para etiquetarlas usa accion proponer_etiquetas.' };
+  },
+});
+
+export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [agregarReferencia, verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo, verFeedback, tomarFeedback, responderFeedback];
 
 export function directorAgentToolsManifest() {
   return DIRECTOR_AGENT_TOOLS.map((t) => ({

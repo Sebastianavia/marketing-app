@@ -3,6 +3,7 @@
 import React from 'react';
 import type { EditProject } from '@/lib/editor/types';
 import { ClaudeAgentChat } from '@/components/claude/ClaudeAgentChat';
+import { uploadAttachments } from '@/components/material/material-api';
 
 /**
  * Chat con Claude dentro de una edición. Claude (Claude Code con la suscripción de la persona)
@@ -30,6 +31,8 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: renderizar': 'Armando el video con el motor',
   'lulo: esperar_render': 'Esperando el render',
   'lulo: publicar_borrador': 'Publicando la nueva versión',
+  'lulo: revisar_html_video': 'Revisando la animación (HyperFrames)',
+  'lulo: renderizar_html_video': 'Renderizando la animación (HyperFrames)',
 };
 
 export function ClaudeEditChat({ edit, onChanged }: { edit: EditProject; onChanged: () => void }) {
@@ -44,6 +47,8 @@ export function ClaudeEditChat({ edit, onChanged }: { edit: EditProject; onChang
       placeholder="Ej.: pon el video en blanco y negro y los subtítulos en amarillo"
       stepNames={STEP_NAMES}
       refreshOnStep
+      materialKey={`edit:${edit.id}`}
+      onAttach={(files) => uploadAttachments(`/api/editor/projects/${edit.id}/files`, files)}
     />
   );
 }

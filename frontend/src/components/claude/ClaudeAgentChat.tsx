@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatStep, SandboxMode } from '@/lib/ai/claude-code/agent-types';
 import { agentApi, followAgent } from './agent-api';
+import { MaterialFolderBar } from '@/components/material/MaterialFolderBar';
 
 /**
  * Chat con Claude-agente (Claude Code con la suscripción de la persona). Lo usan el editor de
@@ -85,6 +86,10 @@ export interface ClaudeAgentChatProps {
   topSlot?: React.ReactNode;
   /** Adjuntar archivos: los guarda y devuelve sus rutas, que se añaden al mensaje. */
   onAttach?: (files: File[]) => Promise<string[]>;
+  /** Clave de la carpeta de material (`edit:<id>`…): muestra la barra para elegirla. */
+  materialKey?: string;
+  /** Tipos que acepta el botón de adjuntar (por defecto fotos, video, audio, PDF y textos). */
+  attachAccept?: string;
 }
 
 /** Quién dibuja los [[media:ID]] dentro de los mensajes. */
@@ -105,6 +110,8 @@ export function ClaudeAgentChat({
   renderMedia,
   topSlot,
   onAttach,
+  materialKey,
+  attachAccept = 'image/*,video/*,audio/*,application/pdf,.txt,.md,.srt,.csv,.docx',
 }: ClaudeAgentChatProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [attaching, setAttaching] = useState(false);
@@ -287,6 +294,8 @@ export function ClaudeAgentChat({
 
         {topSlot}
 
+        {materialKey && <MaterialFolderBar clave={materialKey} />}
+
         <div className="flex items-end gap-2">
           {onAttach && (
             <>
@@ -295,7 +304,7 @@ export function ClaudeAgentChat({
                 type="file"
                 multiple
                 hidden
-                accept="image/*,video/*,audio/*,application/pdf"
+                accept={attachAccept}
                 onChange={async (e) => {
                   const files = Array.from(e.target.files ?? []);
                   e.target.value = '';
@@ -316,8 +325,8 @@ export function ClaudeAgentChat({
                 onClick={() => fileRef.current?.click()}
                 disabled={attaching}
                 className="btn-secondary h-10 w-10 shrink-0 px-0"
-                aria-label="Adjuntar fotos, videos o audio"
-                title="Adjuntar fotos, videos o audio"
+                aria-label="Adjuntar fotos, videos, audios, PDF o textos"
+                title="Adjuntar fotos, videos, audios, PDF o textos (guion, brief)"
               >
                 {attaching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
               </button>

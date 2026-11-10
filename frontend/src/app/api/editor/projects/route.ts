@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { assertAppUiRequest } from '@/lib/director/local-guard';
 import { NewEditMetaSchema, createEdit } from '@/lib/editor/actions';
+import { MaterialError, setMaterialFolder, validateMaterialFolder } from '@/lib/material/material';
 import { EditError, listEdits, summarize } from '@/lib/editor/edit-store';
 import { editorError } from '@/lib/editor/http';
 
@@ -42,9 +43,14 @@ export async function POST(req: NextRequest) {
     const meta = parsed.data;
     if (isJson && !meta.rutaLocal) throw new EditError('Falta el video.');
     if (!isJson && meta.rutaLocal) throw new EditError('Datos de la edición no válidos.');
+    // La carpeta de material se valida antes de crear (si no vale, no queda una edición a medias) y
+    // se guarda enseguida: el primer pase de Claude empieza después de transcribir
+    const material = meta.carpetaMaterial ? await validateMaterialFolder(meta.carpetaMaterial) : null;
     const edit = await createEdit(meta, isJson ? null : req.body);
+    if (material) await setMaterialFolder(`edit:${edit.id}`, material);
     return NextResponse.json({ edicion: edit });
   } catch (err) {
+    if (err instanceof MaterialError) return NextResponse.json({ error: err.message }, { status: err.status });
     return editorError(err, 'No se pudo crear la edición.');
   }
 }

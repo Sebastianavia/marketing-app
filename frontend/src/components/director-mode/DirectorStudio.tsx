@@ -10,6 +10,7 @@ import { DirectorChat } from './chat/DirectorChat';
 import { DirectorModeView } from './DirectorModeView';
 import { ProductionBar } from './ProductionBar';
 import { StartBox } from './StartBox';
+import { materialApi } from '@/components/material/material-api';
 import { useDirectorMode } from './useDirectorMode';
 import { ClaudeAgentChat } from '@/components/claude/ClaudeAgentChat';
 import { agentApi } from '@/components/claude/agent-api';
@@ -32,6 +33,7 @@ const CLAUDE_STEP_NAMES: Record<string, string> = {
   'lulo: generar': 'Generando imágenes y clips',
   'lulo: estado_produccion': 'Revisando la generación',
   'lulo: montar_video': 'Montando el video',
+  'lulo: agregar_referencia': 'Añadiendo material como referencia',
 };
 
 const CLAUDE_SUGGESTIONS = ['Hazlo más corto, de 20 segundos', 'Que la escena 2 sea de noche', 'Cambia el tono a más divertido', 'Revisa los prompts'];
@@ -106,10 +108,14 @@ export function DirectorStudio() {
         <StartBox
           busy={busy === 'crear'}
           drafts={drafts}
-          onStart={async (entrada, refs, locucion) => {
+          showMaterial={claudeMode}
+          onStart={async (entrada, refs, locucion, material) => {
             const created = await dm.create(entrada);
             if (!created) return;
             setNewOpen(false);
+            if (material) {
+              await materialApi.set(`director:${created.id}`, material).catch((err) => dm.setError(err instanceof Error ? err.message : 'No se pudo guardar la carpeta de material.'));
+            }
             if (claudeMode) {
               // Primero se guardan las referencias, para que Claude las vea al empezar
               chooseView('lienzo');
@@ -260,6 +266,13 @@ export function DirectorStudio() {
                   stepNames={CLAUDE_STEP_NAMES}
                   refreshOnStep
                   fill
+                  materialKey={`director:${production.id}`}
+                  attachAccept="application/pdf,image/jpeg,image/png,image/webp,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+                  onAttach={async (files) => {
+                    const up = await dm.uploadRefs(files, { productionId: production.id });
+                    if (!up.ok) throw new Error(up.error);
+                    return [`${files.map((f) => f.name).join(', ')} (quedaron como referencias ${up.nuevas.join(', ')}; míralas con ver_proyecto)`];
+                  }}
                 />
               </div>
             )}

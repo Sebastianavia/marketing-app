@@ -73,6 +73,10 @@ function specFor(p: EditProject): AgentSpec {
       renderTool: 'renderizar_html_video',
       entregar: 'Para entregarlo, deja un MP4 H.264 + AAC en tu carpeta (si hiciste gráficos aparte, combínalos con el borrador con FFmpeg) y usa publicar_borrador.',
     },
+    material: {
+      comoUsar:
+        'En la edición sirve para tomas de apoyo (b-roll), fotos, logos, música, efectos y textos o guiones de referencia: cópialo a tu carpeta, móntalo con FFmpeg o HyperFrames y publica el resultado con publicar_borrador. Si hay un guion o un brief, respétalo.',
+    },
   };
 }
 

@@ -90,6 +90,10 @@ function specFor(p: Production): AgentSpec {
       renderTool: null,
       entregar: 'Usa sobre todo video, social, ad-creative y marketing-psychology para el guion, los ganchos y los prompts; los gráficos animados los hace el editor después de montar_video.',
     },
+    material: {
+      comoUsar:
+        'Para que una foto, audio o PDF cuente en la producción (personaje, producto, lugar, estilo, locución, material de guion) regístralo con agregar_referencia (acepta rutas de esta carpeta) y etiquétalo; lee los textos y PDF para el guion.',
+    },
   };
 }
 

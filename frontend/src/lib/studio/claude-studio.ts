@@ -82,6 +82,10 @@ function specFor(p: StudioProject): AgentSpec {
       renderTool: 'renderizar_html_video',
       entregar: 'Para entregarlo usa mostrar con el archivo; si además hay que editarlo (cortes, subtítulos sobre una persona hablando), pásalo a editar_video.',
     },
+    material: {
+      comoUsar:
+        'Las herramientas de Lulo (ugc_storyboard, avatar_video, imagen_crear, editar_video…) solo aceptan archivos de tu carpeta: copia antes lo que vayas a usar a adjuntos/ y pasa esa ruta (p. ej. adjuntos/producto.jpg). Si hay un brief, guion o fotos de producto, úsalos para el pedido.',
+    },
   };
 }
 

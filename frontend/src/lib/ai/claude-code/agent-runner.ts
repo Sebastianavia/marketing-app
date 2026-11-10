@@ -10,6 +10,7 @@ import { fontsDir } from '@/lib/editor/media';
 import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
+import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, execClaude, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
@@ -116,9 +117,14 @@ export interface AgentSpec {
    * renderiza HyperFrames (null = este agente no renderiza); `entregar`: cómo se entrega el video.
    */
   videoSkills?: { renderTool: string | null; entregar: string };
+  /**
+   * Carpeta de material (lib/material): si la persona eligió una para este proyecto (guardada con
+   * la clave `key`), Claude la puede leer. `comoUsar`: cómo se usan sus archivos en esta herramienta.
+   */
+  material?: { comoUsar: string };
 }
 
-type AgentDirs = { tools: string; fuentes: string; modelos: string; skills: string | null };
+type AgentDirs = { tools: string; fuentes: string; modelos: string; skills: string | null; material: string | null };
 
 // ---------------------------------------------------------------------------
 // Turnos en curso (en memoria; el historial queda en el proyecto)
@@ -280,6 +286,8 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
         // localhost; en Windows (sin sandbox) esto evita que Claude se apruebe a sí mismo con un
         // comando o lea el token del Director o las claves.
         ...AGENT_DENY,
+        // La carpeta de material es de solo lectura
+        ...(dirs.material ? [`Edit(/${rulePath(dirs.material)}/**)`] : []), // Edit cubre todas las escrituras de archivos
       ],
     },
   };
@@ -294,7 +302,7 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
         allowWrite: [spec.cwd, dirs.tools, ...(dirs.skills ? [path.join(os.homedir(), '.cache', 'hyperframes')] : [])],
         denyWrite: spec.protectedFiles.map((f) => path.join(/*turbopackIgnore: true*/ spec.cwd, f)),
         denyRead: ['~/'],
-        allowRead: [spec.cwd, dirs.tools, dirs.fuentes, dirs.modelos, ...(dirs.skills ? [dirs.skills, path.join(os.homedir(), '.cache', 'hyperframes')] : [])],
+        allowRead: [spec.cwd, dirs.tools, dirs.fuentes, dirs.modelos, ...(dirs.skills ? [dirs.skills, path.join(os.homedir(), '.cache', 'hyperframes')] : []), ...(dirs.material ? [dirs.material] : [])],
       },
       network: { allowedDomains: allowedDomains(), allowLocalBinding: false },
     };
@@ -321,6 +329,7 @@ function allowedTools(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode): stri
   ];
   if (mode !== 'sin_bash') list.push('Bash');
   if (dirs.skills) list.push('Skill', `Read(${abs(dirs.skills)})`);
+  if (dirs.material) list.push(`Read(${abs(dirs.material)})`);
   return list;
 }
 
@@ -368,7 +377,9 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     release = await acquireClaudeSlot();
     const mode = sandboxMode();
     const plugin = spec.videoSkills ? await ensureVideoSkillsPlugin() : null;
-    const dirs: AgentDirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir(), skills: plugin ? path.dirname(plugin) : null };
+    // Se vuelve a validar en cada turno: la carpeta pudo borrarse o moverse
+    const material = spec.material ? await usableMaterialFolder(spec.key) : null;
+    const dirs: AgentDirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir(), skills: plugin ? path.dirname(plugin) : null, material };
     const ffmpegBin = resolveFfmpegPath();
     const py = await findPython().catch(() => null);
     const ctx: AgentContext = {
@@ -382,7 +393,10 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const workDir = path.join(/*turbopackIgnore: true*/ spec.cwd, 'claude');
     await fsp.mkdir(workDir, { recursive: true });
     const systemFile = path.join(/*turbopackIgnore: true*/ workDir, '.sistema.txt');
-    const systemPrompt = spec.systemPrompt(ctx) + (plugin && spec.videoSkills ? '\n' + videoSkillsPrompt(spec.videoSkills) : '');
+    const systemPrompt =
+      spec.systemPrompt(ctx) +
+      (plugin && spec.videoSkills ? '\n' + videoSkillsPrompt(spec.videoSkills) : '') +
+      (material && spec.material ? '\n' + (await materialPrompt(material, { puedeCopiar: mode !== 'sin_bash', comoUsar: spec.material.comoUsar })) : '');
     await fsp.writeFile(systemFile, systemPrompt, 'utf8');
     // Configuración en archivos y no en la línea de comandos: con claude.cmd (npm) Windows corta la
     // orden a 8191 caracteres
@@ -470,14 +484,19 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
         },
       });
 
+    // Con --resume Claude Code conserva el prompt de sistema del primer mensaje: si la carpeta de
+    // material se eligió o cambió después, esta línea es lo que le avisa
+    const prefix = material
+      ? `[Carpeta de material de este proyecto (solo lectura): ${material}. Si el pedido usa material, revísala con Glob/Read antes de decidir.]\n\n`
+      : '';
     let r;
     try {
-      r = await exec(texto);
+      r = await exec(prefix + texto);
     } catch (err) {
       // La conversación anterior ya no existe (se borró o venía de otro PC): se empieza una nueva
       if (!session.resume || !/No conversation found/i.test(errorMessage(err, ''))) throw err;
       session = { id: randomUUID(), resume: false };
-      r = await exec(`${spec.lostSessionNote}\n\n${texto}`);
+      r = await exec(`${spec.lostSessionNote}\n\n${prefix}${texto}`);
     }
 
     const tokens = r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens;

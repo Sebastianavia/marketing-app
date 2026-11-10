@@ -100,6 +100,13 @@ oficiales de FFmpeg. Más dominios: `LULO_CLAUDE_DOMINIOS=dominio1.com,dominio2.
    - Si falla, mirar el texto del error en el chat (Node, FFmpeg/ffprobe o descarga de Chrome bloqueada
      por el antivirus/proxy) y probar a mano en PowerShell: `npx -y hyperframes@0.9.28 doctor`.
 
+9. **Material para Claude** (2026-11-10): en Edición de video, Guion a video (Director) y Estudio Claude
+   hay un botón de adjuntar en el chat y «Carpeta de material» (también al crear). Elige una carpeta
+   concreta (p. ej. `D:\Material\Campaña X`): no se aceptan discos enteros, la carpeta personal, la
+   del código ni `AppData`. Claude la lee y copia lo que usa a su carpeta; en Windows no hay aislamiento,
+   así que no guardes ahí nada que no quieras que Claude pueda ver. En UGC, el botón de carpeta del chat
+   deja elegir fotos de referencia de esa carpeta.
+
 ### Lo que se corrigió pensando en Windows
 
 - Una sola variable `PATH`/`Path` al lanzar Claude (antes podía no encontrar FFmpeg/Python).

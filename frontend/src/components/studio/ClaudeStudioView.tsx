@@ -8,6 +8,8 @@ import { agentApi } from '@/components/claude/agent-api';
 import { useOrchestratorMode } from '@/components/claude/useOrchestratorMode';
 import { STUDIO_SERVICES, type ServiceStatus } from '@/lib/studio/services';
 import type { ClaudeChatState } from '@/lib/ai/claude-code/agent-types';
+import { MaterialFolderField } from '@/components/material/MaterialFolderBar';
+import { materialApi, uploadAttachments } from '@/components/material/material-api';
 
 /**
  * Estudio Claude: chat a pantalla completa donde Claude hace el video usando las herramientas de
@@ -81,6 +83,8 @@ const STEP_NAMES: Record<string, string> = {
   'lulo: ugc_montar': 'UGC: montando el video',
   'lulo: editar_video': 'Edición: el editor trabaja el video',
   'lulo: editar_mas': 'Edición: aplicando cambios',
+  'lulo: revisar_html_video': 'Revisando la animación (HyperFrames)',
+  'lulo: renderizar_html_video': 'Renderizando la animación (HyperFrames)',
   'lulo: avatares_y_voces': 'Avatar: mirando avatares y voces',
   'lulo: avatar_costo': 'Avatar: calculando el costo',
   'lulo: avatar_video': 'Avatar: generando la voz y el video',
@@ -103,6 +107,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [current, setCurrent] = useState<Project | null>(null);
   const [first, setFirst] = useState('');
+  const [firstMaterial, setFirstMaterial] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,8 +166,11 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
     setError(null);
     try {
       const { proyecto } = await api<{ proyecto: Project }>('/api/studio', json({ titulo: t.split(/\s+/).slice(0, 7).join(' ') }));
+      // La carpeta de material va antes del primer mensaje para que Claude la vea desde el inicio
+      if (firstMaterial) await materialApi.set(`studio:${proyecto.id}`, firstMaterial);
       await agentApi.send(`/api/studio/${proyecto.id}/claude`, t);
       setFirst('');
+      setFirstMaterial(null);
       await open(proyecto.id);
       void loadList();
     } catch (err) {
@@ -193,15 +201,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
     }
   };
 
-  const attach = async (files: File[]) => {
-    if (!current) return [];
-    const form = new FormData();
-    files.forEach((f) => form.append('archivos', f, f.name));
-    const r = await fetch(`/api/studio/${current.id}/files`, { method: 'POST', body: form });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.error || 'No se pudieron adjuntar.');
-    return d.archivos as string[];
-  };
+  const attach = async (files: File[]) => (current ? uploadAttachments(`/api/studio/${current.id}/files`, files) : []);
 
   const renderMedia = (id: string) => {
     const m = current?.medios.find((x) => x.id === id);
@@ -342,6 +342,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
               renderMedia={renderMedia}
               topSlot={approvalCards}
               onAttach={attach}
+              materialKey={`studio:${current.id}`}
             />
           </div>
         ) : (
@@ -370,6 +371,7 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
               />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1.5">
+                  <MaterialFolderField value={firstMaterial} onChange={setFirstMaterial} />
                   {SUGGESTIONS.map((s) => (
                     <button key={s} type="button" onClick={() => setFirst(s)} className="rounded-full border border-line px-2.5 py-1 text-[11px] text-fg-muted hover:bg-surface-2 hover:text-fg">
                       {s}
@@ -380,7 +382,9 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
                   {busy === 'crear' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Empezar
                 </button>
               </div>
-              <p className="text-center text-[11px] text-fg-subtle">Podrás adjuntar fotos o videos en cuanto empiece la conversación.</p>
+              <p className="text-center text-[11px] text-fg-subtle">
+                Con «Carpeta de material» Claude ve dónde están tus fotos, videos y textos. Podrás adjuntar archivos sueltos en cuanto empiece la conversación.
+              </p>
             </div>
           </div>
         )}

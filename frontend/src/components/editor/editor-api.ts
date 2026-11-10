@@ -74,6 +74,7 @@ export interface NewEditPayload {
   pedido: string;
   perfilId: string;
   revisarAntes: boolean;
+  carpetaMaterial?: string;
 }
 
 /**

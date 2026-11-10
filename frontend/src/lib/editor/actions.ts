@@ -48,6 +48,8 @@ export const NewEditMetaSchema = z.object({
   revisarAntes: z.boolean().default(true),
   archivo: z.string().max(260).optional(),
   rutaLocal: z.string().max(1024).optional(),
+  /** Carpeta de material para Claude (lib/material); la guarda la ruta al crear. */
+  carpetaMaterial: z.string().max(1000).optional(),
 });
 
 function titleFrom(meta: NewEditMeta): string {

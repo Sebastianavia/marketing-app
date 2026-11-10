@@ -1,5 +1,6 @@
 'use client';
 
+import { MaterialFolderField } from '@/components/material/MaterialFolderBar';
 import React, { useRef, useState } from 'react';
 import { FileText, Link2, Loader2, Music2, Paperclip, Plus, Sparkles, X } from 'lucide-react';
 import { DEFAULT_SKILL, DIRECTOR_SKILLS, getDirectorSkill, type DirectorSkillId } from '@/config/director-skills';
@@ -27,7 +28,9 @@ interface Props {
   busy: boolean;
   drafts: DraftRow[];
   /** `refs`: archivos que se guardan como referencias del proyecto tras crear el borrador. */
-  onStart: (entrada: Record<string, unknown>, refs: File[], locucion?: string) => void;
+  onStart: (entrada: Record<string, unknown>, refs: File[], locucion?: string, material?: string | null) => void;
+  /** Con Claude: ofrece elegir la carpeta de material (Claude la ve desde el primer pase). */
+  showMaterial?: boolean;
   onOpen: (id: string) => void;
   onCancel?: () => void;
 }
@@ -50,7 +53,8 @@ function looksLikeScript(t: string) {
 /** Windows reporta los «.mp3.mpeg» como video/mpeg: también se reconoce el audio por extensión. */
 const isAudioFile = (f: File) => f.type.startsWith('audio/') || /\.(mp3|mpeg|mpga|wav|m4a|aac|ogg|flac)$/i.test(f.name);
 
-export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
+export function StartBox({ busy, drafts, onStart, onOpen, onCancel, showMaterial = false }: Props) {
+  const [material, setMaterial] = useState<string | null>(null);
   const [skillId, setSkillId] = useState<DirectorSkillId>(DEFAULT_SKILL);
   const [texto, setTexto] = useState('');
   const [keep, setKeep] = useState(true);
@@ -157,7 +161,8 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
         ...(pdf ? { pdfBase64: pdf.dataUrl, pdfNombre: pdf.name } : {}),
       },
       refs.map((r) => r.file),
-      voiceFile ?? undefined
+      voiceFile ?? undefined,
+      material
     );
   };
 
@@ -350,6 +355,7 @@ export function StartBox({ busy, drafts, onStart, onOpen, onCancel }: Props) {
           >
             <Paperclip className="h-3.5 w-3.5" /> + Ref
           </button>
+          {showMaterial && <MaterialFolderField value={material} onChange={setMaterial} />}
           {skillId !== 'ugc' && skillId !== 'tvc' && (
             <button
               type="button"

@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, ImagePlus, Loader2, PanelRightClose, Send, Sparkles, Square, X } from 'lucide-react';
+import { Bot, FolderOpen, ImagePlus, Loader2, PanelRightClose, Send, Sparkles, Square, X } from 'lucide-react';
+import { FolderPickerModal } from '@/components/material/FolderPickerModal';
+import { materialApi } from '@/components/material/material-api';
 import { useUgcStudioStore, type ChatMessage } from '@/store/useUgcStudioStore';
 import { REFERENCE_ROLE_LABELS, ReferenceRole } from '@/types/ugc-studio.types';
 
@@ -14,8 +16,19 @@ const SUGGESTIONS = [
   'Une el video final',
 ];
 
+const UGC_FOLDER_KEY = 'lulo_ugc_material';
+
+function lastFolder(): string | null {
+  try {
+    return localStorage.getItem(UGC_FOLDER_KEY);
+  } catch {
+    return null;
+  }
+}
+
 interface PendingImage {
-  file: File;
+  /** Imagen subida o, si viene de la carpeta de material, { carpeta, archivo }. */
+  file: File | { carpeta: string; archivo: string };
   preview: string;
   role: ReferenceRole;
   label: string;
@@ -93,6 +106,21 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
     if (initialText) setText(initialText);
   }
   const [pending, setPending] = useState<PendingImage | null>(null);
+  const [folderOpen, setFolderOpen] = useState(false);
+  const pickFromFolder = (carpeta: string, archivo: string) => {
+    try {
+      localStorage.setItem(UGC_FOLDER_KEY, carpeta);
+    } catch {
+      // sin almacenamiento: la próxima vez se abre en la carpeta personal
+    }
+    setFolderOpen(false);
+    setPending({
+      file: { carpeta, archivo },
+      preview: materialApi.imageUrl(carpeta, archivo),
+      role: references.some((r) => r.role === 'personaje') ? 'producto' : 'personaje',
+      label: archivo.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '),
+    });
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -117,7 +145,7 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
     if (!pending || !pending.label.trim() || uploading) return;
     // Si la subida falla se conserva la imagen para reintentar sin volver a elegirla
     if (!(await addReference(pending.file, pending.role, pending.label))) return;
-    URL.revokeObjectURL(pending.preview);
+    if (pending.file instanceof File) URL.revokeObjectURL(pending.preview);
     setPending(null);
   };
 
@@ -290,7 +318,7 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
               <button
                 type="button"
                 onClick={() => {
-                  URL.revokeObjectURL(pending.preview);
+                  if (pending.file instanceof File) URL.revokeObjectURL(pending.preview);
                   setPending(null);
                 }}
                 className="h-7 rounded-lg border border-line px-2.5 text-[11px] text-fg-muted hover:text-fg"
@@ -301,6 +329,41 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
           </div>
         </div>
       )}
+
+      <FolderPickerModal
+        open={folderOpen}
+        initial={folderOpen ? lastFolder() : null}
+        title="Referencia desde una carpeta"
+        hint="Busca la carpeta con el material de la campaña y toca la foto que quieres usar (personas: foto neutra de frente)."
+        hidePick
+        onClose={() => setFolderOpen(false)}
+        onPick={() => undefined}
+      >
+        {(data) =>
+          data.imagenes.length ? (
+            data.usable ? (
+              <div className="grid max-h-56 grid-cols-4 gap-2 overflow-y-auto sm:grid-cols-6">
+                {data.imagenes.map((img) => (
+                  <button
+                    key={img}
+                    type="button"
+                    onClick={() => pickFromFolder(data.ruta, img)}
+                    title={img}
+                    className="group overflow-hidden rounded-lg border border-line hover:border-accent"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={materialApi.imageUrl(data.ruta, img)} alt={img} loading="lazy" className="aspect-square w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[12px] text-fg-muted">{data.problema} Entra en una subcarpeta.</p>
+            )
+          ) : (
+            <p className="text-[12px] text-fg-muted">No hay imágenes en esta carpeta: entra en otra.</p>
+          )
+        }
+      </FolderPickerModal>
 
       {/* Composer */}
       <div className="border-t border-line p-3">
@@ -315,6 +378,16 @@ export function AgentChat({ open, onClose, initialText }: { open: boolean; onClo
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-subtle hover:bg-surface-2 hover:text-fg disabled:opacity-40"
           >
             <ImagePlus className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setFolderOpen(true)}
+            disabled={!!busy || !!pending}
+            aria-label="Elegir referencia desde una carpeta"
+            title="Elegir la imagen de referencia desde una carpeta del PC (tu material de la campaña)"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-subtle hover:bg-surface-2 hover:text-fg disabled:opacity-40"
+          >
+            <FolderOpen className="h-4 w-4" />
           </button>
           <textarea
             value={text}
