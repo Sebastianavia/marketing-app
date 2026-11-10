@@ -203,7 +203,7 @@ Plan completo: https://claude.ai/code/artifact/5321e959-43c0-467d-8114-330e35a19
 - Funciones avanzadas del editor sin probar: recorte de persona (PyTorch), Whisper local, caras (OpenCV).
 - Cliente MCP de Buzzy (falta URL y clave).
 - Campañas automáticas (Fase 2 del plan).
-- Errores de lint previos en `AvatarWorkspace.tsx` y otros archivos antiguos (setState en efectos, `any`).
+- Lint: 0 errores desde el 2026-11-10 (quedan avisos, sobre todo imports sin usar).
 
 ## context-mode (MCP)
 

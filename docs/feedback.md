@@ -120,6 +120,24 @@ Lulo: «Subir esta versión a Feedback» (v N+1, mismo proyecto)  →  la anteri
 - Publicar: `cd ~/Documents/feedback && npx wrangler pages deploy --branch main` (con la sesión de
   `wrangler login`).
 
+## Robustez (revisión del 2026-11-10)
+
+- **Relojes:** Lulo marca la extracción y la respuesta con una hora que nunca queda antes del envío del
+  equipo (`stampAfter`), y la app de feedback hace lo mismo al reenviar. Así un reloj mal puesto en un
+  PC no deja el estado atascado.
+- **Orden de escritura:** extraer y responder escriben primero `.lulo.json` en el bucket y después el
+  registro local. Si falla el bucket, nada cambia.
+- **El bucket manda:** lo que se borra en R2 también se borra en el registro local. Lo que se sube o se
+  extrae mientras se lee el bucket no se toca. Un fallo de red no cuenta como leído.
+- **Versión nueva:** todas las anteriores apuntan a la nueva.
+- **Extraer dos veces:** si una versión ya está en *Claude trabajando*, se responde con un 409 y no se
+  le reenvía nada a Claude.
+- **Nombres:** un nombre que ya existe en el proyecto (otra versión, otro video u otro PC) recibe « (2)»,
+  « (3)»… para no pisarlo. Subir otra vez la misma versión reutiliza su clave.
+- **Tipo de archivo:** cada video se sube con el tipo de su extensión (`.mov`, `.webm`…).
+- **App de feedback, varios revisores a la vez:** el guardado fusiona las notas (`base` + `savedAt`) y
+  «Enviar a Claude» espera a que termine el guardado en curso.
+
 ## Configuración (cada PC del equipo)
 
 Añadir en `frontend/.env.local` (lo mismo para todo el equipo; los valores los tiene el dueño):
