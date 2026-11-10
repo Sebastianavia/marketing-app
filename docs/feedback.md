@@ -104,6 +104,19 @@ Lulo sube la versión nueva  →  la anterior queda «Hay versión nueva»
 - `public/app.js`: resumen por estado, sección «Para revisar», tarjetas con color, panel «Revisión» en
   el reproductor (nombre, Pedir cambios / Aprobar / Deshacer, respuesta de Claude, versión nueva) y
   notas cerradas mientras Claude trabaja.
+- **Diseño Lulo Studio (2026-11-10):**
+  - Mismos tokens que `globals.css`: oscuro por defecto y claro si el sistema lo pide; lima `#C6FF3D`
+    para las acciones principales, naranja lulo para «Pedir cambios».
+  - Tipografía: Archivo 125 % en los títulos, Geist en el texto y Geist Mono en las etiquetas.
+  - Logo `public/brand/` y `favicon`, copiados de `brand/lulo-studio-logo/`.
+  - Cualquiera con el enlace puede comentar (decisión del dueño).
+- **Celular:**
+  - El video queda fijo arriba mientras se leen las notas y se suelta al escribir, para dejar sitio
+    al teclado (`body.is-editing`).
+  - En pantallas pequeñas el orden es notas → feedback general → decisión; el estado se ve junto al título.
+  - Botones de al menos 40 px, campos de 16 px (iOS no hace zoom), márgenes seguros
+    (`env(safe-area-inset-*)`), sin atajos de teclado en pantallas táctiles y miniaturas 4:5
+    (los videos de Lulo son verticales).
 - Publicar: `cd ~/Documents/feedback && npx wrangler pages deploy --branch main` (con la sesión de
   `wrangler login`).
 
