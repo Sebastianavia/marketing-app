@@ -36,7 +36,7 @@ import type { SeedanceModelId, SeedanceResolution, SeedanceSize, SeedanceTransfo
 import { downloadToLibrary } from '@/lib/storage/generated-library';
 import { assertWithinDailyLimit, recordUsage } from '@/lib/usage/usage-store';
 import { getSettings } from '@/lib/data/settings';
-import { feedbackForClaude, markReviewedFromAgent, originFeedbackForClaude, reviewUrl, uploadToFeedback } from '@/lib/feedback/feedback';
+import { feedbackForClaude, originFeedbackForClaude, respondFromAgent, reviewUrl, takeFeedbackFromAgent, uploadToFeedback } from '@/lib/feedback/feedback';
 
 /**
  * Herramientas de Claude en el Estudio Claude (MCP lulo-studio-chat, LULO_TOOLSET=studio).
@@ -910,7 +910,7 @@ const subirAFeedback = tool({
 
 const verFeedback = tool({
   name: 'ver_feedback',
-  description: 'Notas que dejó el equipo en la app de feedback sobre los videos de ESTE proyecto (formato [mm:ss] del video subido). $0.',
+  description: 'Estado y notas de los videos de ESTE proyecto subidos a la app de feedback (Por revisar, Cambios pedidos, Claude trabajando, Claude respondió, Aprobado). $0.',
   schema: z.object({}),
   run: async (id) => originFeedbackForClaude('studio', id),
 });
@@ -918,23 +918,31 @@ const verFeedback = tool({
 const feedbackPendiente = tool({
   name: 'feedback_pendiente',
   description:
-    'Feedback del equipo de TODOS los videos subidos a la app de feedback (de cualquier herramienta o persona) que Claude aún no recibió; `todos: true` incluye lo ya recibido. Para recolectar y revisar todas las notas. $0.',
+    'Videos de TODO el equipo (cualquier herramienta o PC) donde se pidieron cambios en la app de feedback y Claude aún no los tomó, con sus notas. `todos: true` = todos los videos con feedback y su estado. $0.',
   schema: z.object({ todos: z.boolean().default(false) }),
   run: async (_id, { todos }) => feedbackForClaude(todos),
 });
 
-const marcarFeedback = tool({
-  name: 'marcar_feedback_revisado',
-  description: 'Marca el feedback de un video como recibido por Claude (el equipo lo ve en la app de feedback). Úsalo después de aplicarlo o responderlo. `key` sale de ver_feedback o feedback_pendiente.',
+const tomarFeedback = tool({
+  name: 'tomar_feedback',
+  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback o feedback_pendiente. $0.',
   schema: z.object({ key: z.string().min(1).max(400) }),
-  run: async (_id, { key }) => markReviewedFromAgent(key, 'Estudio Claude'),
+  run: async (_id, { key }) => takeFeedbackFromAgent(key, 'Estudio Claude'),
+});
+
+const responderFeedback = tool({
+  name: 'responder_feedback',
+  description: 'Al terminar de aplicar el feedback, deja tu respuesta para el equipo: nota por nota qué cambiaste y qué no se pudo (y por qué). La verán en la app de feedback y el video pasa a «Claude respondió». $0.',
+  schema: z.object({ key: z.string().min(1).max(400), resumen: z.string().min(10).max(4000) }),
+  run: async (_id, { key, resumen }) => respondFromAgent(key, resumen),
 });
 
 export const STUDIO_TOOLS: StudioTool[] = [
   subirAFeedback,
   verFeedback,
   feedbackPendiente,
-  marcarFeedback,
+  tomarFeedback,
+  responderFeedback,
   servicios,
   verProyecto,
   pedirAprobacion,

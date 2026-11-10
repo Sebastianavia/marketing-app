@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { feedbackForClaude, markReviewedFromAgent } from '@/lib/feedback/feedback';
+import { feedbackForClaude, respondFromAgent, takeFeedbackFromAgent } from '@/lib/feedback/feedback';
 import { listAvatars } from '@/lib/avatars/avatar-store';
 import { getStoredVoices } from '@/lib/storage/voice-storage';
 import { getAllProjects } from '@/lib/storage/project-storage';
@@ -460,18 +460,26 @@ const tomaDeApoyo = defineTool({
 const feedbackPendiente = defineTool({
   name: 'feedback_pendiente',
   description:
-    'Notas que el equipo dejó en la app de feedback (videos subidos desde Lulo con «Subir a Feedback»). Por defecto solo las que Claude aún no recibió; `todos: true` = todos los videos con notas. No gasta dinero.',
+    'Videos de la app de feedback donde el equipo pidió cambios y Claude aún no los tomó (con sus notas). `todos: true` = todos los videos con feedback y su estado. No gasta dinero.',
   spends: false,
-  schema: z.object({ todos: z.boolean().default(false).describe('true = también el feedback que ya se recibió.') }),
+  schema: z.object({ todos: z.boolean().default(false).describe('true = todos los videos con feedback, en cualquier estado.') }),
   run: async ({ todos }) => feedbackForClaude(todos),
 });
 
-const marcarFeedbackRevisado = defineTool({
-  name: 'marcar_feedback_revisado',
-  description: 'Marca el feedback de un video como recibido por Claude (el equipo lo ve en la app de feedback). `key` sale de feedback_pendiente. No gasta dinero.',
+const tomarFeedback = defineTool({
+  name: 'tomar_feedback',
+  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback o feedback_pendiente. $0.',
   spends: false,
   schema: z.object({ key: z.string().min(1).max(400) }),
-  run: async ({ key }) => markReviewedFromAgent(key, 'Claude Code'),
+  run: async ({ key }) => takeFeedbackFromAgent(key, 'Claude Code'),
+});
+
+const responderFeedback = defineTool({
+  name: 'responder_feedback',
+  description: 'Al terminar de aplicar el feedback, deja tu respuesta para el equipo: nota por nota qué cambiaste y qué no se pudo (y por qué). La verán en la app de feedback y el video pasa a «Claude respondió». $0.',
+  spends: false,
+  schema: z.object({ key: z.string().min(1).max(400), resumen: z.string().min(10).max(4000) }),
+  run: async ({ key, resumen }) => respondFromAgent(key, resumen),
 });
 
 // ── Registro ──────────────────────────────────────────────────────────────────
@@ -488,7 +496,8 @@ export const DIRECTOR_TOOLS: DirectorTool[] = [
   videoAvatar,
   tomaDeApoyo,
   feedbackPendiente,
-  marcarFeedbackRevisado,
+  tomarFeedback,
+  responderFeedback,
 ] as DirectorTool[];
 
 export function getDirectorTool(name: string): DirectorTool | undefined {

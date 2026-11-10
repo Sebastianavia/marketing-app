@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { markReviewedFromAgent, originFeedbackForClaude } from '@/lib/feedback/feedback';
+import { originFeedbackForClaude, respondFromAgent, takeFeedbackFromAgent } from '@/lib/feedback/feedback';
 import { listAvatars } from '@/lib/avatars/avatar-store';
 import { BROLL_MODELS, VOICE_MODES, brollPriceLabel, clipCostUSD } from '@/config/broll-models';
 import { imageUnitPrice } from '@/lib/generation/image';
@@ -249,19 +249,26 @@ const montarVideo = tool({
 
 const verFeedback = tool({
   name: 'ver_feedback',
-  description: 'Notas que dejó el equipo en la app de feedback sobre los videos finales de esta producción que se subieron (formato [mm:ss] del video subido). $0.',
+  description: 'Estado y notas de los videos finales de esta producción subidos a la app de feedback (Por revisar, Cambios pedidos, Claude trabajando, Claude respondió, Aprobado). $0.',
   schema: z.object({}),
   run: async (productionId) => originFeedbackForClaude('director', productionId),
 });
 
-const marcarFeedback = tool({
-  name: 'marcar_feedback_revisado',
-  description: 'Cuando ya aplicaste o respondiste el feedback de un video de esta producción, márcalo (el equipo lo verá en la app de feedback). `key` sale de ver_feedback.',
+const tomarFeedback = tool({
+  name: 'tomar_feedback',
+  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback. $0.',
   schema: z.object({ key: z.string().min(1).max(400) }),
-  run: async (productionId, { key }) => markReviewedFromAgent(key, 'Claude · director', { servicio: 'director', id: productionId }),
+  run: async (productionId, { key }) => takeFeedbackFromAgent(key, 'Claude · director', { servicio: 'director', id: productionId }),
 });
 
-export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo, verFeedback, marcarFeedback];
+const responderFeedback = tool({
+  name: 'responder_feedback',
+  description: 'Al terminar de aplicar el feedback, deja tu respuesta para el equipo: nota por nota qué cambiaste y qué no se pudo (y por qué). La verán en la app de feedback y el video pasa a «Claude respondió». $0.',
+  schema: z.object({ key: z.string().min(1).max(400), resumen: z.string().min(10).max(4000) }),
+  run: async (productionId, { key, resumen }) => respondFromAgent(key, resumen, { servicio: 'director', id: productionId }),
+});
+
+export const DIRECTOR_AGENT_TOOLS: AgentTool[] = [verProyecto, accion, prepararProduccion, generar, estadoProduccion, montarVideo, verFeedback, tomarFeedback, responderFeedback];
 
 export function directorAgentToolsManifest() {
   return DIRECTOR_AGENT_TOOLS.map((t) => ({

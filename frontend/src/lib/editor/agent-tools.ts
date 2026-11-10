@@ -1,5 +1,5 @@
 import fs from 'fs/promises';
-import { markReviewedFromAgent, originFeedbackForClaude } from '@/lib/feedback/feedback';
+import { originFeedbackForClaude, respondFromAgent, takeFeedbackFromAgent } from '@/lib/feedback/feedback';
 import fsSync from 'fs';
 import path from 'path';
 import { z } from 'zod';
@@ -326,19 +326,26 @@ const publicarBorrador = tool({
 const verFeedback = tool({
   name: 'ver_feedback',
   description:
-    'Notas que dejó el equipo en la app de feedback sobre los borradores de esta edición que se subieron (formato [mm:ss] con tiempos DEL BORRADOR subido: ubícalos con palabras_borrador). $0.',
+    'Estado y notas de los borradores de esta edición subidos a la app de feedback (Por revisar, Cambios pedidos, Claude trabajando, Claude respondió, Aprobado). Tiempos [mm:ss] DEL BORRADOR subido: ubícalos con palabras_borrador. $0.',
   schema: z.object({}),
   run: async (editId) => originFeedbackForClaude('edicion', editId),
 });
 
-const marcarFeedback = tool({
-  name: 'marcar_feedback_revisado',
-  description: 'Cuando ya aplicaste (o respondiste) el feedback de un video de esta edición, márcalo: el equipo verá en la app de feedback que Claude lo recogió. `key` sale de ver_feedback.',
+const tomarFeedback = tool({
+  name: 'tomar_feedback',
+  description: 'Toma los cambios que pidió el equipo en un video (estado «Cambios pedidos»): descarga las notas actuales y deja el video en «Claude trabajando» en la app de feedback. Devuelve las notas para aplicarlas. `key` sale de ver_feedback. $0.',
   schema: z.object({ key: z.string().min(1).max(400) }),
-  run: async (editId, { key }) => markReviewedFromAgent(key, 'Claude · editor', { servicio: 'edicion', id: editId }),
+  run: async (editId, { key }) => takeFeedbackFromAgent(key, 'Claude · editor', { servicio: 'edicion', id: editId }),
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verFeedback, marcarFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, publicarBorrador];
+const responderFeedback = tool({
+  name: 'responder_feedback',
+  description: 'Al terminar de aplicar el feedback, deja tu respuesta para el equipo: nota por nota qué cambiaste y qué no se pudo (y por qué). La verán en la app de feedback y el video pasa a «Claude respondió». $0.',
+  schema: z.object({ key: z.string().min(1).max(400), resumen: z.string().min(10).max(4000) }),
+  run: async (editId, { key, resumen }) => respondFromAgent(key, resumen, { servicio: 'edicion', id: editId }),
+});
+
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

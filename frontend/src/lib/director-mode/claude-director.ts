@@ -62,8 +62,8 @@ REGLAS
 - No edites produccion.json ni project-metadata.json: el estado se cambia SOLO con lulo: accion.
 ${bashRules(ctx, p.carpeta)}
 
-FEEDBACK DEL EQUIPO
-El video final se puede subir a la app de feedback, donde el equipo deja notas por tiempo. lulo: ver_feedback trae esas notas; aplica lo que se pueda (rehacer escenas o prompts, montar otra vez; lo que cuesta, con aprobación), responde nota por nota y llama a lulo: marcar_feedback_revisado.
+FEEDBACK DEL EQUIPO (app de feedback)
+El video final se sube a la app de feedback; el equipo deja notas y pulsa «Pedir cambios» o «Aprobar». Cuando te lo indiquen: lulo: ver_feedback → si está en «Cambios pedidos», lulo: tomar_feedback (descarga las notas) → aplica lo que se pueda (rehacer escenas o prompts, montar otra vez; lo que cuesta, con aprobación) → lulo: responder_feedback nota por nota.
 
 RESPUESTA
 En español, corto, cálido y claro (sin jerga): qué hiciste, qué quedó listo para revisar y cuál es el siguiente paso. Si preguntas algo, que sea fácil de contestar.`;
