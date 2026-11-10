@@ -14,10 +14,10 @@ function ago(iso: string | null) {
 }
 
 const GROUPS: Array<{ titulo: string; estados: ReviewState[] }> = [
-  { titulo: 'Cambios pedidos · listos para Claude', estados: ['cambios_pedidos'] },
-  { titulo: 'Esperando revisión del equipo', estados: ['por_revisar', 'respondido'] },
+  { titulo: 'Enviados a Claude · listos para extraer', estados: ['enviado'] },
   { titulo: 'Claude trabajando', estados: ['en_proceso'] },
-  { titulo: 'Aprobados', estados: ['aprobado'] },
+  { titulo: 'Corregidos · falta subir la versión nueva', estados: ['respondido'] },
+  { titulo: 'En revisión del equipo', estados: ['por_revisar'] },
 ];
 
 /**
@@ -74,7 +74,7 @@ export function FeedbackInbox() {
     setMsg(null);
     try {
       const r = await feedbackApi.claude(e.key);
-      setMsg({ key: e.key, text: `Enviado a ${r.destino}.` });
+      setMsg({ key: e.key, text: `Notas extraídas: ${r.destino} está ejecutando las correcciones.` });
       notifyFeedback();
     } catch (err) {
       setMsg({ key: e.key, text: err instanceof Error ? err.message : 'No se pudo.', error: true });
@@ -100,13 +100,13 @@ export function FeedbackInbox() {
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATE_STYLE[e.estado]}`}>{e.estadoTexto}</span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {e.estado === 'cambios_pedidos' && e.origen && (
+        {e.estado === 'enviado' && e.origen && (
           <button type="button" disabled={busyKey === e.key} onClick={() => void toClaude(e)} className="btn-primary inline-flex h-7 items-center gap-1 px-2.5 text-[11px]">
             {busyKey === e.key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Aplicar con Claude
+            Extraer notas y feedback
           </button>
         )}
-        {e.estado === 'cambios_pedidos' && !e.origen && <span className="text-[11px] text-fg-subtle">Pídeselo a Claude en el Estudio Claude</span>}
+        {e.estado === 'enviado' && !e.origen && <span className="text-[11px] text-fg-subtle">Pídeselo a Claude en el Estudio Claude</span>}
         <a href={e.enlace} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-fg-muted hover:text-fg">
           Ver <ExternalLink className="h-3 w-3" />
         </a>
@@ -127,7 +127,7 @@ export function FeedbackInbox() {
         <MessageSquareText className="h-4 w-4" />
         <span className="hidden lg:inline">Feedback</span>
         {data.pendientes > 0 && (
-          <span className="rounded-full bg-orange-500 px-1.5 text-[10px] font-semibold leading-4 text-white tabular-nums" title="Videos con cambios pedidos">
+          <span className="rounded-full bg-orange-500 px-1.5 text-[10px] font-semibold leading-4 text-white tabular-nums" title="Videos con notas enviadas a Claude">
             {data.pendientes}
           </span>
         )}

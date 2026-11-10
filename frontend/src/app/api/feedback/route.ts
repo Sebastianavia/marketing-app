@@ -67,8 +67,8 @@ export async function GET(req: NextRequest) {
       app: feedbackAppUrl(),
       ultimaSync: r.ultimaSync,
       errorSync: r.errorSync,
-      // Videos con cambios pedidos que esperan a Claude
-      pendientes: entradas.filter((e) => e.estado === 'cambios_pedidos').length,
+      // Videos con notas enviadas a Claude, listas para extraer
+      pendientes: entradas.filter((e) => e.estado === 'enviado').length,
       entradas,
     });
   } catch (err) {
@@ -88,8 +88,8 @@ const Body = z.discriminatedUnion('accion', [
 ]);
 
 /**
- * estado: ¿ya se subió este video y en qué estado está? (lee ese video del bucket: 2 lecturas)
- * subir: sube el video a R2 · claude: manda los cambios pedidos al Claude que lo hizo.
+ * estado: ¿ya se subió esta versión, y qué versiones del mismo video hay en Feedback? (lee solo esas)
+ * subir: sube la versión a R2 · claude: «Extraer notas y feedback» → el Claude que hizo el video las ejecuta.
  * Todo solo desde la ventana de la app.
  */
 export async function POST(req: NextRequest) {
@@ -101,7 +101,13 @@ export async function POST(req: NextRequest) {
 
     if (a.accion === 'estado') {
       const r = await entryForSource(a.fuente);
-      return NextResponse.json({ entrada: r.entry ? view(r.entry) : null, disponible: r.disponible, sugerido: r.sugerido ?? null, error: r.error ?? null });
+      return NextResponse.json({
+        entrada: r.entry ? view(r.entry) : null,
+        versiones: r.versiones.map(view),
+        disponible: r.disponible,
+        sugerido: r.sugerido ?? null,
+        error: r.error ?? null,
+      });
     }
     if (a.accion === 'subir') {
       const e = await uploadToFeedback(a.fuente, { proyecto: a.proyecto, nombre: a.nombre });

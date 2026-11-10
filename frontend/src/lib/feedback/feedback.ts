@@ -9,11 +9,11 @@ import { errorMessage } from '@/lib/errors';
 import { FEEDBACK_SUFFIX, FeedbackError, LULO_SUFFIX, VIDEO_EXT, feedbackConfigured, getJson, listAll, putJson, putVideo, reviewUrl } from './r2';
 
 /**
- * Lulo Studio ↔ app de feedback (flujo con estados, ver docs/feedback.md):
- *   Lulo sube el video → «Por revisar» · el equipo deja notas y decide en la app de feedback:
- *   «Pedir cambios» o «Aprobar» · desde Lulo se le indica a Claude → «Claude trabajando» (Claude
- *   descarga las notas y las aplica) → Claude responde → «Claude respondió» · versión nueva →
- *   la anterior queda «Reemplazado».
+ * Lulo Studio ↔ app de feedback (ver docs/feedback.md):
+ *   Lulo sube una versión del video → el equipo deja notas y feedback general y pulsa «Enviar a Claude»
+ *   en la app de feedback → en Lulo, «Extraer notas y feedback» → Claude las descarga («Claude
+ *   trabajando»), las ejecuta y responde («Claude respondió») → Lulo sube la versión nueva al mismo
+ *   proyecto (la anterior queda «Versión anterior») y el ciclo sigue.
  * La decisión la escribe la app de feedback en `<video>.feedback.json`; lo de Claude lo escribe Lulo en
  * `<video>.lulo.json` (cuerpo + metadatos, que la app lee del listado). Lulo NO consulta el bucket en
  * segundo plano: solo cuando se abre la bandeja, se mira un video o Claude lo pide.
@@ -27,9 +27,9 @@ export interface FeedbackNote {
   createdAt?: string;
   updatedAt?: string;
 }
-/** Decisión del equipo en la app de feedback. */
+/** El equipo envió sus notas a Claude desde la app de feedback (tipo 'cambios'). */
 export interface FeedbackDecision {
-  tipo: 'cambios' | 'aprobado';
+  tipo: 'cambios';
   por?: string;
   en: string;
 }
@@ -41,23 +41,21 @@ export interface FeedbackData {
 }
 
 /** Estado de revisión de un video (misma regla que en la app de feedback: functions/_lib/util.js). */
-export type ReviewState = 'por_revisar' | 'cambios_pedidos' | 'en_proceso' | 'respondido' | 'aprobado' | 'reemplazado';
+export type ReviewState = 'por_revisar' | 'enviado' | 'en_proceso' | 'respondido' | 'reemplazado';
 export const REVIEW_LABEL: Record<ReviewState, string> = {
-  por_revisar: 'Por revisar',
-  cambios_pedidos: 'Cambios pedidos',
+  por_revisar: 'En revisión del equipo',
+  enviado: 'Enviado a Claude',
   en_proceso: 'Claude trabajando',
   respondido: 'Claude respondió',
-  aprobado: 'Aprobado',
-  reemplazado: 'Hay versión nueva',
+  reemplazado: 'Versión anterior',
 };
 
 export function reviewState(o: { decision?: FeedbackDecision | null; tomadoEn?: string; respondidoEn?: string; siguiente?: string }): ReviewState {
   if (o.siguiente) return 'reemplazado';
   const d = o.decision;
-  if (d?.tipo === 'aprobado') return 'aprobado';
   if (d?.tipo === 'cambios') {
     if (o.tomadoEn && o.tomadoEn >= d.en) return o.respondidoEn && o.respondidoEn >= o.tomadoEn ? 'respondido' : 'en_proceso';
-    return 'cambios_pedidos';
+    return 'enviado';
   }
   return 'por_revisar';
 }
@@ -175,7 +173,7 @@ async function resolveSource(s: FeedbackSource): Promise<Resolved> {
     return {
       ruta: editFile(e, e.borrador.archivo),
       proyecto: e.titulo,
-      nombre: `${e.estado === 'aprobado' ? 'Reel aprobado' : 'Reel'} v${v}.mp4`,
+      nombre: `Reel v${v}.mp4`,
       origen: { servicio: 'edicion', id: e.id, version: v, titulo: e.titulo },
       fuente: `edicion:${e.id}:v${v}`,
     };
@@ -210,14 +208,42 @@ async function resolveSource(s: FeedbackSource): Promise<Resolved> {
   if (!isInside(await getStorageBasePath(), ruta)) throw new FeedbackError('Solo se pueden subir videos de la carpeta de proyectos.', 403);
   const folder = path.basename(path.dirname(ruta));
   const titulo = s.titulo?.trim() || folder;
+  const rutaId = process.platform === 'win32' ? ruta.toLowerCase() : ruta;
   return {
     ruta,
     proyecto: titulo,
     nombre: path.basename(ruta),
-    origen: { servicio: s.servicio, titulo },
+    // Un mismo archivo montado otra vez (p. ej. el final de UGC) = versión nueva del mismo video
+    origen: { servicio: s.servicio, id: `archivo:${rutaId}`, titulo },
     // Con la fecha del archivo: si se vuelve a montar en la misma ruta, cuenta como video nuevo
-    fuente: `archivo:${process.platform === 'win32' ? ruta.toLowerCase() : ruta}:${fs.existsSync(ruta) ? Math.round(fs.statSync(ruta).mtimeMs) : 0}`,
+    fuente: `archivo:${rutaId}:${fs.existsSync(ruta) ? Math.round(fs.statSync(ruta).mtimeMs) : 0}`,
   };
+}
+
+/** Las versiones anteriores del mismo video (misma edición, producción o archivo), de la más nueva a la más vieja. */
+function siblingsOf(reg: Registry, o: FeedbackOrigin): FeedbackEntry[] {
+  if (!o.id || o.servicio === 'studio') return [];
+  return Object.values(reg.entradas)
+    .filter((e) => e.origen?.servicio === o.servicio && e.origen.id === o.id)
+    .sort((a, b) => (b.origen?.version ?? 0) - (a.origen?.version ?? 0) || (b.subidoEn ?? '').localeCompare(a.subidoEn ?? ''));
+}
+
+/**
+ * Archivos sin número de versión propio (UGC, avatar…): la versión es la siguiente a la última subida,
+ * y la versión nueva va al mismo proyecto de Feedback que las anteriores.
+ */
+async function withVersion(r: Resolved): Promise<Resolved> {
+  const prev = siblingsOf(await readRegistry(), r.origen);
+  const out = { ...r, origen: { ...r.origen } };
+  if (prev[0]) out.proyecto = prev[0].proyecto;
+  if (r.origen.id?.startsWith('archivo:')) {
+    const already = prev.find((e) => e.fuente === r.fuente);
+    const v = already?.origen?.version ?? (prev[0]?.origen?.version ?? 0) + 1;
+    out.origen.version = v;
+    const { name, ext } = path.parse(r.nombre);
+    out.nombre = `${name} v${v}${ext || '.mp4'}`;
+  }
+  return out;
 }
 
 /** Un segmento de clave limpio: sin barras ni caracteres de control, y sin los sufijos reservados. */
@@ -274,7 +300,7 @@ export async function uploadToFeedback(source: FeedbackSource, opts: { proyecto?
   if (!feedbackConfigured()) {
     throw new FeedbackError('Falta configurar la app de feedback (FEEDBACK_R2_* en .env.local).', 503);
   }
-  const r = await resolveSource(source);
+  const r = await withVersion(await resolveSource(source));
   if (!fs.existsSync(r.ruta)) throw new FeedbackError('El archivo de video ya no está en disco.', 404);
   const ext = path.extname(r.ruta).toLowerCase() || '.mp4';
   if (!VIDEO_EXT.test(ext)) throw new FeedbackError('Solo se pueden subir videos (.mp4, .mov, .webm…).');
@@ -432,7 +458,7 @@ function normalize(raw: Partial<FeedbackData> | null): FeedbackData | null {
     : [];
   const d = raw.decision;
   const decision: FeedbackDecision | null =
-    d && (d.tipo === 'cambios' || d.tipo === 'aprobado') && typeof d.en === 'string' ? { tipo: d.tipo, en: d.en, ...(typeof d.por === 'string' && d.por ? { por: d.por.slice(0, 60) } : {}) } : null;
+    d && d.tipo === 'cambios' && typeof d.en === 'string' ? { tipo: d.tipo, en: d.en, ...(typeof d.por === 'string' && d.por ? { por: d.por.slice(0, 60) } : {}) } : null;
   return { general: typeof raw.general === 'string' ? raw.general : '', notes, updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : null, decision };
 }
 
@@ -450,22 +476,35 @@ export async function getEntry(key: string): Promise<FeedbackEntry> {
   return e;
 }
 
-/** Entrada ya subida desde esta fuente (para el botón). No lanza si la fuente ya no existe. */
-export async function entryForSource(
-  source: FeedbackSource
-): Promise<{ entry: FeedbackEntry | null; disponible: boolean; sugerido?: { proyecto: string; nombre: string }; error?: string }> {
+/**
+ * Para el botón: la entrada de esta versión (si ya se subió) y las demás versiones del mismo video
+ * en Feedback, con su estado leído del bucket (2 lecturas por versión, solo al mostrarse). No lanza.
+ */
+export async function entryForSource(source: FeedbackSource): Promise<{
+  entry: FeedbackEntry | null;
+  versiones: FeedbackEntry[];
+  disponible: boolean;
+  sugerido?: { proyecto: string; nombre: string };
+  error?: string;
+}> {
   let r: Resolved;
   try {
-    r = await resolveSource(source);
+    r = await withVersion(await resolveSource(source));
   } catch (err) {
-    return { entry: null, disponible: false, error: errorMessage(err) };
+    return { entry: null, versiones: [], disponible: false, error: errorMessage(err) };
   }
   const reg = await readRegistry();
-  let entry = Object.values(reg.entradas).find((e) => e.fuente === r.fuente) ?? null;
-  // Al mirar el video se lee su estado actual del bucket (2 lecturas), sin consultas periódicas
-  if (entry && feedbackConfigured()) entry = await refreshEntry(entry.key).catch(() => entry);
+  const own = Object.values(reg.entradas).find((e) => e.fuente === r.fuente) ?? null;
+  const others = siblingsOf(reg, r.origen).filter((e) => e.key !== own?.key && e.enBucket !== false);
+  const fresh = async (e: FeedbackEntry) => (feedbackConfigured() ? refreshEntry(e.key).catch(() => e) : e);
+  const [entry, ...versiones] = await Promise.all([own ? fresh(own) : Promise.resolve(null), ...others.map(fresh)]);
   const ext = path.extname(r.ruta).toLowerCase() || '.mp4';
-  return { entry, disponible: fs.existsSync(r.ruta), sugerido: { proyecto: segment(r.proyecto, 'Lulo Studio'), nombre: videoName(r.nombre, ext) } };
+  return {
+    entry,
+    versiones: versiones as FeedbackEntry[],
+    disponible: fs.existsSync(r.ruta),
+    sugerido: { proyecto: segment(r.proyecto, 'Lulo Studio'), nombre: videoName(r.nombre, ext) },
+  };
 }
 
 /** Todo lo subido desde una edición, producción o proyecto del estudio. */
@@ -488,7 +527,7 @@ export function feedbackText(e: FeedbackEntry): string {
   const lines = [`PROYECTO: ${e.proyecto}`, `VIDEO: ${e.nombre}`];
   if (fb.updatedAt) lines.push(`ACTUALIZADO: ${fb.updatedAt.replace('T', ' ').slice(0, 16)} UTC`);
   if (fb.decision) {
-    lines.push(`DECISIÓN: ${fb.decision.tipo === 'cambios' ? 'Pide cambios' : 'Aprobado'}${fb.decision.por ? ` (${fb.decision.por})` : ''} · ${fb.decision.en.replace('T', ' ').slice(0, 16)} UTC`);
+    lines.push(`ENVIADO A CLAUDE: ${fb.decision.por ? `${fb.decision.por} · ` : ''}${fb.decision.en.replace('T', ' ').slice(0, 16)} UTC`);
   }
   lines.push('', 'FEEDBACK GENERAL', fb.general.trim() || '(sin feedback general)', '', 'NOTAS POR TIEMPO');
   if (!fb.notes.length) lines.push('(sin notas)');
@@ -508,7 +547,7 @@ export function entryForClaude(e: FeedbackEntry) {
     key: e.key,
     video: `${e.proyecto} / ${e.nombre}`,
     estado: REVIEW_LABEL[estado],
-    listoParaAplicar: estado === 'cambios_pedidos',
+    listoParaAplicar: estado === 'enviado',
     deDonde: e.origen ? `${SERVICE_LABEL[e.origen.servicio]}${e.origen.version ? ` · v${e.origen.version}` : ''}` : 'Subido desde otro PC del equipo',
     archivoLocal: e.ruta && fs.existsSync(e.ruta) ? e.ruta : null,
     enlace: reviewUrl(e.key),
@@ -529,15 +568,13 @@ export async function takeFeedback(key: string, destino: string, edicionId?: str
   const fresh = await refreshEntry(key);
   const estado = stateOf(fresh);
   if (estado === 'en_proceso') return fresh;
-  if (estado !== 'cambios_pedidos') {
+  if (estado !== 'enviado') {
     throw new FeedbackError(
       estado === 'por_revisar'
-        ? 'El equipo todavía no pidió cambios en este video (sigue «Por revisar» en la app de feedback).'
-        : estado === 'aprobado'
-          ? 'El equipo aprobó este video: no hay cambios que hacer.'
-          : estado === 'respondido'
-            ? 'Claude ya respondió a estos cambios; el equipo tiene que revisarlo y volver a pedir cambios si hace falta.'
-            : 'Este video ya tiene una versión nueva: el feedback se da sobre la nueva.',
+        ? 'El equipo todavía no ha enviado sus notas a Claude (en la app de feedback: «Enviar a Claude»).'
+        : estado === 'respondido'
+          ? 'Claude ya respondió a estas notas. Sube la versión nueva o espera a que el equipo envíe notas otra vez.'
+          : 'Esta versión ya tiene una más nueva en Feedback: las notas se dejan sobre la nueva.',
       409
     );
   }
@@ -566,7 +603,7 @@ export async function respondFeedback(key: string, texto: string): Promise<Feedb
 
 function claudeMessage(e: FeedbackEntry, extra = ''): string {
   return [
-    `📝 El equipo pidió cambios en «${e.nombre}» (${e.proyecto}) desde la app de feedback: ${reviewUrl(e.key)}`,
+    `📝 Notas y feedback del equipo sobre «${e.nombre}» (${e.proyecto}), enviados desde la app de feedback: ${reviewUrl(e.key)}`,
     `Los tiempos [mm:ss] son del video que se subió${extra}.`,
     '',
     feedbackText(e),
@@ -582,7 +619,7 @@ function claudeMessage(e: FeedbackEntry, extra = ''): string {
  */
 export async function sendFeedbackToClaude(key: string, appUrl: string): Promise<{ destino: string; edicionId?: string }> {
   const e = await refreshEntry(key);
-  if (stateOf(e) !== 'cambios_pedidos') await takeFeedback(key, 'Claude'); // lanza con el motivo
+  if (stateOf(e) !== 'enviado') await takeFeedback(key, 'Claude'); // lanza con el motivo
   const o = e.origen;
 
   if (o?.servicio === 'edicion' && o.id) {
@@ -627,16 +664,16 @@ export { reviewUrl, feedbackConfigured };
 
 // ── Para las herramientas de Claude ─────────────────────────────────────────
 
-/** Videos con cambios pedidos que Claude aún no tomó (o todos los que tienen feedback, con `todos`). */
+/** Videos con notas enviadas a Claude que aún no se extrajeron (o todos los que tienen feedback, con `todos`). */
 export async function feedbackForClaude(todos = false) {
   await syncFeedback(true);
   const { entradas, errorSync } = await listFeedback();
   const list = entradas
-    .filter((e) => e.enBucket !== false && (todos ? hasContent(e.feedback) || e.feedback?.decision : stateOf(e) === 'cambios_pedidos'))
+    .filter((e) => e.enBucket !== false && (todos ? hasContent(e.feedback) || e.feedback?.decision : stateOf(e) === 'enviado'))
     .map(entryForClaude);
   return {
     videos: list,
-    ...(list.length ? {} : { nota: todos ? 'No hay videos con feedback.' : 'Ningún video tiene cambios pedidos ahora mismo.' }),
+    ...(list.length ? {} : { nota: todos ? 'No hay videos con feedback.' : 'Ningún video tiene notas enviadas a Claude ahora mismo.' }),
     ...(errorSync ? { aviso: errorSync } : {}),
   };
 }

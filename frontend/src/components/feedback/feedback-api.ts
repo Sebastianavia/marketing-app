@@ -6,22 +6,21 @@ export type FeedbackSourceClient =
   | { tipo: 'studio'; id: string; mediaId: string }
   | { tipo: 'archivo'; ruta: string; servicio: 'avatar' | 'ugc' | 'escenas' | 'proyectos'; titulo?: string };
 
-export type ReviewState = 'por_revisar' | 'cambios_pedidos' | 'en_proceso' | 'respondido' | 'aprobado' | 'reemplazado';
+export type ReviewState = 'por_revisar' | 'enviado' | 'en_proceso' | 'respondido' | 'reemplazado';
 
 /** Color de cada estado (el mismo código de colores que la app de feedback). */
 export const STATE_STYLE: Record<ReviewState, string> = {
   por_revisar: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  cambios_pedidos: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+  enviado: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
   en_proceso: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
   respondido: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
-  aprobado: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   reemplazado: 'bg-zinc-500/15 text-fg-muted',
 };
 
 export interface FeedbackItem {
   estado: ReviewState;
   estadoTexto: string;
-  decision: { tipo: 'cambios' | 'aprobado'; por?: string; en: string } | null;
+  decision: { tipo: 'cambios'; por?: string; en: string } | null;
   respuesta: { texto: string; en: string } | null;
   key: string;
   proyecto: string;
@@ -42,7 +41,7 @@ export interface FeedbackInboxData {
   app: string;
   ultimaSync: string | null;
   errorSync: string | null;
-  /** Videos con cambios pedidos que esperan a Claude. */
+  /** Videos con notas enviadas a Claude, listas para extraer. */
   pendientes: number;
   entradas: FeedbackItem[];
 }
@@ -66,7 +65,13 @@ export const feedbackApi = {
     return data;
   },
   estado: (fuente: FeedbackSourceClient) =>
-    post<{ entrada: FeedbackItem | null; disponible: boolean; sugerido: { proyecto: string; nombre: string } | null; error: string | null }>({ accion: 'estado', fuente }),
+    post<{
+      entrada: FeedbackItem | null;
+      versiones: FeedbackItem[];
+      disponible: boolean;
+      sugerido: { proyecto: string; nombre: string } | null;
+      error: string | null;
+    }>({ accion: 'estado', fuente }),
   subir: (fuente: FeedbackSourceClient, proyecto?: string, nombre?: string) => post<{ entrada: FeedbackItem }>({ accion: 'subir', fuente, proyecto, nombre }),
   claude: (key: string) => post<{ ok: true; destino: string; edicionId?: string }>({ accion: 'claude', key }),
 };
