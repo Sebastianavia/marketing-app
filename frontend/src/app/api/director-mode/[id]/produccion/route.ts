@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { assertAppUiRequest, ForbiddenError } from '@/lib/director/local-guard';
 import { currentFiles, ProductionError } from '@/lib/director/production-store';
 import { getDirectorProduction } from '@/lib/director-mode/engine';
-import { assembleFinal, generationStatus, prepareGeneration, redoPaidScene, runGeneration } from '@/lib/director-mode/generation';
+import { assembleFinal, auditPaidClip, generationStatus, prepareGeneration, redoPaidScene, runGeneration } from '@/lib/director-mode/generation';
 import { DailyLimitError } from '@/lib/usage/usage-store';
 import { GenerationError } from '@/lib/generation/errors';
 import { errorMessage } from '@/lib/errors';
@@ -75,6 +75,7 @@ const Body = z.discriminatedUnion('accion', [
     escenaPagoId: z.string().max(20).optional(),
   }),
   z.object({ accion: z.literal('rehacer_pago'), escenaPagoId: z.string().min(1).max(20) }),
+  z.object({ accion: z.literal('auditar_clip'), escenaPagoId: z.string().min(1).max(20) }),
   z.object({ accion: z.literal('estado') }),
   z.object({ accion: z.literal('montar'), pulirConClaude: z.boolean().default(false) }),
 ]);
@@ -99,9 +100,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           ? await runGeneration(id, { fase: a.fase, escenaPagoId: a.escenaPagoId })
           : a.accion === 'rehacer_pago'
             ? await redoPaidScene(id, a.escenaPagoId)
-            : a.accion === 'montar'
-              ? await assembleFinal(id, { pulirConClaude: a.pulirConClaude })
-              : await generationStatus(id);
+            : a.accion === 'auditar_clip'
+              ? await auditPaidClip(id, a.escenaPagoId)
+              : a.accion === 'montar'
+                ? await assembleFinal(id, { pulirConClaude: a.pulirConClaude })
+                : await generationStatus(id);
     return NextResponse.json({ resultado, production: await getDirectorProduction(id) });
   } catch (err) {
     if (err instanceof ForbiddenError) return NextResponse.json({ error: err.message }, { status: 403 });

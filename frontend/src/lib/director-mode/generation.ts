@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+import { z } from 'zod';
+import { orchestrateObject } from '@/lib/ai/orchestrator';
 import { DEFAULT_ELEVEN_MODEL } from '@/config/elevenlabs-models';
 import { getConfiguredVoiceId } from '@/services/elevenlabs/elevenlabs.service';
 import { frameSize, probeMedia, runFfmpeg, stitchScenes } from '@/lib/video/ffmpeg';
@@ -19,9 +21,9 @@ import {
 } from '@/lib/director/production-store';
 import { changeScene, proposeScenes, runAvatarScene, runBrollScene, runImageScene, runVoiceScene } from '@/lib/director/production';
 import { reconcileProduction } from '@/lib/director/production-jobs';
-import { DEFAULT_IMAGE_MODEL } from '@/config/image-models';
 import { clipChoiceProblem } from '@/config/broll-models';
-import { composeImagePrompt, composeVideoPrompt } from './prompts';
+import { NINE_SYMPTOMS, composeImagePrompt, composeVideoPrompt } from './prompts';
+import { refAbsPath } from './references';
 import { sceneClipChoice } from './durations';
 import { sceneRefs, sceneTags, tagRefs } from './mentions';
 import type { DirectorGeneration, DirectorScene, DirectorState } from './types';
@@ -299,9 +301,78 @@ function voiceOf(p: Production, sceneId: string): { ruta: string; tiempos?: stri
   return { ruta: f.ruta, tiempos: currentFiles(s, 'tiempos')[0]?.ruta };
 }
 
+/** Pista de música de fondo subida por la persona (etiqueta de tipo 'musica' o audio suelto que no sea la locución). */
+function resolveMusicPath(p: Production, d: DirectorState): string | undefined {
+  const musicTags = new Set((d.etiquetas ?? []).filter((t) => t.tipo === 'musica').map((t) => t.id));
+  const refs = (d.referencias ?? []).filter((r) => r.medio === 'audio' && r.id !== d.locucion?.refId);
+  const chosen = refs.find((r) => r.etiquetaId && musicTags.has(r.etiquetaId)) ?? refs[0];
+  if (!chosen) return undefined;
+  const abs = refAbsPath(p.carpeta, chosen.archivo);
+  return fsSync.existsSync(abs) ? abs : undefined;
+}
+
+const ClipQaSchema = z.object({
+  ok: z.boolean().describe('true si el clip se ve realista y libre de síntomas evidentes de IA'),
+  sintomas: z.array(z.string()).describe('Síntomas detectados de la lista de 9 síntomas (vacío si ok=true)'),
+  resumen: z.string().describe('Breve diagnóstico en español (máx. 20 palabras)'),
+});
+
+/**
+ * Audita un clip terminado extrayendo 3 fotogramas (inicio, mitad y cierre) con FFmpeg ($0)
+ * y revisándolos con Gemini Visión contra los 9 síntomas de IA de Buzzy.
+ */
+export async function auditPaidClip(id: string, escenaPagoId: string) {
+  const p = await reconcileProduction(id);
+  const d = p.director;
+  if (!d) throw new ProductionError('No es una producción del modo Director.', 400);
+  const clipPath = clipOf(p, escenaPagoId);
+  const dur = (await probeMedia(clipPath)).duration ?? 5;
+  const times = [0.2, Math.max(0.5, dur / 2), Math.max(0.8, dur - 0.3)];
+  const tmpDir = path.join(/*turbopackIgnore: true*/ p.carpeta, `.qa-${Date.now()}`);
+  await fs.mkdir(tmpDir, { recursive: true });
+  try {
+    const files: Array<{ data: Uint8Array; mediaType: string; filename: string }> = [];
+    for (let i = 0; i < times.length; i++) {
+      const frameOut = path.join(/*turbopackIgnore: true*/ tmpDir, `f-${i + 1}.jpg`);
+      await runFfmpeg(['-y', '-hide_banner', '-ss', times[i].toFixed(2), '-i', clipPath, '-frames:v', '1', '-vf', 'scale=512:-2', '-q:v', '4', frameOut]);
+      if (fsSync.existsSync(frameOut)) {
+        files.push({
+          data: new Uint8Array(await fs.readFile(frameOut)),
+          mediaType: 'image/jpeg',
+          filename: `frame-${i + 1}.jpg`,
+        });
+      }
+    }
+    if (!files.length) throw new ProductionError('No se pudieron extraer fotogramas del clip para revisarlo.', 500);
+
+    const { object } = await orchestrateObject({
+      tool: 'text-to-video',
+      description: `Director · QA clip ${escenaPagoId}`,
+      system: 'Eres supervisor de control de calidad visual para videos de marketing realistas. Evalúas fotogramas de un clip contra los 9 síntomas de video sintético.',
+      prompt: `Revisa estos 3 fotogramas (inicio, mitad y final) del clip y comprueba si sufren alguno de estos 9 síntomas de IA:
+${NINE_SYMPTOMS.map((s, idx) => `${idx + 1}. ${s}`).join('\n')}
+Devuelve ok=true si el clip luce natural y creíble, o lista únicamente los síntomas que sean claramente visibles y un resumen corto en español.`,
+      files,
+      schema: ClipQaSchema,
+      temperature: 0.2,
+      confidential: d.confidencial,
+    });
+
+    return {
+      escenaPagoId,
+      ok: object.ok,
+      sintomas: object.sintomas.slice(0, 5),
+      resumen: object.resumen.trim().slice(0, 140),
+    };
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 /**
  * Monta el video final (FFmpeg, $0). Voz en off: voz continua encima y cortes según los tiempos
  * de la voz. Voz nativa / avatar: cada clip con su propio audio, uno tras otro con fundido.
+ * Si el proyecto tiene pista de música (@musica), la mezcla con auto-ducking bajo la voz.
  * Con "Claude · mi suscripción", el resultado pasa al editor para que Claude lo pula.
  */
 export async function assembleFinal(id: string, opts: { pulirConClaude?: boolean } = {}) {
@@ -314,6 +385,7 @@ export async function assembleFinal(id: string, opts: { pulirConClaude?: boolean
   const version = (gen.final?.version ?? 0) + 1;
   const archivo = `final-v${version}.mp4`;
   const output = path.join(/*turbopackIgnore: true*/ p.carpeta, archivo);
+  const musicPath = resolveMusicPath(p, d);
   const tmpDir = path.join(/*turbopackIgnore: true*/ p.carpeta, `.montaje-${Date.now()}`);
   await fs.mkdir(tmpDir, { recursive: true });
   try {
@@ -352,7 +424,17 @@ export async function assembleFinal(id: string, opts: { pulirConClaude?: boolean
         }
         total = dur;
       }
-      await stitchScenes({ clips: clips.map((c) => ({ path: c })), starts, total, audioPath: voz.ruta, output, width, height, crossfade: safeCrossfade(starts, total, 0.3) });
+      await stitchScenes({
+        clips: clips.map((c) => ({ path: c })),
+        starts,
+        total,
+        audioPath: voz.ruta,
+        musicPath,
+        output,
+        width,
+        height,
+        crossfade: safeCrossfade(starts, total, 0.3),
+      });
     } else {
       // Avatar: a cada toma de apoyo se le pone su locución antes de unir
       const withAudio: string[] = [];
@@ -386,6 +468,7 @@ export async function assembleFinal(id: string, opts: { pulirConClaude?: boolean
         lens,
         total: t + fade,
         clipHasAudio: probes.map((pr) => pr.hasAudio),
+        musicPath,
         output,
         width,
         height,

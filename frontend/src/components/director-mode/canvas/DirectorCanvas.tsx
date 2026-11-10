@@ -68,16 +68,18 @@ interface Props {
   onRunPaidScene?: CanvasActions['onRunPaidScene'];
   /** Pedir rehacer una sola escena de pago desde su nodo en el lienzo. */
   onRedoPaidScene?: CanvasActions['onRedoPaidScene'];
+  /** Auditar un clip terminado contra los 9 síntomas de IA con Gemini Visión ($0). */
+  onAuditPaidScene?: CanvasActions['onAuditPaidScene'];
   busy?: boolean;
 }
 
-function CanvasInner({ productionId, d, paid, selectedId, onSelect, onClip, onRunPaidScene, onRedoPaidScene, busy }: Props) {
+function CanvasInner({ productionId, d, paid, selectedId, onSelect, onClip, onRunPaidScene, onRedoPaidScene, onAuditPaidScene, busy }: Props) {
   const theme = useThemeStore((s) => s.theme);
   const { fitView } = useReactFlow();
   const graph = useMemo(() => buildGraph(d, productionId, paid), [d, productionId, paid]);
   const actions = useMemo<CanvasActions>(
-    () => ({ onClip, onRunPaidScene, onRedoPaidScene, busy }),
-    [onClip, onRunPaidScene, onRedoPaidScene, busy]
+    () => ({ onClip, onRunPaidScene, onRedoPaidScene, onAuditPaidScene, busy }),
+    [onClip, onRunPaidScene, onRedoPaidScene, onAuditPaidScene, busy]
   );
   const [nodes, setNodes] = useState<DirectorNode[]>(() => place(graph.nodes, [], readPositions(productionId)));
   const [prevGraph, setPrevGraph] = useState(graph);

@@ -53,6 +53,18 @@ function client(): { s3: S3Client; bucket: string } {
   if (!e.endpoint || !e.accessKeyId || !e.secretAccessKey) {
     throw new FeedbackError('Falta configurar la app de feedback: FEEDBACK_R2_ENDPOINT, FEEDBACK_R2_ACCESS_KEY_ID y FEEDBACK_R2_SECRET_ACCESS_KEY en .env.local.', 503);
   }
+  if (e.endpoint.endsWith('$') || !e.endpoint.includes('.')) {
+    throw new FeedbackError(
+      'FEEDBACK_R2_ENDPOINT en .env.local está cortado (termina en "$"). Debe ser la URL completa https://<32-caracteres>.r2.cloudflarestorage.com.',
+      503
+    );
+  }
+  if (e.secretAccessKey.endsWith('$')) {
+    throw new FeedbackError(
+      'FEEDBACK_R2_SECRET_ACCESS_KEY en .env.local parece estar cortada (termina en "$"). Pega la clave completa y reinicia npm run dev.',
+      503
+    );
+  }
   const sig = `${e.endpoint}|${e.accessKeyId}`;
   if (!g.__luloFeedbackR2 || g.__luloFeedbackR2.sig !== sig) {
     g.__luloFeedbackR2 = {

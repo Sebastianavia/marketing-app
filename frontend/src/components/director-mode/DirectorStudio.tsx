@@ -5,6 +5,7 @@ import { AlertCircle, ChevronDown, List, Loader2, MessageSquare, Network, Plus, 
 import { getDirectorSkill } from '@/config/director-skills';
 import { DirectorCanvas } from './canvas/DirectorCanvas';
 import { NodeInspector } from './canvas/NodeInspector';
+import { TimelineDock } from './canvas/TimelineDock';
 import { DirectorChat } from './chat/DirectorChat';
 import { DirectorModeView } from './DirectorModeView';
 import { ProductionBar } from './ProductionBar';
@@ -307,9 +308,19 @@ export function DirectorStudio() {
               onClip={onClip}
               onRunPaidScene={(paidId) => void dm.produce('generar', { escenaPagoId: paidId })}
               onRedoPaidScene={(paidId) => void dm.produce('rehacer_pago', { escenaPagoId: paidId })}
+              onAuditPaidScene={async (paidId) => {
+                const res = await dm.produce('auditar_clip', { escenaPagoId: paidId });
+                if (!res || typeof res.ok !== 'boolean') return null;
+                return {
+                  ok: Boolean(res.ok),
+                  sintomas: Array.isArray(res.sintomas) ? (res.sintomas as string[]) : [],
+                  resumen: typeof res.resumen === 'string' ? res.resumen : '',
+                };
+              }}
               busy={!!busy}
             />
             <NodeInspector dm={dm} selectedId={focusId} onClose={() => setFocusId(null)} />
+            <TimelineDock dm={dm} selectedId={focusId} onSelect={setFocusId} />
             {dragging && (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-bg/60 text-[13px] text-fg">
                 Suelta para añadir referencias{' '}

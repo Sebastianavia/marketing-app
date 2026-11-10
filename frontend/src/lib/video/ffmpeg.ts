@@ -109,6 +109,8 @@ export interface StitchOptions {
   fps?: number;
   /** Fundido entre clips, en segundos. */
   crossfade?: number;
+  /** Pista opcional de música de fondo: se mezcla con auto-ducking bajo la voz. */
+  musicPath?: string;
 }
 
 /**
@@ -133,6 +135,7 @@ export function buildStitchArgs(o: StitchOptions): string[] {
   const args: string[] = ['-y'];
   o.clips.forEach((c) => args.push('-i', c.path));
   if (o.audioPath) args.push('-i', o.audioPath);
+  if (o.musicPath) args.push('-stream_loop', '-1', '-i', o.musicPath);
 
   const f: string[] = [];
   o.clips.forEach((_, i) => {
@@ -168,6 +171,19 @@ export function buildStitchArgs(o: StitchOptions): string[] {
     }
     if (n === 1) f.push(`[a0]anull[aout]`);
     audioMap = '[aout]';
+  }
+
+  if (o.musicPath) {
+    const musicIdx = n + (o.audioPath ? 1 : 0);
+    const voiceIn = useClipAudio ? '[aout]' : `[${n}:a]`;
+    const fadeStart = Math.max(0, o.total - 1.5).toFixed(3);
+    f.push(
+      `${voiceIn}aresample=44100,aformat=channel_layouts=stereo,asplit=2[vmain][vsc]`,
+      `[${musicIdx}:a]aresample=44100,aformat=channel_layouts=stereo,atrim=duration=${o.total.toFixed(3)},asetpts=PTS-STARTPTS,volume=0.26,afade=t=out:st=${fadeStart}:d=1.5[music]`,
+      `[music][vsc]sidechaincompress=threshold=0.02:ratio=6:attack=50:release=400[mduck]`,
+      `[vmain][mduck]amix=inputs=2:duration=first:dropout_transition=0:weights=1 1[afinal]`
+    );
+    audioMap = '[afinal]';
   }
 
   args.push(

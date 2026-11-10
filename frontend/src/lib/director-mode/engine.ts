@@ -301,6 +301,12 @@ async function dispatch(id: string, a: ActionInput, orchestrator: unknown): Prom
       return redoScene(id, a.escenaId, a.indicacion, orchestrator);
     case 'editar_escena':
       return editScene(id, a.escenaId, a.cambios);
+    case 'insertar_escena':
+      return insertScene(id, a);
+    case 'borrar_escena':
+      return deleteScene(id, a.escenaId);
+    case 'mover_escena':
+      return moveScene(id, a.escenaId, a.direccion);
     case 'generar_prompts':
       return generatePrompts(id, a.soloFaltantes, orchestrator);
     case 'rehacer_prompt':
@@ -692,6 +698,95 @@ async function editScene(id: string, escenaId: string, c: { tipo?: DirectorScene
     retime(d.guion!.escenas, d.ajustes);
     if (content) afterSceneChange(d);
     else bump(d, 'guion');
+  });
+  return { production };
+}
+
+function nextSceneId(escenas: DirectorScene[]): string {
+  const nums = escenas.map((s) => Number(s.id.replace(/^e/, '')) || 0);
+  return `e${Math.max(0, ...nums) + 1}`;
+}
+
+async function insertScene(id: string, a: Extract<ActionInput, { accion: 'insertar_escena' }>): Promise<ActionResult> {
+  const { production } = await updateProduction(id, (p) => {
+    const d = needDirector(p);
+    requirePrevious(d, 'guion', 'añadir una escena');
+    if (!d.guion) throw new ProductionError('Primero genera el guion.');
+    if (isAligned(d.guion.escenas)) {
+      throw new ProductionError('El guion sigue tu locución: para añadir escenas, edita la transcripción o vuelve a generar sobre el audio.');
+    }
+    if (d.guion.escenas.length >= 25) throw new ProductionError('Máximo 25 escenas por video.');
+    remember(d, 'guion', d.guion);
+    const idx = a.despuesDeId ? d.guion.escenas.findIndex((s) => s.id === a.despuesDeId) : d.guion.escenas.length - 1;
+    const insertAt = idx >= 0 ? idx + 1 : d.guion.escenas.length;
+    const nueva: DirectorScene = {
+      id: nextSceneId(d.guion.escenas),
+      orden: insertAt + 1,
+      tipo: allowedType(d, a.tipo ?? 'broll'),
+      duracionSeg: a.duracionSeg ?? 6,
+      inicio: 0,
+      fin: 0,
+      queSeVe: a.queSeVe.trim() || 'Nueva toma de apoyo: describe qué ocurre aquí.',
+      dialogo: a.dialogo.trim(),
+      version: 1,
+      prompt: null,
+    };
+    d.guion.escenas.splice(insertAt, 0, nueva);
+    d.guion.escenas.forEach((s, i) => {
+      s.orden = i + 1;
+      if (s.orden === 1 && s.clipOpciones?.continuarAnterior) delete s.clipOpciones.continuarAnterior;
+    });
+    retime(d.guion.escenas, d.ajustes);
+    afterSceneChange(d);
+  });
+  return { production };
+}
+
+async function deleteScene(id: string, escenaId: string): Promise<ActionResult> {
+  const { production } = await updateProduction(id, (p) => {
+    const d = needDirector(p);
+    requirePrevious(d, 'guion', 'borrar una escena');
+    if (!d.guion) throw new ProductionError('Todavía no hay guion.');
+    if (isAligned(d.guion.escenas)) {
+      throw new ProductionError('El guion sigue tu locución: no se pueden borrar escenas sueltas sin desalinear el audio.');
+    }
+    if (d.guion.escenas.length <= 1) throw new ProductionError('El guion debe tener al menos 1 escena.');
+    const idx = d.guion.escenas.findIndex((s) => s.id === escenaId);
+    if (idx < 0) throw new ProductionError('No encuentro esa escena.', 404);
+    remember(d, 'guion', d.guion);
+    d.guion.escenas.splice(idx, 1);
+    d.guion.escenas.forEach((s, i) => {
+      s.orden = i + 1;
+      if (s.orden === 1 && s.clipOpciones?.continuarAnterior) delete s.clipOpciones.continuarAnterior;
+    });
+    adoptOrphanRefs(d);
+    retime(d.guion.escenas, d.ajustes);
+    afterSceneChange(d);
+  });
+  return { production };
+}
+
+async function moveScene(id: string, escenaId: string, direccion: 'arriba' | 'abajo'): Promise<ActionResult> {
+  const { production } = await updateProduction(id, (p) => {
+    const d = needDirector(p);
+    requirePrevious(d, 'guion', 'mover una escena');
+    if (!d.guion) throw new ProductionError('Todavía no hay guion.');
+    if (isAligned(d.guion.escenas)) {
+      throw new ProductionError('El guion sigue el orden de tu locución y no se puede reordenar.');
+    }
+    const idx = d.guion.escenas.findIndex((s) => s.id === escenaId);
+    if (idx < 0) throw new ProductionError('No encuentro esa escena.', 404);
+    const target = direccion === 'arriba' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= d.guion.escenas.length) return;
+    remember(d, 'guion', d.guion);
+    const [moved] = d.guion.escenas.splice(idx, 1);
+    d.guion.escenas.splice(target, 0, moved);
+    d.guion.escenas.forEach((s, i) => {
+      s.orden = i + 1;
+      if (s.orden === 1 && s.clipOpciones?.continuarAnterior) delete s.clipOpciones.continuarAnterior;
+    });
+    retime(d.guion.escenas, d.ajustes);
+    bump(d, 'guion');
   });
   return { production };
 }

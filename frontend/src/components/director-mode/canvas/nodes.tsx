@@ -2,7 +2,7 @@
 
 import React, { createContext, memo, useContext, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { AudioLines, Clapperboard, ExternalLink, FileText, ImageIcon, Lock, Paperclip, Play, RefreshCw, Sparkles, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react';
+import { AlertTriangle, AudioLines, CheckCircle2, Clapperboard, ExternalLink, FileText, ImageIcon, Loader2, Lock, Paperclip, Play, RefreshCw, SearchCheck, Sparkles, SlidersHorizontal, Volume2, VolumeX } from 'lucide-react';
 import { VOICE_MODES, getBrollModel } from '@/config/broll-models';
 import { getDirectorSkill } from '@/config/director-skills';
 import { formatTime } from '@/lib/director-mode/durations';
@@ -11,7 +11,7 @@ import type { DirectorState } from '@/lib/director-mode/types';
 import type { DirectorNode, NodeTone } from './build-graph';
 import { TYPE_LABEL } from '../ScriptSceneCard';
 import { MentionText, RefThumb, TagChip } from '../refs/ref-common';
-import { ClipPicker, IMAGE_START_USD, sceneClipEstimate } from '../ClipPicker';
+import { ClipPicker, sceneClipEstimate } from '../ClipPicker';
 
 /** Acciones que los nodos pueden lanzar (el lienzo las recibe del estudio). */
 export interface CanvasActions {
@@ -28,6 +28,8 @@ export interface CanvasActions {
   onRunPaidScene?: (paidSceneId: string) => void;
   /** Pedir rehacer individualmente una imagen o clip desde el nodo del lienzo. */
   onRedoPaidScene?: (paidSceneId: string) => void;
+  /** Auditar un clip terminado contra los 9 síntomas de IA con Gemini Visión ($0). */
+  onAuditPaidScene?: (paidSceneId: string) => Promise<{ ok: boolean; sintomas: string[]; resumen: string } | null>;
   busy?: boolean;
 }
 export const CanvasActionsContext = createContext<CanvasActions>({});
@@ -158,7 +160,30 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
     case 'escena': {
       const s = data.scene;
       return (
-        <Shell selected={selected} tone={data.tone}>
+        <Shell selected={selected} tone={data.tone} width={260}>
+          {(data.videoUrl || data.thumbUrl) && (
+            <div className="relative -mx-1 -mt-1 mb-2 overflow-hidden rounded-lg border border-line bg-black">
+              {data.videoUrl ? (
+                <video
+                  src={data.videoUrl}
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  onMouseEnter={(ev) => void ev.currentTarget.play().catch(() => undefined)}
+                  onMouseLeave={(ev) => ev.currentTarget.pause()}
+                  className="h-24 w-full object-cover"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={data.thumbUrl} alt={`Escena ${s.orden}`} className="h-24 w-full object-cover" />
+              )}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/80 via-black/35 to-transparent px-2 py-1 text-[10px] text-white">
+                <span className="font-semibold">TOMA {String(s.orden).padStart(2, '0')}</span>
+                <span className="font-mono">{formatTime(s.inicio)}–{formatTime(s.fin)}</span>
+              </div>
+            </div>
+          )}
           <Header
             title={`Escena ${s.orden}`}
             right={<span className="font-mono text-[10.5px] text-fg-subtle">[{formatTime(s.inicio)}–{formatTime(s.fin)}]</span>}
@@ -278,9 +303,11 @@ function DirectorNodeView({ data, selected }: NodeProps<DirectorNode>) {
 }
 
 function ProductionNodeView({ data }: { data: Extract<DirectorNode['data'], { kind: 'produccion' }> }) {
-  const { onRunPaidScene, onRedoPaidScene, busy } = useContext(CanvasActionsContext);
+  const { onRunPaidScene, onRedoPaidScene, onAuditPaidScene, busy } = useContext(CanvasActionsContext);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
+  const [auditing, setAuditing] = useState(false);
+  const [qaResult, setQaResult] = useState<{ ok: boolean; sintomas: string[]; resumen: string } | null>(null);
   const canRunSingle = Boolean(
     data.paidSceneId &&
       onRunPaidScene &&
@@ -290,6 +317,12 @@ function ProductionNodeView({ data }: { data: Extract<DirectorNode['data'], { ki
     data.paidSceneId &&
       onRedoPaidScene &&
       (data.paidEstado === 'lista' || data.paidEstado === 'fallida')
+  );
+  const canAuditClip = Boolean(
+    data.paidSceneId &&
+      onAuditPaidScene &&
+      data.titulo === 'Clip' &&
+      data.paidEstado === 'lista'
   );
   const isVertical = data.aspectRatio === '9:16';
 
@@ -373,7 +406,26 @@ function ProductionNodeView({ data }: { data: Extract<DirectorNode['data'], { ki
 
       {data.detalle && <p className="mt-1 text-[10px] leading-snug text-fg-subtle">{data.detalle}</p>}
 
-      {(canRunSingle || canRedoSingle) && (
+      {qaResult && (
+        <div
+          className={`mt-1.5 rounded-md border p-1.5 text-[10px] leading-snug ${
+            qaResult.ok
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-1 font-medium">
+            {qaResult.ok ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <AlertTriangle className="h-3 w-3 shrink-0" />}
+            <span>{qaResult.ok ? 'Realismo OK (9/9)' : `${qaResult.sintomas.length} síntoma(s) IA`}</span>
+          </div>
+          {qaResult.sintomas.length > 0 && (
+            <p className="mt-0.5 text-[9.5px] opacity-90">{qaResult.sintomas.join(' · ')}</p>
+          )}
+          {qaResult.resumen && <p className="mt-0.5 text-[9.5px] opacity-80">{qaResult.resumen}</p>}
+        </div>
+      )}
+
+      {(canRunSingle || canRedoSingle || canAuditClip) && (
         <div className="nodrag nopan mt-1.5 flex flex-wrap items-center gap-1 border-t border-line pt-1.5" onClick={(ev) => ev.stopPropagation()}>
           {canRunSingle && (
             <button
@@ -395,6 +447,26 @@ function ProductionNodeView({ data }: { data: Extract<DirectorNode['data'], { ki
               title="Archivar versión actual y pedir nueva aprobación para rehacer solo este nodo"
             >
               <RefreshCw className="h-2.5 w-2.5" /> Rehacer
+            </button>
+          )}
+          {canAuditClip && (
+            <button
+              type="button"
+              disabled={busy || auditing}
+              onClick={async () => {
+                if (!data.paidSceneId || !onAuditPaidScene) return;
+                setAuditing(true);
+                try {
+                  const res = await onAuditPaidScene(data.paidSceneId);
+                  if (res) setQaResult(res);
+                } finally {
+                  setAuditing(false);
+                }
+              }}
+              className="btn-secondary h-6 px-1.5 text-[10px]"
+              title="Revisar el clip con Gemini Visión ($0) contra los 9 síntomas de IA de Buzzy"
+            >
+              {auditing ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <SearchCheck className="h-2.5 w-2.5" />} QA
             </button>
           )}
         </div>

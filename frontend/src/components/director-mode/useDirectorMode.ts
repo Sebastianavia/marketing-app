@@ -235,7 +235,7 @@ export function useDirectorMode(enabled = true) {
    */
   const produce = useCallback(
     async (
-      accion: 'preparar' | 'generar' | 'rehacer_pago' | 'estado' | 'montar',
+      accion: 'preparar' | 'generar' | 'rehacer_pago' | 'auditar_clip' | 'estado' | 'montar',
       extra: Record<string, unknown> = {}
     ): Promise<Record<string, unknown> | null> => {
       const current = prodRef.current;

@@ -16,7 +16,7 @@ export type NodeTone = 'ok' | 'review' | 'stale' | 'pending' | 'blocked' | 'erro
 export type DirectorNodeData =
   | { kind: 'idea'; tone: NodeTone; d: DirectorState }
   | { kind: 'direccion'; tone: NodeTone; d: DirectorState }
-  | { kind: 'escena'; tone: NodeTone; d: DirectorState; scene: DirectorScene }
+  | { kind: 'escena'; tone: NodeTone; d: DirectorState; scene: DirectorScene; pid?: string; thumbUrl?: string; videoUrl?: string }
   | { kind: 'prompt'; tone: NodeTone; d: DirectorState; scene: DirectorScene }
   | { kind: 'guion-pendiente'; tone: NodeTone; d: DirectorState }
   | { kind: 'etiqueta'; tone: NodeTone; d: DirectorState; tag: DirectorTag; pid: string }
@@ -137,14 +137,14 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
         ? { selectable: false, focusable: false }
         : {}),
     });
-  const link = (source: string, target: string, future = false, cls?: string) =>
+  const link = (source: string, target: string, future = false, cls?: string, animated = false) =>
     edges.push({
       id: `${source}->${target}`,
       source,
       target,
       type: 'smoothstep',
       className: cls ?? (future ? 'lulo-edge-future' : 'lulo-edge'),
-      animated: false,
+      animated,
     });
 
   // Columna de referencias: una etiqueta por nodo, más "Sin etiqueta" si hay archivos sueltos
@@ -186,9 +186,36 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
   const promptsStarted = scenes.some((s) => s.prompt);
   scenes.forEach((s, i) => {
     const y = i * ROW;
-    add(nodeId.escena(s.id), X.escena, y, { kind: 'escena', tone: guionTone, d, scene: s });
+    const m = gen?.mapa.find((x) => x.escenaId === s.id);
+    const clip = m && paidById.get(m.clip);
+    const img = m?.imagen ? paidById.get(m.imagen) : undefined;
+    const media = (paidId: string, rol: 'imagen' | 'clip', v: number) => `/api/director-mode/${pid}/produccion?escena=${paidId}&rol=${rol}&v=${v}`;
+    const sceneThumb = img?.estado === 'lista' && m?.imagen ? media(img.id, 'imagen', Math.round(img.gastoUSD * 1e4)) : undefined;
+    const sceneVideo = clip?.estado === 'lista' && m ? media(clip.id, 'clip', Math.round(clip.gastoUSD * 1e4)) : undefined;
+
+    add(nodeId.escena(s.id), X.escena, y, {
+      kind: 'escena',
+      tone: guionTone,
+      d,
+      scene: s,
+      pid,
+      thumbUrl: sceneThumb,
+      videoUrl: sceneVideo,
+    });
     link(nodeId.direccion, nodeId.escena(s.id));
-    for (const t of sceneTags(d, s)) link(nodeId.etiqueta(t.id), nodeId.escena(s.id), false, 'lulo-edge-ref');
+    for (const t of sceneTags(d, s)) {
+      const edgeCls =
+        t.tipo === 'personaje'
+          ? 'lulo-edge-personaje'
+          : t.tipo === 'lugar'
+            ? 'lulo-edge-lugar'
+            : t.tipo === 'producto'
+              ? 'lulo-edge-producto'
+              : t.tipo === 'estilo'
+                ? 'lulo-edge-estilo'
+                : 'lulo-edge-ref';
+      link(nodeId.etiqueta(t.id), nodeId.escena(s.id), false, edgeCls);
+    }
 
     // Sin prompt: bloqueado o pendiente (en ámbar si los demás ya existen). Con prompt viejo: desactualizado.
     const promptTone: NodeTone = !s.prompt
@@ -204,14 +231,10 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
     link(nodeId.escena(s.id), nodeId.prompt(s.id));
 
     // Con la producción preparada, imagen y clip muestran su estado real
-    const m = gen?.mapa.find((x) => x.escenaId === s.id);
-    const clip = m && paidById.get(m.clip);
-    const media = (paidId: string, rol: 'imagen' | 'clip', v: number) => `/api/director-mode/${pid}/produccion?escena=${paidId}&rol=${rol}&v=${v}`;
     const detail = (x: PaidSceneLite) => (x.estado === 'fallida' && x.error ? x.error.slice(0, 80) : x.gastoUSD > 0 ? `${usd(x.gastoUSD)} gastado` : `≈ ${usd(x.estimadoUSD)}`);
     if (gen && m && clip) {
       const st = PAID_STATE[clip.estado];
       const voz = m.voz ? paidById.get(m.voz) : undefined;
-      const img = m.imagen ? paidById.get(m.imagen) : undefined;
       if (m.imagen && img) {
         add(nodeId.imagen(s.id), X.imagen, y + 40, {
           kind: 'produccion',
@@ -223,11 +246,16 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
           paidSceneId: img.id,
           paidEstado: img.estado,
           aspectRatio: d.ajustes.formato,
-          ...(img.estado === 'lista' ? { thumb: media(img.id, 'imagen', Math.round(img.gastoUSD * 1e4)) } : {}),
+          ...(img.estado === 'lista' ? { thumb: sceneThumb } : {}),
         });
-        link(nodeId.prompt(s.id), nodeId.imagen(s.id), img.estado !== 'lista');
+        link(
+          nodeId.prompt(s.id),
+          nodeId.imagen(s.id),
+          img.estado !== 'lista' && img.estado !== 'generando',
+          img.estado === 'generando' ? 'lulo-edge-generating' : undefined,
+          img.estado === 'generando'
+        );
       }
-      const clipMediaUrl = clip.estado === 'lista' ? media(clip.id, 'clip', Math.round(clip.gastoUSD * 1e4)) : undefined;
       add(nodeId.clip(s.id), m.imagen ? X.clip + 40 : X.imagen + 60, y + 40, {
         kind: 'produccion',
         tone: voz && voz.estado !== 'lista' && clip.estado === 'lista' ? PAID_STATE[voz.estado].tone : st.tone,
@@ -238,9 +266,15 @@ export function buildGraph(d: DirectorState, pid = '', paid: PaidSceneLite[] = [
         paidSceneId: clip.id,
         paidEstado: clip.estado,
         aspectRatio: d.ajustes.formato,
-        ...(clipMediaUrl ? { videoUrl: clipMediaUrl, href: clipMediaUrl } : {}),
+        ...(sceneVideo ? { videoUrl: sceneVideo, href: sceneVideo } : {}),
       });
-      link(m.imagen ? nodeId.imagen(s.id) : nodeId.prompt(s.id), nodeId.clip(s.id), clip.estado !== 'lista');
+      link(
+        m.imagen ? nodeId.imagen(s.id) : nodeId.prompt(s.id),
+        nodeId.clip(s.id),
+        clip.estado !== 'lista' && clip.estado !== 'generando',
+        clip.estado === 'generando' ? 'lulo-edge-generating' : undefined,
+        clip.estado === 'generando'
+      );
     } else if (s.tipo === 'broll') {
       // Antes de preparar: se elige modelo, calidad e imagen inicial de cada toma
       add(nodeId.imagen(s.id), X.imagen, y + 40, { kind: 'imagen-config', tone: 'pending', d, scene: s });

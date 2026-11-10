@@ -1,8 +1,6 @@
 {
-  "git.repositoryScanMaxDepth": 1,
-  "git.autoRepositoryDetection": false,
-  "git.ignoredRepositories": [
-    "frontend",
-    "d:/github/app- marketing/frontend"
+  "css.lint.unknownAtRules": "ignore",
+  "css.lint.validProperties": [
+    "app-region"
   ]
 }

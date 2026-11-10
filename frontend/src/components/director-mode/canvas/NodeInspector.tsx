@@ -1,8 +1,15 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Check, Loader2, RefreshCw, Save, Sparkles, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, Check, Loader2, Plus, RefreshCw, Save, Sparkles, Trash2, X } from 'lucide-react';
 import type { AvatarDto } from '@/lib/avatars/avatar-dto';
+import {
+  CHARACTER_REF_MODES,
+  CINEMA_CATEGORIES,
+  EMPTY_SET_PROMPT_PREFIX,
+  STYLE_PRESETS,
+  type CharacterRefMode,
+} from '@/config/cinema-controls';
 import { IMAGE_MODELS, getImageModel } from '@/config/image-models';
 import { parseNodeId } from './build-graph';
 import { tagKindLabel } from '@/lib/director-mode/mentions';
@@ -19,10 +26,10 @@ interface Props {
 
 /**
  * Inspector flotante de edición directa en el Lienzo (estilo Buzzy):
- * - Escena: editar qué se ve, diálogo, duración, insertar @etiquetas en 1 clic o rehacer con IA.
- * - Prompt: editar el prompt visual directamente ($0) o regenerarlo con IA.
- * - @Etiqueta: editar nombre/descripción, vincular un Avatar de Lulo Studio o generar una foto maestra
- *   de referencia con Nano Banana Pro / Seedream 5.0 Pro / GPT Image 2 y adjuntarla a la etiqueta.
+ * - Escena: editar qué se ve, diálogo, duración, píldoras de cámara/luz, insertar/mover/borrar escena o rehacer con IA.
+ * - Prompt: editar el prompt visual directamente ($0), aplicar píldoras de dirección de fotografía o regenerar con IA.
+ * - @Etiqueta: vincular Avatar de Lulo Studio, usar presets de @estilo, generar escenario vacío en @lugar o
+ *   generar Ficha 3 vistas (Turnaround) en @personaje con Nano Banana Pro / Seedream 5.0 Pro / GPT Image 2.
  */
 export function NodeInspector({ dm, selectedId, onClose }: Props) {
   const p = dm.production;
@@ -54,12 +61,14 @@ export function NodeInspector({ dm, selectedId, onClose }: Props) {
 
 function SceneInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; onClose: () => void }) {
   const d = dm.production!.director!;
-  const scene = d.guion!.escenas.find((s) => s.id === sceneId)!;
+  const scenes = d.guion!.escenas;
+  const scene = scenes.find((s) => s.id === sceneId)!;
   const [tipo, setTipo] = useState<DirectorSceneType>(scene.tipo);
   const [duracionSeg, setDuracionSeg] = useState<number>(scene.duracionSeg);
   const [queSeVe, setQueSeVe] = useState(scene.queSeVe);
   const [dialogo, setDialogo] = useState(scene.dialogo);
   const [indicacion, setIndicacion] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
   const tags = d.etiquetas ?? [];
 
   // Si la escena cambia por fuera (IA, otra pestaña), el formulario se pone al día (ajuste durante el render)
@@ -77,6 +86,14 @@ function SceneInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; onC
     const token = `@${mencion}`;
     if (queSeVe.includes(token)) return;
     setQueSeVe((cur) => `${cur.trim()}${cur.trim() ? ' ' : ''}${token} `);
+  };
+
+  const applyCinemaEs = (phraseEs: string) => {
+    if (queSeVe.toLowerCase().includes(phraseEs.toLowerCase())) return;
+    setQueSeVe((cur) => {
+      const clean = cur.trim().replace(/\.$/, '');
+      return clean ? `${clean}, ${phraseEs}.` : `${phraseEs}.`;
+    });
   };
 
   const save = () =>
@@ -100,13 +117,58 @@ function SceneInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; onC
     );
 
   return (
-    <div className="nodrag nopan absolute right-3 top-14 z-20 w-80 max-w-[calc(100%-24px)] space-y-2.5 rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
+    <div className="nodrag nopan absolute right-3 top-14 z-20 max-h-[calc(100%-70px)] w-84 max-w-[calc(100%-24px)] space-y-2.5 overflow-y-auto rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
       <div className="flex items-center justify-between">
         <span className="text-[12.5px] font-semibold text-fg">Editar Escena {scene.orden}</span>
         <button type="button" onClick={onClose} className="text-fg-subtle hover:text-fg cursor-pointer" aria-label="Cerrar inspector">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* Acciones de estructura del guion ($0) */}
+      {!scene.audio && (
+        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-surface-2 p-1 text-[10.5px]">
+          <button
+            type="button"
+            disabled={!!dm.busy || scene.orden <= 1}
+            onClick={() => void dm.act({ accion: 'mover_escena', escenaId: scene.id, direccion: 'arriba' }, `mover:${scene.id}`)}
+            className="btn-secondary h-6 px-2 text-[10.5px]"
+            title="Subir escena de posición"
+          >
+            <ArrowUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            disabled={!!dm.busy || scene.orden >= scenes.length}
+            onClick={() => void dm.act({ accion: 'mover_escena', escenaId: scene.id, direccion: 'abajo' }, `mover:${scene.id}`)}
+            className="btn-secondary h-6 px-2 text-[10.5px]"
+            title="Bajar escena de posición"
+          >
+            <ArrowDown className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            disabled={!!dm.busy || scenes.length >= 25}
+            onClick={() => void dm.act({ accion: 'insertar_escena', despuesDeId: scene.id }, `insertar:${scene.id}`)}
+            className="btn-secondary h-6 flex-1 px-2 text-[10.5px]"
+            title="Insertar una escena nueva justo después de esta ($0)"
+          >
+            <Plus className="h-3 w-3" /> Escena después
+          </button>
+          <button
+            type="button"
+            disabled={!!dm.busy || scenes.length <= 1}
+            onClick={() => {
+              void dm.act({ accion: 'borrar_escena', escenaId: scene.id }, `borrar:${scene.id}`);
+              onClose();
+            }}
+            className="btn-secondary h-6 px-2 text-[10.5px] text-red-600 hover:text-red-700 dark:text-red-400"
+            title="Eliminar esta escena ($0)"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <label className="space-y-0.5 text-[11px] text-fg-subtle">
@@ -145,6 +207,47 @@ function SceneInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; onC
           className="input-clean w-full resize-y p-2 text-[12px] leading-snug text-fg"
         />
       </label>
+
+      {/* Píldoras de dirección de cámara y luz (estilo Buzzy, $0) */}
+      <div className="rounded-lg border border-line bg-surface-2/60 p-2">
+        <button
+          type="button"
+          onClick={() => setCameraOpen((v) => !v)}
+          className="flex w-full items-center justify-between text-[11px] font-medium text-fg cursor-pointer"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <Camera className="h-3.5 w-3.5 text-fg-subtle" /> Dirección de cámara y luz ($0)
+          </span>
+          <span className="text-[10px] text-fg-subtle">{cameraOpen ? 'Ocultar' : 'Elegir plano'}</span>
+        </button>
+        {cameraOpen && (
+          <div className="mt-2 space-y-1.5 border-t border-line pt-2">
+            {CINEMA_CATEGORIES.map((cat) => (
+              <div key={cat.id} className="space-y-1">
+                <span className="block text-[9.5px] font-medium uppercase tracking-wider text-fg-subtle">{cat.nombre}</span>
+                <div className="flex flex-wrap gap-1">
+                  {cat.opciones.map((op) => {
+                    const active = queSeVe.toLowerCase().includes(op.es.toLowerCase());
+                    return (
+                      <button
+                        key={op.id}
+                        type="button"
+                        onClick={() => applyCinemaEs(op.es)}
+                        className={`rounded px-1.5 py-0.5 text-[10px] transition-colors cursor-pointer ${
+                          active ? 'bg-accent text-accent-fg font-medium' : 'bg-surface text-fg-muted hover:text-fg'
+                        }`}
+                        title={op.es}
+                      >
+                        {op.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {tags.length > 0 && (
         <div className="flex flex-wrap items-center gap-1">
@@ -209,6 +312,16 @@ function PromptInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; on
     setTexto(promptText);
   }
 
+  const toggleCinemaEn = (directiveEn: string) => {
+    setTexto((cur) => {
+      if (cur.includes(directiveEn)) {
+        return cur.replace(directiveEn, '').replace(/\s{2,}/g, ' ').trim();
+      }
+      const clean = cur.trim();
+      return clean ? `${clean.replace(/\.?$/, '.')} ${directiveEn}` : directiveEn;
+    });
+  };
+
   const save = () => {
     if (!texto.trim()) return;
     void dm.act({ accion: 'editar_prompt', escenaId: scene.id, texto: texto.trim() }, `editar_prompt:${scene.id}`);
@@ -221,12 +334,42 @@ function PromptInspector({ dm, sceneId, onClose }: { dm: DM; sceneId: string; on
     );
 
   return (
-    <div className="nodrag nopan absolute right-3 top-14 z-20 w-80 max-w-[calc(100%-24px)] space-y-2.5 rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
+    <div className="nodrag nopan absolute right-3 top-14 z-20 max-h-[calc(100%-70px)] w-84 max-w-[calc(100%-24px)] space-y-2.5 overflow-y-auto rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
       <div className="flex items-center justify-between">
         <span className="text-[12.5px] font-semibold text-fg">Prompt · Escena {scene.orden}</span>
         <button type="button" onClick={onClose} className="text-fg-subtle hover:text-fg cursor-pointer" aria-label="Cerrar inspector">
           <X className="h-3.5 w-3.5" />
         </button>
+      </div>
+
+      {/* Píldoras de dirección cinematográfica en inglés ($0) */}
+      <div className="space-y-1.5 rounded-lg border border-line bg-surface-2/60 p-2">
+        <span className="flex items-center gap-1 text-[10.5px] font-medium text-fg">
+          <Camera className="h-3 w-3 text-fg-subtle" /> Cámara e iluminación en 1 clic ($0)
+        </span>
+        {CINEMA_CATEGORIES.map((cat) => (
+          <div key={cat.id} className="space-y-0.5">
+            <span className="block text-[9px] font-medium uppercase tracking-wider text-fg-subtle">{cat.nombre}</span>
+            <div className="flex flex-wrap gap-1">
+              {cat.opciones.map((op) => {
+                const active = texto.includes(op.en);
+                return (
+                  <button
+                    key={op.id}
+                    type="button"
+                    onClick={() => toggleCinemaEn(op.en)}
+                    className={`rounded px-1.5 py-0.5 text-[10px] transition-colors cursor-pointer ${
+                      active ? 'bg-accent text-accent-fg font-medium' : 'bg-surface text-fg-muted hover:text-fg'
+                    }`}
+                    title={op.en}
+                  >
+                    {op.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <label className="block space-y-1 text-[11px] text-fg-subtle">
@@ -269,6 +412,8 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
   const [avatarId, setAvatarId] = useState<string>(tag.avatarId ?? '');
   const [avatars, setAvatars] = useState<AvatarDto[]>([]);
   const [genModel, setGenModel] = useState<string>('gemini-3-pro-image-preview');
+  const [charMode, setCharMode] = useState<CharacterRefMode>('turnaround');
+  const [emptySet, setEmptySet] = useState<boolean>(true);
   const [generatingRef, setGeneratingRef] = useState(false);
 
   const tagSig = `${tag.rev}|${tag.nombre}|${tag.tipo}|${tag.descripcion}|${tag.avatarId ?? ''}`;
@@ -301,20 +446,34 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
       `guardar_etiqueta:${tag.id}`
     );
 
+  const buildRefPrompt = (): string => {
+    const desc = descripcion.trim() || `${nombre} (${tagKindLabel(tipo).label})`;
+    if (tipo === 'personaje') {
+      const modeSpec = CHARACTER_REF_MODES.find((m) => m.id === charMode) ?? CHARACTER_REF_MODES[0];
+      return modeSpec.buildPrompt(desc, nombre);
+    }
+    if (tipo === 'lugar' && emptySet) {
+      return `${EMPTY_SET_PROMPT_PREFIX}${desc}. Consistent architectural layout and natural ambient lighting.`;
+    }
+    return `${desc}, studio reference sheet, clean natural lighting, high detail`;
+  };
+
   const generateMasterRef = async () => {
-    const promptText = descripcion.trim() || `${nombre} (${tagKindLabel(tipo).label}), studio reference sheet, clean lighting, high detail`;
+    const promptText = buildRefPrompt();
     setGeneratingRef(true);
     dm.setError(null);
     try {
       const modelSpec = getImageModel(genModel);
       const res = modelSpec.defaultResolution || modelSpec.resolutions[0];
+      // La ficha de 3 vistas aprovecha mejor formato horizontal 16:9 si el modelo lo admite
+      const aspectRatio = tipo === 'personaje' && charMode === 'turnaround' ? '16:9' : d.ajustes.formato;
       const r = await fetch('/api/images/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: modelSpec.id,
           prompt: promptText,
-          aspectRatio: d.ajustes.formato,
+          aspectRatio,
           resolution: res,
           count: 1,
           realism: true,
@@ -326,7 +485,8 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
       }
       const imgBlob = await fetch(data.images[0].url).then((x) => x.blob());
       const ext = imgBlob.type.includes('jpeg') ? 'jpg' : 'png';
-      const file = new File([imgBlob], `${tag.mencion}-ref.${ext}`, { type: imgBlob.type || 'image/png' });
+      const suffix = tipo === 'personaje' && charMode === 'turnaround' ? '3vistas' : 'ref';
+      const file = new File([imgBlob], `${tag.mencion}-${suffix}.${ext}`, { type: imgBlob.type || 'image/png' });
       await dm.uploadRefs([file], { etiquetaId: tag.id });
     } catch (err) {
       dm.setError(err instanceof Error ? err.message : 'No se pudo generar la referencia.');
@@ -336,7 +496,7 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
   };
 
   return (
-    <div className="nodrag nopan absolute right-3 top-14 z-20 w-80 max-w-[calc(100%-24px)] space-y-2.5 rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
+    <div className="nodrag nopan absolute right-3 top-14 z-20 max-h-[calc(100%-70px)] w-84 max-w-[calc(100%-24px)] space-y-2.5 overflow-y-auto rounded-xl border border-line bg-surface/95 p-3.5 shadow-lg backdrop-blur-md">
       <div className="flex items-center justify-between">
         <span className="text-[12.5px] font-semibold text-fg">
           Etiqueta @{tag.mencion}
@@ -376,6 +536,28 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
         </label>
       )}
 
+      {tipo === 'estilo' && (
+        <div className="space-y-1 rounded-lg border border-line bg-surface-2/60 p-2">
+          <span className="block text-[10px] font-medium text-fg-subtle">Biblioteca de estilos en 1 clic ($0):</span>
+          <div className="grid grid-cols-2 gap-1">
+            {STYLE_PRESETS.map((st) => (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => {
+                  setNombre(st.nombre);
+                  setDescripcion(st.descripcionEn);
+                }}
+                className="rounded border border-line bg-surface px-2 py-1 text-left text-[10.5px] text-fg hover:border-line-strong cursor-pointer"
+                title={st.descripcionEn}
+              >
+                {st.icono} {st.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <label className="block space-y-1 text-[11px] text-fg-subtle">
         <span>Descripción visual (se inyecta en las escenas que usan @{tag.mencion})</span>
         <textarea
@@ -392,7 +574,35 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
       </button>
 
       <div className="space-y-1.5 border-t border-line pt-2">
-        <span className="block text-[10.5px] text-fg-subtle">Generar foto maestra de referencia con IA</span>
+        <span className="block text-[10.5px] font-medium text-fg">Generar ADN visual de referencia con IA</span>
+
+        {tipo === 'personaje' && (
+          <label className="block space-y-0.5 text-[10.5px] text-fg-subtle">
+            <span>Formato de ficha de personaje</span>
+            <select
+              value={charMode}
+              onChange={(e) => setCharMode(e.target.value as CharacterRefMode)}
+              className="input-clean h-7 w-full px-1.5 text-[11px] text-fg"
+            >
+              {CHARACTER_REF_MODES.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <span className="block text-[9.5px] text-fg-subtle">
+              {CHARACTER_REF_MODES.find((m) => m.id === charMode)?.hint}
+            </span>
+          </label>
+        )}
+
+        {tipo === 'lugar' && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-[10.5px] text-fg-muted">
+            <input type="checkbox" checked={emptySet} onChange={(e) => setEmptySet(e.target.checked)} />
+            <span>🏛️ Escenario vacío (sin personas, regla de Buzzy)</span>
+          </label>
+        )}
+
         <select value={genModel} onChange={(e) => setGenModel(e.target.value)} className="input-clean h-7 w-full px-1.5 text-[11px] text-fg">
           {IMAGE_MODELS.map((im) => {
             const defRes = im.defaultResolution || im.resolutions[0];
@@ -405,10 +615,15 @@ function TagInspector({ dm, tagId, onClose }: { dm: DM; tagId: string; onClose: 
         </select>
         <button type="button" disabled={generatingRef || !!dm.busy} onClick={generateMasterRef} className="btn-secondary h-7 w-full px-2.5 text-[11px]">
           {generatingRef ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-          {generatingRef ? 'Generando foto para @' + tag.mencion + '…' : `Generar foto para @${tag.mencion}`}
+          {generatingRef
+            ? `Generando para @${tag.mencion}…`
+            : tipo === 'personaje' && charMode === 'turnaround'
+              ? `Generar ficha 3 vistas de @${tag.mencion}`
+              : tipo === 'lugar' && emptySet
+                ? `Generar escenario vacío @${tag.mencion}`
+                : `Generar foto para @${tag.mencion}`}
         </button>
       </div>
     </div>
   );
 }
-
