@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getDataDir } from '@/lib/data/data-dir';
+import { getStorageBasePath } from '@/lib/storage/project-storage';
 import { errorMessage } from '@/lib/errors';
 import { recordUsage } from '@/lib/usage/usage-store';
 import { resolveFfmpegPath } from '@/lib/video/ffmpeg';
@@ -39,34 +40,47 @@ export function sandboxMode(): SandboxMode {
   return process.env.LULO_CLAUDE_BASH_SIN_AISLAMIENTO === '0' ? 'sin_bash' : 'sin_aislamiento';
 }
 
-/** Dominios a los que Bash puede conectarse para descargar herramientas y recursos. */
-const BASE_DOMAINS = [
-  'pypi.org',
-  'files.pythonhosted.org',
-  'github.com',
-  '*.github.com',
-  '*.githubusercontent.com',
-  'huggingface.co',
-  '*.huggingface.co',
-  '*.hf.co',
-  'download.pytorch.org',
-  'registry.npmjs.org',
-  '*.npmjs.org',
-  'fonts.googleapis.com',
-  'fonts.gstatic.com',
-  'ffmpeg.org',
-  '*.ffmpeg.org',
-  'evermeet.cx',
-  'www.gyan.dev',
-  'johnvansickle.com',
-];
-
+/**
+ * Red de Bash en el sandbox: toda internet ('*'), a petición del dueño (2026-11-10). Localhost sigue
+ * bloqueado por el sandbox (probado: example.com 200, localhost:3000 sin conexión), así Claude no
+ * puede llamar a la app para aprobarse gastos. LULO_CLAUDE_DOMINIOS (lista con comas) la restringe.
+ */
 export function allowedDomains(): string[] {
-  const extra = (process.env.LULO_CLAUDE_DOMINIOS ?? '')
+  const only = (process.env.LULO_CLAUDE_DOMINIOS ?? '')
     .split(',')
     .map((d) => d.trim())
     .filter(Boolean);
-  return [...new Set([...BASE_DOMAINS, ...extra])];
+  return only.length ? only : ['*'];
+}
+
+/** Secretos que ningún Claude de la app lee (ni con Read ni con Bash en el sandbox). */
+function secretPaths(): string[] {
+  const h = os.homedir();
+  const j = (...x: string[]) => path.join(/*turbopackIgnore: true*/ h, ...x);
+  const list = [
+    j('.ssh'), j('.aws'), j('.gnupg'), j('.config', 'gh'), j('.netrc'), j('.docker'), j('.kube'), j('.npmrc'), j('.pypirc'),
+    j('.claude', '.credentials.json'),
+    path.join(/*turbopackIgnore: true*/ getDataDir(), 'director-token'),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), '.env.local'),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), '..', '.env'),
+  ];
+  if (process.platform === 'darwin') {
+    list.push(
+      j('Library', 'Keychains'),
+      j('Library', 'Cookies'),
+      j('Library', 'Application Support', 'Google'),
+      j('Library', 'Application Support', 'BraveSoftware'),
+      j('Library', 'Application Support', 'Firefox'),
+      j('Library', 'Application Support', 'Microsoft Edge')
+    );
+  } else if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA ?? j('AppData', 'Local');
+    const roaming = process.env.APPDATA ?? j('AppData', 'Roaming');
+    list.push(path.join(local, 'Google'), path.join(local, 'BraveSoftware'), path.join(local, 'Microsoft', 'Edge'), path.join(roaming, 'Mozilla'), path.join(roaming, 'Microsoft', 'Credentials'), path.join(local, 'Microsoft', 'Credentials'));
+  } else {
+    list.push(j('.config', 'google-chrome'), j('.mozilla'));
+  }
+  return list;
 }
 
 /** URL de la app para el servidor MCP cuando no hay una petición de la que sacarla (runners). */
@@ -83,6 +97,8 @@ export interface AgentContext {
   fuentes: string;
   modelos: string;
   domains: string[];
+  /** Carpetas donde puede crear y cambiar archivos. */
+  escribir: string[];
 }
 
 /** Bloque común del prompt: qué puede ejecutar Claude y dónde. */
@@ -90,9 +106,12 @@ export function bashRules(ctx: AgentContext, carpeta: string): string {
   if (ctx.mode === 'sin_bash') {
     return '- Bash está desactivado en este PC: trabaja con las herramientas de Lulo y los archivos de la carpeta. Si algo exige ejecutar programas, explícale a la persona que debe activarlo.';
   }
-  return `- Puedes usar Bash: FFmpeg completo en \`${ctx.ffmpeg}\`${ctx.python ? `, Python en \`${ctx.python}\`` : ''}. Para instalar algo usa SOLO la carpeta de herramientas \`${ctx.tools}\` (p. ej. \`pip install --target "${path.join(ctx.tools, 'py')}" paquete\`, binarios en \`${path.join(ctx.tools, 'bin')}\`, descargas en \`${path.join(ctx.tools, 'descargas')}\`). Ya está en PATH y PYTHONPATH.
-- Trabaja dentro de ${carpeta} (subcarpeta \`claude/\` para tus archivos). Para ver imágenes o fotogramas, guárdalos ahí y míralos con Read: fuera de esa carpeta no puedes leer.
-- La red solo deja descargar de: ${ctx.domains.join(', ')}. Si necesitas otro sitio, dilo a la persona (puede añadirlo en LULO_CLAUDE_DOMINIOS).${ctx.mode === 'aislado' ? '\n- Bash corre aislado: solo escribe en la carpeta del proyecto, la de herramientas y temporales; no puede leer el resto de la carpeta personal ni conectarse a localhost.' : ''}`;
+  const red = ctx.domains.includes('*')
+    ? 'Tienes acceso a toda internet (fuentes, imágenes libres, música sin copyright, paquetes, lo que necesites).'
+    : `La red solo deja descargar de: ${ctx.domains.join(', ')}.`;
+  return `- Puedes usar Bash con libertad: FFmpeg completo en \`${ctx.ffmpeg}\`${ctx.python ? `, Python en \`${ctx.python}\`` : ''}. Para instalar programas usa la carpeta de herramientas \`${ctx.tools}\` (p. ej. \`pip install --target "${path.join(ctx.tools, 'py')}" paquete\`, binarios en \`${path.join(ctx.tools, 'bin')}\`, descargas en \`${path.join(ctx.tools, 'descargas')}\`); ya está en PATH y PYTHONPATH.
+- Tu carpeta de trabajo es ${carpeta} (subcarpeta \`claude/\` para tus archivos). Puedes LEER cualquier carpeta del equipo (salvo credenciales y claves) y ESCRIBIR en: ${ctx.escribir.join(' · ')}. No borres ni sobrescribas originales de la persona: crea archivos nuevos.
+- ${red} Lo único bloqueado es la propia app (localhost) y los secretos.`;
 }
 
 export interface AgentSpec {
@@ -124,7 +143,28 @@ export interface AgentSpec {
   material?: { comoUsar: string };
 }
 
-type AgentDirs = { tools: string; fuentes: string; modelos: string; skills: string | null; material: string | null };
+type AgentDirs = {
+  tools: string;
+  fuentes: string;
+  modelos: string;
+  skills: string | null;
+  material: string | null;
+  /** Carpeta de proyectos de Lulo (Claude puede escribir en toda ella). */
+  proyectos: string | null;
+};
+
+/** Carpetas donde Claude escribe (la suya primero); las demás también van como --add-dir. */
+function writableDirs(spec: AgentSpec, dirs: AgentDirs): string[] {
+  return [...new Set([spec.cwd, dirs.tools, dirs.proyectos, dirs.material].filter((d): d is string => !!d))];
+}
+
+/** Cachés y temporales de npm, pip, HyperFrames, Chrome… (escritura en el sandbox). */
+function cacheDirs(): string[] {
+  const h = os.homedir();
+  const list = [path.join(/*turbopackIgnore: true*/ h, '.cache'), path.join(/*turbopackIgnore: true*/ h, '.npm'), os.tmpdir()];
+  if (process.platform === 'darwin') list.push(path.join(/*turbopackIgnore: true*/ h, 'Library', 'Caches'));
+  return list;
+}
 
 // ---------------------------------------------------------------------------
 // Turnos en curso (en memoria; el historial queda en el proyecto)
@@ -252,7 +292,11 @@ const AGENT_DENY = [
   'Bash(*localhost:3000*)',
   'Bash(*127.0.0.1:3000*)',
   'Read(**/.env.local)',
+  'Read(**/.env)',
   'Read(**/director-token)',
+  // Estado de la app (lo cambian sus herramientas, no a mano)
+  'Edit(**/produccion.json)',
+  'Edit(**/project-metadata.json)',
   'WebFetch(domain:localhost)',
   'WebFetch(domain:127.0.0.1)',
   // Su propia configuración (se reescribe en cada turno, pero mejor que no la toque)
@@ -284,10 +328,9 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
         // localhost; en Windows (sin sandbox) esto evita que Claude se apruebe a sí mismo con un
         // comando o lea el token del Director o las claves.
         ...AGENT_DENY,
-        // La carpeta de material NO lleva regla Edit(...) propia: en modo dontAsk Edit/Write ya solo
-        // valen en la carpeta del proyecto y la de herramientas, y el sandbox no deja escribir ahí con
-        // Bash. Una regla de denegación sobre ella hacía que Claude Code rechazara comandos compuestos
-        // que solo la LEEN (cp desde el material + ffmpeg), probado 2026-11-10.
+        ...secretPaths().flatMap((p) => [`Read(/${rulePath(p)})`, `Read(/${rulePath(p)}/**)`]),
+        // Sin reglas de denegación sobre carpetas que Claude usa (material…): hacían que Claude Code
+        // rechazara comandos compuestos que las mencionan (probado 2026-11-10).
       ],
     },
   };
@@ -297,12 +340,12 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
       failIfUnavailable: true,
       allowUnsandboxedCommands: false,
       autoAllowBashIfSandboxed: true,
+      // Libertad (pedido del dueño, 2026-11-10): lee todo el equipo salvo secretos y escribe en sus
+      // carpetas de trabajo, la de proyectos, la de material, herramientas, cachés y temporales
       filesystem: {
-        // ~/.cache/hyperframes: el CLI de HyperFrames guarda ahí su historial aunque haya XDG_CACHE_HOME
-        allowWrite: [spec.cwd, dirs.tools, ...(dirs.skills ? [path.join(os.homedir(), '.cache', 'hyperframes')] : [])],
+        allowWrite: [...writableDirs(spec, dirs), ...cacheDirs()],
         denyWrite: spec.protectedFiles.map((f) => path.join(/*turbopackIgnore: true*/ spec.cwd, f)),
-        denyRead: ['~/'],
-        allowRead: [spec.cwd, dirs.tools, dirs.fuentes, dirs.modelos, ...(dirs.skills ? [dirs.skills, path.join(os.homedir(), '.cache', 'hyperframes')] : []), ...(dirs.material ? [dirs.material] : [])],
+        denyRead: secretPaths(),
       },
       network: { allowedDomains: allowedDomains(), allowLocalBinding: false },
     };
@@ -313,21 +356,20 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
 function allowedTools(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode): string[] {
   const abs = (d: string) => `/${rulePath(d)}/**`;
   const list = [
-    'Read(./**)',
-    'Edit(./**)',
-    `Read(${abs(dirs.tools)})`,
-    `Edit(${abs(dirs.tools)})`,
-    `Read(${abs(dirs.fuentes)})`,
-    `Read(${abs(dirs.modelos)})`,
+    // Leer: todo el equipo (los secretos están en deny)
+    'Read',
     'Glob',
     'Grep',
+    'Edit(./**)',
+    ...writableDirs(spec, dirs)
+      .filter((d) => d !== spec.cwd)
+      .map((d) => `Edit(${abs(d)})`),
     'WebSearch',
     'WebFetch',
     `mcp__${spec.mcpName}__*`,
   ];
   if (mode !== 'sin_bash') list.push('Bash');
-  if (dirs.skills) list.push('Skill', `Read(${abs(dirs.skills)})`);
-  if (dirs.material) list.push(`Read(${abs(dirs.material)})`);
+  if (dirs.skills) list.push('Skill');
   return list;
 }
 
@@ -377,7 +419,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const plugin = spec.videoSkills ? await ensureVideoSkillsPlugin() : null;
     // Se vuelve a validar en cada turno: la carpeta pudo borrarse o moverse
     const material = spec.material ? await usableMaterialFolder(spec.key) : null;
-    const dirs: AgentDirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir(), skills: plugin ? path.dirname(plugin) : null, material };
+    const proyectos = await getStorageBasePath().catch(() => null);
+    const dirs: AgentDirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir(), skills: plugin ? path.dirname(plugin) : null, material, proyectos };
     const ffmpegBin = resolveFfmpegPath();
     const py = await findPython().catch(() => null);
     const ctx: AgentContext = {
@@ -386,6 +429,7 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       ffmpeg: ffmpegBin,
       python: py ? [py.cmd, ...py.args].join(' ') : null,
       domains: allowedDomains(),
+      escribir: writableDirs(spec, dirs),
     };
 
     const workDir = path.join(/*turbopackIgnore: true*/ spec.cwd, 'claude');
@@ -431,6 +475,11 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       '--allowedTools', ...allowedTools(spec, dirs, mode),
       '--tools', [...(mode === 'sin_bash' ? [] : ['Bash']), 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', ...(plugin ? ['Skill'] : [])].join(','),
       ...(plugin ? ['--plugin-dir', plugin] : []),
+      // Sus carpetas de escritura como directorios de trabajo: así Claude Code no rechaza comandos
+      // por usar rutas «de fuera» (pasaba con la carpeta de material)
+      ...writableDirs(spec, dirs)
+        .filter((d) => d !== spec.cwd)
+        .flatMap((d) => ['--add-dir', d]),
     ];
     const sessionArgs = () => (session.resume ? ['--resume', session.id] : ['--session-id', session.id]);
 
@@ -485,7 +534,7 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     // Con --resume Claude Code conserva el prompt de sistema del primer mensaje: si la carpeta de
     // material se eligió o cambió después, esta línea es lo que le avisa
     const prefix = material
-      ? `[Carpeta de material de este proyecto (solo lectura): ${material}. Si el pedido usa material, revísala con Glob/Read antes de decidir.]\n\n`
+      ? `[Carpeta de material de este proyecto (no toques los originales): ${material}. Si el pedido usa material, revísala con Glob/Read antes de decidir.]\n\n`
       : '';
     let r;
     try {

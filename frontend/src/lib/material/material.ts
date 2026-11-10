@@ -176,7 +176,7 @@ export async function materialPrompt(dir: string, o: { puedeCopiar: boolean; com
 ## Carpeta de material del proyecto
 La persona eligió esta carpeta con el material para este video: \`${dir}\`
 Úsala como fuente principal: mira lo que hay ANTES de decidir (fotos y PDF con Read; videos y audios con FFmpeg/ffprobe para saber duración y contenido; textos con Read) y básate en ese material en vez de inventar.
-Es de SOLO LECTURA: no cambies, muevas ni borres nada ahí. ${o.puedeCopiar ? 'Para usar un archivo, cópialo primero a tu carpeta (p. ej. `mkdir -p claude/material && cp "<archivo>" claude/material/`) y trabaja con la copia.' : 'No puedes copiar archivos (Bash está desactivado): léelos con Read y explica a la persona qué necesitas que adjunte.'} ${o.comoUsar}
+Puedes leer todo y crear archivos nuevos ahí si te sirve, pero NO cambies, muevas ni borres los originales de la persona. ${o.puedeCopiar ? 'Lo más cómodo es copiar a tu carpeta lo que vayas a usar (p. ej. `mkdir -p claude/material && cp "<archivo>" claude/material/`) y trabajar con la copia.' : 'No puedes copiar archivos (Bash está desactivado): léelos con Read y explica a la persona qué necesitas que adjunte.'} ${o.comoUsar}
 Archivos (${archivos.length}${truncado ? '+, lista recortada: usa Glob para ver el resto' : ''}; la lista es de cuando empezó este mensaje):
 ${lista}`;
 }
