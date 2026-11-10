@@ -518,7 +518,14 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h3 className="text-[15px] font-semibold text-fg">{isDraft ? 'Cambiar algo' : 'Revisa el guion'}</h3>
+          <h3 className="text-[15px] font-semibold text-fg">{isDraft ? 'Cambiar algo' : edit.direccion ? 'Revisa la propuesta de Claude' : 'Revisa el guion'}</h3>
+          {edit.direccion && !isDraft && (
+            <p className="max-w-[80ch] rounded-lg bg-surface-2 px-3 py-2 text-[12px] text-fg">
+              Esto no es otro generador: es lo que decidió <b>Claude</b> (cortes, gancho, palabras clave y gráficos), y detrás va su plan de cámara,
+              sonido y música. <b>Si te gusta, pulsa «Crear video».</b> Si quieres cambios, pídeselos a Claude en el chat de arriba o ajústalos aquí y luego
+              crea el video.
+            </p>
+          )}
           <p className="max-w-[70ch] text-[12px] text-fg-muted">
             Las frases en rojo se cortan. Toca una para conservarla o cortarla, corrige el texto de los subtítulos escribiendo encima y escucha
             cualquier frase con ▶.

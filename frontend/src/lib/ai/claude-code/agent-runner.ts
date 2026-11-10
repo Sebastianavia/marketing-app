@@ -11,7 +11,6 @@ import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
-import { isInside } from '@/lib/fs/inside';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, execClaude, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
@@ -258,11 +257,8 @@ const AGENT_DENY = [
   'WebFetch(domain:127.0.0.1)',
   // Su propia configuración (se reescribe en cada turno, pero mejor que no la toque)
   'Edit(./claude/.ajustes.json)',
-  'Write(./claude/.ajustes.json)',
   'Edit(./claude/.mcp.json)',
-  'Write(./claude/.mcp.json)',
   'Edit(./claude/.sistema.txt)',
-  'Write(./claude/.sistema.txt)',
 ];
 
 /**
@@ -282,16 +278,16 @@ function sandboxSettings(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode) {
   const settings: Record<string, unknown> = {
     permissions: {
       deny: [
-        ...spec.protectedFiles.flatMap((f) => [`Edit(./${f})`, `Write(./${f})`]),
+        // Edit cubre todas las escrituras de archivos (Claude Code avisa de que Write(...) no se usa)
+        ...spec.protectedFiles.map((f) => `Edit(./${f})`),
         // Aprobar gastos es solo de la persona en la app. En macOS/Linux el sandbox ya bloquea
         // localhost; en Windows (sin sandbox) esto evita que Claude se apruebe a sí mismo con un
         // comando o lea el token del Director o las claves.
         ...AGENT_DENY,
-        // La carpeta de material es de solo lectura. En modo dontAsk Edit/Write ya están limitados a
-        // la carpeta del proyecto y a la de herramientas; esta regla protege además una carpeta de
-        // material que esté DENTRO del proyecto. Si el material contiene el proyecto (p. ej. toda la
-        // carpeta de proyectos) no se pone: bloquearía también la carpeta de trabajo de Claude.
-        ...(dirs.material && !isInside(dirs.material, spec.cwd) ? [`Edit(/${rulePath(dirs.material)}/**)`] : []),
+        // La carpeta de material NO lleva regla Edit(...) propia: en modo dontAsk Edit/Write ya solo
+        // valen en la carpeta del proyecto y la de herramientas, y el sandbox no deja escribir ahí con
+        // Bash. Una regla de denegación sobre ella hacía que Claude Code rechazara comandos compuestos
+        // que solo la LEEN (cp desde el material + ffmpeg), probado 2026-11-10.
       ],
     },
   };
@@ -318,10 +314,8 @@ function allowedTools(spec: AgentSpec, dirs: AgentDirs, mode: SandboxMode): stri
   const abs = (d: string) => `/${rulePath(d)}/**`;
   const list = [
     'Read(./**)',
-    'Write(./**)',
     'Edit(./**)',
     `Read(${abs(dirs.tools)})`,
-    `Write(${abs(dirs.tools)})`,
     `Edit(${abs(dirs.tools)})`,
     `Read(${abs(dirs.fuentes)})`,
     `Read(${abs(dirs.modelos)})`,
