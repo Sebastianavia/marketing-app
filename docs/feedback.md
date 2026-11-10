@@ -4,40 +4,62 @@ Actualizado el 2026-11-10. La app de feedback (repo aparte en `~/Documents/feedb
 https://video-feedback-b07.pages.dev) sirve para que el equipo vea un video y deje notas por segundo.
 Lulo sube allí los videos y trae de vuelta las notas para que Claude las aplique.
 
-## Cómo se usa
+## Flujo (estados)
 
-1. Debajo de cada video final o borrador hay un botón **«Subir a Feedback»**. Al pulsarlo se puede
-   cambiar el proyecto (la carpeta en Feedback) y el nombre del video antes de subirlo.
-2. Después el botón muestra **«En Feedback · N notas»**, que abre el video en la app de feedback.
-   Ese enlace se comparte con el equipo.
-3. El equipo deja notas en la app de feedback. Lulo revisa el bucket **cada 3 minutos** (y al abrir
-   la bandeja). Cuando hay notas nuevas, el icono **Feedback** de la barra superior muestra cuántas.
-4. **«Enviar notas a Claude»** (en el botón o en la bandeja) le pasa las notas al Claude que hizo el
-   video, que las aplica y publica una versión nueva. Esa versión se sube otra vez con el botón.
-5. La app de feedback muestra de qué servicio viene cada video, «Claude ✓» cuando Claude ya recibió
-   las notas, y un enlace a la versión nueva.
+```
+Lulo: «Subir a Feedback»  →  Por revisar (resaltado en ámbar en la app de feedback)
+Equipo (en la app publicada): mira el video, deja notas con su nombre y pulsa
+        «Pedir cambios»  →  Cambios pedidos        o        «Aprobar»  →  Aprobado
+Lulo: «Aplicar cambios con Claude» (botón o bandeja), o se le pide a Claude en el chat
+        →  Claude trabajando (Claude descarga las notas; esa versión queda cerrada)
+Claude aplica y responde nota por nota  →  Claude respondió (vuelve a resaltarse para el equipo)
+Lulo sube la versión nueva  →  la anterior queda «Hay versión nueva»
+```
 
-No se envía nada a Claude automáticamente: la app de feedback guarda mientras se escribe, así que
-un envío automático mandaría notas a medio escribir. Lo decide una persona (o Claude cuando se lo piden).
+- El equipo entra directamente a https://video-feedback-b07.pages.dev. Arriba ve **«Para revisar»**
+  (videos *Por revisar* y *Claude respondió*) y cada tarjeta lleva el color de su estado.
+- El nombre del revisor se pide una vez y se guarda en su navegador. Firma las notas y la decisión.
+- «Pedir cambios» exige al menos una nota o un feedback general. Se puede deshacer mientras Claude no lo tome.
+- **Lulo no consulta nada en segundo plano.** Lee el bucket solo cuando:
+  - se abre la bandeja **Feedback** de la barra superior o se pulsa «Actualizar»;
+  - se muestra el botón de un video (lee solo ese video: 2 lecturas);
+  - Claude usa sus herramientas de feedback.
+- Claude solo trabaja videos en **Cambios pedidos**, y siempre porque se lo indica una persona desde
+  Lulo: con el botón, con la bandeja o pidiéndoselo en el chat («revisa el feedback»).
 
-## A quién le llegan las notas
+## Colores
 
-| Video subido desde | «Enviar a Claude» va a |
+| Estado | App de feedback | Lulo |
+|---|---|---|
+| Por revisar | ámbar, resaltado | ámbar |
+| Cambios pedidos | naranja | naranja (número en la bandeja) |
+| Claude trabajando | azul | azul |
+| Claude respondió | violeta, resaltado | violeta |
+| Aprobado | verde | verde |
+| Hay versión nueva | gris, atenuado | gris |
+
+## A quién le llegan los cambios
+
+| Video subido desde | «Aplicar cambios con Claude» va a |
 |---|---|
 | Edición de video (borrador vN) | El chat «Claude · editor» de esa edición |
 | Guion a video · Director (final vN) | El chat «Claude · director» de esa producción |
 | Estudio Claude (video del chat) | El chat de ese proyecto del Estudio |
-| Avatar Studio, UGC Studio, Guion a video manual, Proyectos | Una edición nueva con Claude a partir de ese video (requiere «Claude · mi suscripción» en el selector IA) |
-| Subido por otra persona del equipo | No hay archivo local: Claude lo lee con `feedback_pendiente` en el Estudio Claude |
+| Avatar Studio, UGC Studio, Guion a video manual, Proyectos | Una edición nueva con Claude a partir de ese video (requiere «Claude · mi suscripción») |
+| Subido desde otro PC | Pedírselo a Claude en el Estudio Claude (`feedback_pendiente`) |
 
 ## Herramientas de Claude ($0)
 
 | Dónde | Herramientas |
 |---|---|
-| Claude · editor | `ver_feedback` (notas de los borradores de esa edición), `marcar_feedback_revisado` |
-| Claude · director | `ver_feedback`, `marcar_feedback_revisado` |
-| Estudio Claude | `subir_a_feedback`, `ver_feedback` (de ese proyecto), `feedback_pendiente` (notas nuevas de **todos** los videos del equipo, para recogerlas y revisarlas), `marcar_feedback_revisado` |
-| Claude Code en la terminal (MCP `lulo-studio`) | `feedback_pendiente`, `marcar_feedback_revisado` |
+| Claude · editor y Claude · director | `ver_feedback` (estado y notas de lo subido desde ahí), `tomar_feedback`, `responder_feedback` |
+| Estudio Claude | `subir_a_feedback`, `ver_feedback` (ese proyecto), `feedback_pendiente` (todos los videos del equipo con cambios pedidos), `tomar_feedback`, `responder_feedback` |
+| Claude Code en la terminal (MCP `lulo-studio`) | `feedback_pendiente`, `tomar_feedback`, `responder_feedback` |
+
+- `tomar_feedback` descarga las notas del momento y deja el video en *Claude trabajando*. Si ya estaba
+  tomado, no cambia nada. Rechaza los videos *Por revisar*, *Aprobado*, *Claude respondió* y *Hay versión nueva*.
+- `responder_feedback` guarda el resumen nota por nota en `<video>.lulo.json`. El equipo lo ve en el
+  reproductor como «Respuesta de Claude».
 
 ## Cómo está hecho
 
@@ -52,30 +74,36 @@ un envío automático mandaría notas a medio escribir. Lo decide una persona (o
     `lulo=1`, `origen`, `titulo`, `version` y `persona` (el nombre de la persona en Costos).
   - **Registro local**: `<datos>/feedback/registro.json`, una entrada por clave con su origen, ruta,
     feedback, `revisadoEn` y `claude`.
-  - **Sincronizar**: `ListObjectsV2` de todo el bucket; solo se descargan los `.feedback.json` que
-    cambiaron. También entran los videos subidos por otras personas, con `origen: null`.
-  - **Claude**: `sendFeedbackToClaude` y `markReviewed`. Escriben `<video>.lulo.json` con metadatos
-    `claude`, `destino`, `notas` y `siguiente`.
+  - **Estado**: `reviewState()` es la misma regla que `stateFor()` en la app de feedback. La decisión
+    (`decision {tipo, por, en}`) viene de `.feedback.json`. `claude.tomadoEn`, `respuesta` y
+    `siguiente` vienen de `.lulo.json`, comparados por fecha.
+  - **Leer**: `syncFeedback()` hace un `ListObjectsV2` y descarga solo los `.feedback.json` y
+    `.lulo.json` que cambiaron. `refreshEntry(key)` lee un solo video. Nunca hay un temporizador.
+  - **Claude**: `sendFeedbackToClaude`, `takeFeedback` y `respondFeedback`. Escriben `<video>.lulo.json`
+    con metadatos `tomado`, `destino`, `notas`, `respondido` y `siguiente`.
   - Una versión nueva del mismo origen (misma edición o producción) marca la anterior con `siguiente`.
 - `frontend/src/app/api/feedback/route.ts`:
-  - `GET [?sync=1]`: la bandeja.
-  - `POST`: `estado`, `subir`, `claude`, `revisado`. Todo con `assertAppUiRequest`, igual que aprobar.
+  - `GET [?sync=1]`: la bandeja (con `sync=1` lee el bucket).
+  - `POST`: `estado`, `subir`, `claude`. Todo con `assertAppUiRequest`, igual que aprobar.
 - UI:
   - `components/feedback/FeedbackButton.tsx`, colocado en `EditDetail`, `ProductionBar`,
     `ClaudeStudioView`, `AvatarWorkspace`, `UgcGeneratorView`, `TextToVideoView` y
     `ProjectsLibraryView`.
   - `components/feedback/FeedbackInbox.tsx`, en la barra superior.
-- Lectura periódica: `startFeedbackPoller()` en `instrumentation.ts`, cada 3 minutos y solo si está
-  configurado. Son unas 15 000 lecturas al mes, muy lejos del límite gratis de R2.
 
 ## App de feedback (cambios del 2026-11-10)
 
-- `functions/_lib/util.js`: `LULO_SUFFIX` y `luloInfo()`.
-- `GET /api/projects`: cada video trae `lulo` (origen, versión, persona, Claude, versión nueva) a partir
-  de los metadatos del listado, sin descargar nada más.
-- `GET /api/feedback/<key>`: añade el campo `lulo`. El JSON anterior no cambia; `PUT` lo ignora.
-- `public/app.js`: etiquetas «Edición de video · v3», «Claude ✓» y «Hay versión nueva» en las tarjetas,
-  y una barra de Lulo en el reproductor.
+- `functions/_lib/util.js`: `reviewState` y `stateFor` (estados), `luloInfo`, `decisionFromMeta` y
+  `feedbackMeta`. Los metadatos `decision`, `decisionEn` y `decisionPor` van en el `.feedback.json`
+  para poder listar sin descargar nada.
+- `GET /api/projects`: cada video trae `estado`, `decision` y `lulo`.
+- `GET /api/feedback/<key>`: añade `estado` y `lulo` (con `respuesta`).
+- `PUT /api/feedback/<key>`: las notas aceptan `autor` y se conserva la decisión. Responde 409 si el
+  video está en *Claude trabajando* o *Hay versión nueva*.
+- `POST /api/feedback/<key>` `{accion:"decidir", tipo:"cambios"|"aprobado"|null, por}`: la decisión.
+- `public/app.js`: resumen por estado, sección «Para revisar», tarjetas con color, panel «Revisión» en
+  el reproductor (nombre, Pedir cambios / Aprobar / Deshacer, respuesta de Claude, versión nueva) y
+  notas cerradas mientras Claude trabaja.
 - Publicar: `cd ~/Documents/feedback && npx wrangler pages deploy --branch main` (con la sesión de
   `wrangler login`).
 
