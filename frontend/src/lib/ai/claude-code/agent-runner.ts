@@ -11,7 +11,7 @@ import { recordUsage } from '@/lib/usage/usage-store';
 import { resolveFfmpegPath } from '@/lib/video/ffmpeg';
 import { fontsDir } from '@/lib/editor/media';
 import { findPython, modelsDir } from '@/lib/editor/python-env';
-import { CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
+import { CLAUDE_DEFAULT_EFFORT, CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, claudeApiKeyEnv, execClaude, hasClaudeApiKey, type ToolUseEvent } from './bridge';
@@ -461,14 +461,16 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     await fsp.writeFile(mcpFile, JSON.stringify(mcpConfig), 'utf8');
     await fsp.writeFile(settingsFile, JSON.stringify(sandboxSettings(spec, dirs, mode)), 'utf8');
 
-    const userSettings = await getSettings().catch(() => ({ claudeModel: undefined, orchestrator: undefined }));
+    const userSettings = await getSettings().catch(() => ({ claudeModel: undefined, claudeEffort: undefined, orchestrator: undefined }));
     const model = process.env.CLAUDE_CODE_MODEL?.trim() || userSettings.claudeModel || CLAUDE_SUBSCRIPTION_MODEL;
+    const effort = process.env.CLAUDE_CODE_EFFORT?.trim() || userSettings.claudeEffort || CLAUDE_DEFAULT_EFFORT;
     const args = [
       '-p',
       '--output-format', 'stream-json',
       '--verbose',
       '--include-partial-messages',
       '--model', model,
+      '--effort', effort,
       '--system-prompt-file', systemFile,
       '--mcp-config', mcpFile,
       '--strict-mcp-config',

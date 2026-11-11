@@ -44,6 +44,8 @@ export interface ClaudeCodeRequest {
   prompt: string;
   /** Alias del CLI ('sonnet', 'opus', 'haiku') o id completo. */
   model?: string;
+  /** Nivel de esfuerzo ('low', 'medium', 'high', 'xhigh', 'max'). */
+  effort?: string;
   /** JSON Schema: la respuesta llega validada por Claude Code en `structured`. */
   jsonSchema?: object;
   files?: ClaudeCodeFile[];
@@ -572,7 +574,8 @@ export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeR
       '--output-format', 'stream-json',
       '--verbose',
       '--include-partial-messages',
-      '--model', req.model || 'sonnet',
+      '--model', req.model || 'opus',
+      ...(req.effort ? ['--effort', req.effort] : []),
       '--system-prompt-file', systemFile,
       '--tools', 'Read',
       '--allowedTools', 'Read(./**)',

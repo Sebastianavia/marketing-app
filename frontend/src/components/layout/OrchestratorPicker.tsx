@@ -3,12 +3,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Cpu } from 'lucide-react';
 import {
+  CLAUDE_DEFAULT_EFFORT,
+  CLAUDE_EFFORT_OPTIONS,
   CLAUDE_SUBSCRIPTION_MODEL,
   CLAUDE_TIER_OPTIONS,
   DEFAULT_ORCHESTRATOR,
   ORCHESTRATOR_OPTIONS,
   getOrchestratorOption,
   isClaudeCodeMode,
+  type ClaudeEffortLevel,
   type ClaudeModelTier,
   type OrchestratorMode,
 } from '@/config/llm-models';
@@ -49,6 +52,7 @@ function apiKeyHint(st: ClaudeCodeStatus | null): { text: string; ready: boolean
 export function OrchestratorPicker() {
   const [mode, setMode] = useState<OrchestratorMode | null>(null);
   const [claudeModel, setClaudeModel] = useState<ClaudeModelTier>(CLAUDE_SUBSCRIPTION_MODEL);
+  const [claudeEffort, setClaudeEffort] = useState<ClaudeEffortLevel>(CLAUDE_DEFAULT_EFFORT);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [claudeStatus, setClaudeStatus] = useState<ClaudeCodeStatus | null>(null);
@@ -75,6 +79,7 @@ export function OrchestratorPicker() {
         if (!alive) return;
         setMode(d?.orchestrator ?? DEFAULT_ORCHESTRATOR);
         if (d?.claudeModel) setClaudeModel(d.claudeModel);
+        if (d?.claudeEffort) setClaudeEffort(d.claudeEffort);
       })
       .catch(() => alive && setMode(DEFAULT_ORCHESTRATOR));
     return () => {
@@ -135,10 +140,30 @@ export function OrchestratorPicker() {
     }
   };
 
+  const chooseEffort = async (nextEffort: ClaudeEffortLevel) => {
+    const prev = claudeEffort;
+    setClaudeEffort(nextEffort);
+    setSaving(true);
+    try {
+      const r = await fetch('/api/settings/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claudeEffort: nextEffort }),
+      });
+      if (!r.ok) throw new Error();
+      window.dispatchEvent(new CustomEvent('lulo:claudeeffort', { detail: nextEffort }));
+    } catch {
+      setClaudeEffort(prev);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!mode) return null;
   const current = getOrchestratorOption(mode);
   const tierName = claudeModel === 'haiku' ? 'Haiku' : claudeModel === 'opus' ? 'Opus' : 'Sonnet';
-  const badgeLabel = isClaudeCodeMode(mode) ? `${current.short} (${tierName})` : current.short;
+  const effortOption = CLAUDE_EFFORT_OPTIONS.find((e) => e.id === claudeEffort) ?? CLAUDE_EFFORT_OPTIONS[1];
+  const badgeLabel = isClaudeCodeMode(mode) ? `${current.short} · ${tierName} (${effortOption.label})` : current.short;
 
   return (
     <div ref={ref} className="relative">
@@ -159,7 +184,7 @@ export function OrchestratorPicker() {
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 top-9 z-50 w-84 rounded-xl border border-line bg-surface p-1.5 shadow-lg"
+          className="absolute right-0 top-9 z-50 w-88 rounded-xl border border-line bg-surface p-1.5 shadow-lg"
         >
           <p className="px-2.5 pb-1.5 pt-1 text-[11px] text-fg-subtle">
             Orquestador: genera guiones, escenas, chats y “Dar emoción”.
@@ -200,34 +225,62 @@ export function OrchestratorPicker() {
             );
           })}
 
-          {/* Selector de nivel Haiku / Sonnet / Opus cuando se usa Claude Code */}
+          {/* Selector de Modelo y Esfuerzo para Claude Code */}
           {isClaudeCodeMode(mode) && (
-            <div className="mt-2 border-t border-line/60 px-2.5 pt-2">
-              <div className="mb-1.5 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-fg">Nivel de Claude</span>
-                <span className="text-[10px] text-fg-subtle">
-                  {CLAUDE_TIER_OPTIONS.find((t) => t.id === claudeModel)?.description}
-                </span>
+            <div className="mt-2 space-y-2.5 border-t border-line/60 px-2.5 pt-2 pb-1">
+              {/* Modelo */}
+              <div>
+                <div className="mb-1 flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-fg">Modelo de Claude</span>
+                  <span className="text-[10px] text-fg-subtle">
+                    {CLAUDE_TIER_OPTIONS.find((t) => t.id === claudeModel)?.description}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1">
+                  {CLAUDE_TIER_OPTIONS.map((t) => {
+                    const sel = t.id === claudeModel;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => chooseTier(t.id)}
+                        className={`rounded-md py-1.5 text-center transition-colors cursor-pointer ${
+                          sel ? 'bg-surface font-semibold text-fg shadow-sm ring-1 ring-accent/30' : 'text-fg-subtle hover:text-fg hover:bg-surface/50'
+                        }`}
+                      >
+                        <span className="block text-[11.5px] font-medium">{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1">
-                {CLAUDE_TIER_OPTIONS.map((t) => {
-                  const sel = t.id === claudeModel;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => chooseTier(t.id)}
-                      className={`rounded-md py-1.5 text-center transition-colors cursor-pointer ${
-                        sel ? 'bg-surface font-semibold text-fg shadow-sm ring-1 ring-accent/30' : 'text-fg-subtle hover:text-fg hover:bg-surface/50'
-                      }`}
-                    >
-                      <span className="block text-[12px]">{t.label}</span>
-                      <span className={`block text-[10px] ${sel ? 'text-accent font-medium' : 'opacity-70'}`}>
-                        {t.tier}
-                      </span>
-                    </button>
-                  );
-                })}
+
+              {/* Esfuerzo (Thinking) */}
+              <div>
+                <div className="mb-1 flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-fg">Esfuerzo de razonamiento</span>
+                  <span className="text-[10px] text-fg-subtle">
+                    {effortOption.description}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1 rounded-lg bg-surface-2 p-1">
+                  {CLAUDE_EFFORT_OPTIONS.map((e) => {
+                    const sel = e.id === claudeEffort;
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => chooseEffort(e.id)}
+                        className={`rounded-md py-1 text-center transition-colors cursor-pointer ${
+                          sel ? 'bg-surface font-semibold text-fg shadow-sm ring-1 ring-accent/30' : 'text-fg-subtle hover:text-fg hover:bg-surface/50'
+                        }`}
+                        title={e.description}
+                      >
+                        <span className="block text-[11px]">{e.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

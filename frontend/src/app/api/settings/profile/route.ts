@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPersonName, getSettings, updateSettings } from '@/lib/data/settings';
 import { errorMessage } from '@/lib/errors';
 import {
+  CLAUDE_DEFAULT_EFFORT,
   CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_ORCHESTRATOR,
+  isClaudeEffortLevel,
   isClaudeModelTier,
   isOrchestratorMode,
+  type ClaudeEffortLevel,
   type ClaudeModelTier,
   type OrchestratorMode,
 } from '@/config/llm-models';
@@ -21,11 +24,12 @@ export async function GET() {
     dailyLimitUSD: settings.dailyLimitUSD ?? 0,
     orchestrator: settings.orchestrator ?? DEFAULT_ORCHESTRATOR,
     claudeModel: settings.claudeModel ?? CLAUDE_SUBSCRIPTION_MODEL,
+    claudeEffort: settings.claudeEffort ?? CLAUDE_DEFAULT_EFFORT,
   });
 }
 
 /**
- * Cambia nombre, límite diario, orquestador o nivel de Claude (haiku, sonnet, opus).
+ * Cambia nombre, límite diario, orquestador, modelo o esfuerzo de Claude.
  * Solo desde la ventana de la app (igual que aprobar gastos):
  * el límite diario y el modo de IA deciden cuánto se puede gastar, así que el Director no debe tocarlos.
  */
@@ -45,6 +49,7 @@ export async function PUT(req: NextRequest) {
       dailyLimitUSD?: number;
       orchestrator?: OrchestratorMode;
       claudeModel?: ClaudeModelTier;
+      claudeEffort?: ClaudeEffortLevel;
     } = {};
     if (typeof body.personName === 'string') {
       const name = body.personName.trim().slice(0, 60);
@@ -66,9 +71,15 @@ export async function PUT(req: NextRequest) {
     }
     if (body.claudeModel !== undefined) {
       if (!isClaudeModelTier(body.claudeModel)) {
-        return NextResponse.json({ error: 'Nivel de Claude no válido (elige haiku, sonnet u opus).' }, { status: 400 });
+        return NextResponse.json({ error: 'Modelo de Claude no válido (elige opus, sonnet o haiku).' }, { status: 400 });
       }
       patch.claudeModel = body.claudeModel;
+    }
+    if (body.claudeEffort !== undefined) {
+      if (!isClaudeEffortLevel(body.claudeEffort)) {
+        return NextResponse.json({ error: 'Nivel de esfuerzo no válido (elige low, medium, high, xhigh o max).' }, { status: 400 });
+      }
+      patch.claudeEffort = body.claudeEffort;
     }
     const next = await updateSettings(patch);
     return NextResponse.json({
@@ -76,6 +87,7 @@ export async function PUT(req: NextRequest) {
       dailyLimitUSD: next.dailyLimitUSD ?? 0,
       orchestrator: next.orchestrator ?? DEFAULT_ORCHESTRATOR,
       claudeModel: next.claudeModel ?? CLAUDE_SUBSCRIPTION_MODEL,
+      claudeEffort: next.claudeEffort ?? CLAUDE_DEFAULT_EFFORT,
     });
   } catch (err: unknown) {
     return NextResponse.json({ error: errorMessage(err, 'No se pudo guardar.') }, { status: 500 });

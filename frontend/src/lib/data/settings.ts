@@ -1,6 +1,6 @@
 import os from 'os';
 import path from 'path';
-import type { ClaudeModelTier } from '@/config/llm-models';
+import type { ClaudeEffortLevel, ClaudeModelTier } from '@/config/llm-models';
 import { ensureDataDir, readJson, writeJsonAtomic } from './data-dir';
 
 export interface AppSettings {
@@ -12,8 +12,10 @@ export interface AppSettings {
   dailyLimitUSD?: number;
   /** Quién maneja guiones y escenas: gratis (Gemini) o Claude. */
   orchestrator?: 'free' | 'claude-subscription' | 'claude-apikey' | 'claude-cheap' | 'claude-quality';
-  /** Nivel de modelo para Claude Code: haiku (bajo), sonnet (medio), opus (alto). */
+  /** Modelo de Claude Code: opus, sonnet, haiku. */
   claudeModel?: ClaudeModelTier;
+  /** Nivel de esfuerzo / razonamiento: low (bajo), medium (medio), high (alto), xhigh (extra), max (máx). */
+  claudeEffort?: ClaudeEffortLevel;
 }
 
 async function settingsPath() {

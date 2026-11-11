@@ -8,12 +8,15 @@ import { recordUsage } from '@/lib/usage/usage-store';
 import { errorMessage } from '@/lib/errors';
 import { ClaudeCodeError, runClaudeCode, type ClaudeCodeResult } from '@/lib/ai/claude-code/bridge';
 import {
+  CLAUDE_DEFAULT_EFFORT,
   CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_ORCHESTRATOR,
   getOrchestratorOption,
   isClaudeCodeMode,
   isOrchestratorMode,
   llmCost,
+  type ClaudeEffortLevel,
+  type ClaudeModelTier,
   type OrchestratorMode,
 } from '@/config/llm-models';
 
@@ -34,12 +37,15 @@ export class FreeQuotaError extends Error {
   }
 }
 
-/** Modelo de Claude Code: CLAUDE_CODE_MODEL en .env.local, los ajustes de la app o el predeterminado. */
-async function subscriptionModel(): Promise<string> {
+/** Configuración de Claude Code (modelo y esfuerzo). */
+async function getClaudeCodeConfig(): Promise<{ model: string; effort: string }> {
   const envModel = process.env.CLAUDE_CODE_MODEL?.trim();
-  if (envModel) return envModel;
-  const s = await getSettings().catch(() => ({ claudeModel: undefined }));
-  return s.claudeModel || CLAUDE_SUBSCRIPTION_MODEL;
+  const envEffort = process.env.CLAUDE_CODE_EFFORT?.trim();
+  const s = await getSettings().catch(() => ({ claudeModel: undefined, claudeEffort: undefined }));
+  return {
+    model: envModel || s.claudeModel || CLAUDE_SUBSCRIPTION_MODEL,
+    effort: envEffort || s.claudeEffort || CLAUDE_DEFAULT_EFFORT,
+  };
 }
 
 /**
@@ -48,8 +54,8 @@ async function subscriptionModel(): Promise<string> {
  */
 async function callSubscription(req: Parameters<typeof runClaudeCode>[0]): Promise<ClaudeCodeResult> {
   try {
-    const model = await subscriptionModel();
-    return await runClaudeCode({ ...req, model });
+    const cfg = await getClaudeCodeConfig();
+    return await runClaudeCode({ ...req, model: cfg.model, effort: cfg.effort });
   } catch (err) {
     if (err instanceof ClaudeCodeError && err.reason !== 'failed') {
       throw new FreeQuotaError(err.reason, `${err.message} Puedes esperar o cambiar de opción en el selector IA.`);
@@ -456,12 +462,12 @@ async function subscriptionStream(
     },
   });
 
-  const activeModel = await subscriptionModel();
+  const cfg = await getClaudeCodeConfig();
   return new Response(body, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-Orchestrator': mode,
-      'X-Model-Used': `claude-code:${activeModel}`,
+      'X-Model-Used': `claude-code:${cfg.model}:${cfg.effort}`,
     },
   });
 }

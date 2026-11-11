@@ -48,31 +48,53 @@ export function isClaudeCodeMode(v: unknown): v is 'claude-subscription' | 'clau
   return v === 'claude-subscription' || v === 'claude-apikey';
 }
 
-/** Modelo que usa Claude Code (alias del CLI: 'haiku', 'sonnet', 'opus'). */
-export type ClaudeModelTier = 'haiku' | 'sonnet' | 'opus';
+/** Modelo que usa Claude Code (alias del CLI: 'opus', 'sonnet', 'haiku'). */
+export type ClaudeModelTier = 'opus' | 'sonnet' | 'haiku';
 
 export interface ClaudeTierOption {
   id: ClaudeModelTier;
   label: string;
-  tier: string;
   description: string;
 }
 
 export const CLAUDE_TIER_OPTIONS: ClaudeTierOption[] = [
-  { id: 'haiku', label: 'Haiku', tier: 'Bajo', description: 'Ultra rápido y de menor consumo' },
-  { id: 'sonnet', label: 'Sonnet', tier: 'Medio', description: 'Equilibrado y recomendado' },
-  { id: 'opus', label: 'Opus', tier: 'Alto', description: 'Máxima potencia y análisis profundo' },
+  { id: 'opus', label: 'Opus 5.5', description: 'Para trabajo complejo y tareas cotidianas' },
+  { id: 'sonnet', label: 'Sonnet 5.5', description: 'Más eficiente para tareas más simples' },
+  { id: 'haiku', label: 'Haiku 5.5', description: 'Más rápido para respuestas rápidas' },
 ];
 
 export function isClaudeModelTier(v: unknown): v is ClaudeModelTier {
-  return v === 'haiku' || v === 'sonnet' || v === 'opus';
+  return v === 'opus' || v === 'sonnet' || v === 'haiku';
+}
+
+/** Nivel de esfuerzo / razonamiento (thinking budget) de Claude Code. */
+export type ClaudeEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface ClaudeEffortOption {
+  id: ClaudeEffortLevel;
+  label: string;
+  badge?: string;
+  description: string;
+}
+
+export const CLAUDE_EFFORT_OPTIONS: ClaudeEffortOption[] = [
+  { id: 'low', label: 'Bajo', description: 'Respuestas más rápidas y menor consumo de tokens' },
+  { id: 'medium', label: 'Medio', badge: 'Recomendado', description: 'Equilibrio ideal entre razonamiento y gasto' },
+  { id: 'high', label: 'Alto', description: 'Respuestas más completas y análisis detallado' },
+  { id: 'xhigh', label: 'Extra', description: 'Razonamiento intensivo para problemas difíciles' },
+  { id: 'max', label: 'Máx', badge: '4x uso', description: 'Máximo esfuerzo de razonamiento' },
+];
+
+export function isClaudeEffortLevel(v: unknown): v is ClaudeEffortLevel {
+  return v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh' || v === 'max';
 }
 
 /**
- * Modelo que usa Claude Code por defecto (alias del CLI: 'sonnet', 'opus', 'haiku').
- * Se puede cambiar en los ajustes o con CLAUDE_CODE_MODEL en .env.local.
+ * Modelo y esfuerzo de Claude Code por defecto: Opus 5.5 con Esfuerzo Medio.
+ * Se pueden cambiar en el selector superior o vía .env.local.
  */
-export const CLAUDE_SUBSCRIPTION_MODEL: ClaudeModelTier = 'sonnet';
+export const CLAUDE_SUBSCRIPTION_MODEL: ClaudeModelTier = 'opus';
+export const CLAUDE_DEFAULT_EFFORT: ClaudeEffortLevel = 'medium';
 
 export interface OrchestratorOption {
   mode: OrchestratorMode;
