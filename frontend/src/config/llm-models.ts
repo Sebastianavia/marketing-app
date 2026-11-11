@@ -48,11 +48,31 @@ export function isClaudeCodeMode(v: unknown): v is 'claude-subscription' | 'clau
   return v === 'claude-subscription' || v === 'claude-apikey';
 }
 
+/** Modelo que usa Claude Code (alias del CLI: 'haiku', 'sonnet', 'opus'). */
+export type ClaudeModelTier = 'haiku' | 'sonnet' | 'opus';
+
+export interface ClaudeTierOption {
+  id: ClaudeModelTier;
+  label: string;
+  tier: string;
+  description: string;
+}
+
+export const CLAUDE_TIER_OPTIONS: ClaudeTierOption[] = [
+  { id: 'haiku', label: 'Haiku', tier: 'Bajo', description: 'Ultra rápido y de menor consumo' },
+  { id: 'sonnet', label: 'Sonnet', tier: 'Medio', description: 'Equilibrado y recomendado' },
+  { id: 'opus', label: 'Opus', tier: 'Alto', description: 'Máxima potencia y análisis profundo' },
+];
+
+export function isClaudeModelTier(v: unknown): v is ClaudeModelTier {
+  return v === 'haiku' || v === 'sonnet' || v === 'opus';
+}
+
 /**
- * Modelo que usa Claude Code con la suscripción (alias del CLI: 'sonnet', 'opus', 'haiku').
- * Se puede cambiar con CLAUDE_CODE_MODEL en .env.local.
+ * Modelo que usa Claude Code por defecto (alias del CLI: 'sonnet', 'opus', 'haiku').
+ * Se puede cambiar en los ajustes o con CLAUDE_CODE_MODEL en .env.local.
  */
-export const CLAUDE_SUBSCRIPTION_MODEL = 'sonnet';
+export const CLAUDE_SUBSCRIPTION_MODEL: ClaudeModelTier = 'sonnet';
 
 export interface OrchestratorOption {
   mode: OrchestratorMode;

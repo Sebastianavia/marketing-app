@@ -3,9 +3,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Cpu } from 'lucide-react';
 import {
+  CLAUDE_SUBSCRIPTION_MODEL,
+  CLAUDE_TIER_OPTIONS,
   DEFAULT_ORCHESTRATOR,
   ORCHESTRATOR_OPTIONS,
   getOrchestratorOption,
+  isClaudeCodeMode,
+  type ClaudeModelTier,
   type OrchestratorMode,
 } from '@/config/llm-models';
 
@@ -44,6 +48,7 @@ function apiKeyHint(st: ClaudeCodeStatus | null): { text: string; ready: boolean
 /** Selector global: quién genera guiones, escenas y textos en este PC. */
 export function OrchestratorPicker() {
   const [mode, setMode] = useState<OrchestratorMode | null>(null);
+  const [claudeModel, setClaudeModel] = useState<ClaudeModelTier>(CLAUDE_SUBSCRIPTION_MODEL);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [claudeStatus, setClaudeStatus] = useState<ClaudeCodeStatus | null>(null);
@@ -66,7 +71,11 @@ export function OrchestratorPicker() {
     let alive = true;
     fetch('/api/settings/profile', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => alive && setMode(d?.orchestrator ?? DEFAULT_ORCHESTRATOR))
+      .then((d) => {
+        if (!alive) return;
+        setMode(d?.orchestrator ?? DEFAULT_ORCHESTRATOR);
+        if (d?.claudeModel) setClaudeModel(d.claudeModel);
+      })
       .catch(() => alive && setMode(DEFAULT_ORCHESTRATOR));
     return () => {
       alive = false;
@@ -90,7 +99,6 @@ export function OrchestratorPicker() {
   const choose = async (next: OrchestratorMode) => {
     const prev = mode;
     setMode(next);
-    setOpen(false);
     setSaving(true);
     try {
       const r = await fetch('/api/settings/profile', {
@@ -108,8 +116,29 @@ export function OrchestratorPicker() {
     }
   };
 
+  const chooseTier = async (nextTier: ClaudeModelTier) => {
+    const prev = claudeModel;
+    setClaudeModel(nextTier);
+    setSaving(true);
+    try {
+      const r = await fetch('/api/settings/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claudeModel: nextTier }),
+      });
+      if (!r.ok) throw new Error();
+      window.dispatchEvent(new CustomEvent('lulo:claudemodel', { detail: nextTier }));
+    } catch {
+      setClaudeModel(prev);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!mode) return null;
   const current = getOrchestratorOption(mode);
+  const tierName = claudeModel === 'haiku' ? 'Haiku' : claudeModel === 'opus' ? 'Opus' : 'Sonnet';
+  const badgeLabel = isClaudeCodeMode(mode) ? `${current.short} (${tierName})` : current.short;
 
   return (
     <div ref={ref} className="relative">
@@ -123,14 +152,14 @@ export function OrchestratorPicker() {
       >
         <Cpu className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">IA</span>
-        <span className={`font-medium text-fg ${saving ? 'opacity-60' : ''}`}>{current.short}</span>
+        <span className={`font-medium text-fg ${saving ? 'opacity-60' : ''}`}>{badgeLabel}</span>
         <ChevronDown className="h-3 w-3" />
       </button>
 
       {open && (
         <div
           role="listbox"
-          className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-line bg-surface p-1.5 shadow-lg"
+          className="absolute right-0 top-9 z-50 w-84 rounded-xl border border-line bg-surface p-1.5 shadow-lg"
         >
           <p className="px-2.5 pb-1.5 pt-1 text-[11px] text-fg-subtle">
             Orquestador: genera guiones, escenas, chats y “Dar emoción”.
@@ -170,6 +199,38 @@ export function OrchestratorPicker() {
               </button>
             );
           })}
+
+          {/* Selector de nivel Haiku / Sonnet / Opus cuando se usa Claude Code */}
+          {isClaudeCodeMode(mode) && (
+            <div className="mt-2 border-t border-line/60 px-2.5 pt-2">
+              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-fg">Nivel de Claude</span>
+                <span className="text-[10px] text-fg-subtle">
+                  {CLAUDE_TIER_OPTIONS.find((t) => t.id === claudeModel)?.description}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1">
+                {CLAUDE_TIER_OPTIONS.map((t) => {
+                  const sel = t.id === claudeModel;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => chooseTier(t.id)}
+                      className={`rounded-md py-1.5 text-center transition-colors cursor-pointer ${
+                        sel ? 'bg-surface font-semibold text-fg shadow-sm ring-1 ring-accent/30' : 'text-fg-subtle hover:text-fg hover:bg-surface/50'
+                      }`}
+                    >
+                      <span className="block text-[12px]">{t.label}</span>
+                      <span className={`block text-[10px] ${sel ? 'text-accent font-medium' : 'opacity-70'}`}>
+                        {t.tier}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

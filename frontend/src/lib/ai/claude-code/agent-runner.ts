@@ -461,7 +461,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     await fsp.writeFile(mcpFile, JSON.stringify(mcpConfig), 'utf8');
     await fsp.writeFile(settingsFile, JSON.stringify(sandboxSettings(spec, dirs, mode)), 'utf8');
 
-    const model = process.env.CLAUDE_CODE_MODEL?.trim() || CLAUDE_SUBSCRIPTION_MODEL;
+    const userSettings = await getSettings().catch(() => ({ claudeModel: undefined, orchestrator: undefined }));
+    const model = process.env.CLAUDE_CODE_MODEL?.trim() || userSettings.claudeModel || CLAUDE_SUBSCRIPTION_MODEL;
     const args = [
       '-p',
       '--output-format', 'stream-json',

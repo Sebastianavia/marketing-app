@@ -34,9 +34,12 @@ export class FreeQuotaError extends Error {
   }
 }
 
-/** Modelo de Claude Code: CLAUDE_CODE_MODEL en .env.local o el predeterminado. */
-function subscriptionModel(): string {
-  return process.env.CLAUDE_CODE_MODEL?.trim() || CLAUDE_SUBSCRIPTION_MODEL;
+/** Modelo de Claude Code: CLAUDE_CODE_MODEL en .env.local, los ajustes de la app o el predeterminado. */
+async function subscriptionModel(): Promise<string> {
+  const envModel = process.env.CLAUDE_CODE_MODEL?.trim();
+  if (envModel) return envModel;
+  const s = await getSettings().catch(() => ({ claudeModel: undefined }));
+  return s.claudeModel || CLAUDE_SUBSCRIPTION_MODEL;
 }
 
 /**
@@ -45,7 +48,8 @@ function subscriptionModel(): string {
  */
 async function callSubscription(req: Parameters<typeof runClaudeCode>[0]): Promise<ClaudeCodeResult> {
   try {
-    return await runClaudeCode({ ...req, model: subscriptionModel() });
+    const model = await subscriptionModel();
+    return await runClaudeCode({ ...req, model });
   } catch (err) {
     if (err instanceof ClaudeCodeError && err.reason !== 'failed') {
       throw new FreeQuotaError(err.reason, `${err.message} Puedes esperar o cambiar de opción en el selector IA.`);
@@ -452,11 +456,12 @@ async function subscriptionStream(
     },
   });
 
+  const activeModel = await subscriptionModel();
   return new Response(body, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
       'X-Orchestrator': mode,
-      'X-Model-Used': `claude-code:${subscriptionModel()}`,
+      'X-Model-Used': `claude-code:${activeModel}`,
     },
   });
 }
