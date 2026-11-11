@@ -15,7 +15,9 @@ import { LookDots, LookPreview } from './LookPreview';
  */
 
 const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-msvideo,.mp4,.mov,.m4v,.webm,.mkv,.avi';
-const DEFAULT_PEDIDO = 'Haz un reel con mi video: quita las pausas y los errores, y pon subtítulos palabra por palabra.';
+// Pedido por defecto (texto del dueño, 2026-11-11): Claude dirige la edición viral completa
+const DEFAULT_PEDIDO =
+  'Eres un editor y diseñador experto en videos virales para Reels, TikTok y Shorts: edita este video para que la gente lo vea hasta el final y deje una muy buena impresión, usando con criterio y equilibrio los recursos que consideres necesarios. Pon ayudas visuales animadas basadas en lo que se dice en cada momento (tarjetas, listas que se construyen, cifras, iconos, plantillas y animaciones sincronizadas con la voz, creadas por ti si hacen falta) y subtítulos dinámicos a la altura del cuello con las palabras clave resaltadas. Pon también palabras clave grandes detrás de la persona, recortándola sin fondo en PNG transparente si queda bien. Mantén la cámara viva con acercamientos, punch-ins y cambios de ángulo. Usa pantallas divididas solo cuando aporten, sin abusar, y efectos de sonido virales sincronizados con cada evento visual, con música que acompañe el ritmo. Cada recurso debe durar lo que dura su idea y luego irse; varía los formatos sin repetir siempre lo mismo y evita que algo tape la cara o quede en la zona de botones de la red. Elige tú la paleta y el estilo visual que mejor encajen con este video, y antes de entregar revisa el resultado como un director exigente y corrige lo que no esté a la altura.';
 
 interface Props {
   perfiles: EditProfile[];
@@ -116,7 +118,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
           </h2>
           <label className="block space-y-1 text-[12px] text-fg-muted">
             <span className="block">Describe lo que quieres, como se lo dirías a un editor</span>
-            <textarea value={pedido} onChange={(e) => setPedido(e.target.value)} rows={4} className="input-clean w-full resize-y px-3 py-2 text-[13px]" />
+            <textarea value={pedido} onChange={(e) => setPedido(e.target.value)} rows={8} className="input-clean w-full resize-y px-3 py-2 text-[13px]" />
           </label>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-subtle">
             <MaterialFolderField value={material} onChange={setMaterial} />
