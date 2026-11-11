@@ -58,9 +58,9 @@ export function DirectorStudio() {
   const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
   const [pendingVoiceover, setPendingVoiceover] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  // Con "Claude · mi suscripción" el chat principal es Claude (Claude Code); "Acciones" es el chat de siempre
+  // Con Claude Code (suscripción o API Key) el chat principal es Claude; "Acciones" es el chat de siempre
   const orchestratorMode = useOrchestratorMode();
-  const claudeMode = orchestratorMode === 'claude-subscription';
+  const claudeMode = orchestratorMode === 'claude-subscription' || orchestratorMode === 'claude-apikey';
   const [chatTab, setChatTab] = useState<'claude' | 'acciones'>('claude');
 
   // El enfoque es de un borrador: al cambiar de borrador se quita

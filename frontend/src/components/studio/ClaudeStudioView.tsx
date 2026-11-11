@@ -324,9 +324,9 @@ export function ClaudeStudioView({ onExit }: { onExit: () => void }) {
             <Plus className="h-3.5 w-3.5" /> Nuevo
           </button>
         </div>
-        {mode && mode !== 'claude-subscription' && (
+        {mode && mode !== 'claude-subscription' && mode !== 'claude-apikey' && (
           <p className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-[12px] text-amber-800 dark:text-amber-200">
-            El Estudio Claude usa tu suscripción de Claude. En el selector «IA» de arriba elige «Claude · mi suscripción» para que las herramientas también usen a Claude.
+            El Estudio Claude usa Claude Code. En el selector «IA» de arriba elige «Claude · mi suscripción» o «Claude · API Key» para que las herramientas también usen a Claude.
           </p>
         )}
         {error && <p className="border-b border-rose-500/30 px-4 py-2 text-[12px] text-rose-600 dark:text-rose-400">{error}</p>}

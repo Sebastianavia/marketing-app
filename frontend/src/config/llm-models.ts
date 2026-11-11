@@ -41,7 +41,12 @@ export function llmCost(modelId: string, inputTokens = 0, outputTokens = 0): num
 export const FREE_GEMINI_MODEL = 'gemini-2.5-flash';
 
 /** Quién maneja el "cerebro" de la app (guiones, escenas, dar emoción…). */
-export type OrchestratorMode = 'free' | 'claude-subscription' | 'claude-cheap' | 'claude-quality';
+export type OrchestratorMode = 'free' | 'claude-subscription' | 'claude-apikey' | 'claude-cheap' | 'claude-quality';
+
+/** Modos que ejecutan Claude Code en este PC (con suscripción Pro/Max o con clave de API). */
+export function isClaudeCodeMode(v: unknown): v is 'claude-subscription' | 'claude-apikey' {
+  return v === 'claude-subscription' || v === 'claude-apikey';
+}
 
 /**
  * Modelo que usa Claude Code con la suscripción (alias del CLI: 'sonnet', 'opus', 'haiku').
@@ -73,6 +78,13 @@ export const ORCHESTRATOR_OPTIONS: OrchestratorOption[] = [
     description: 'Claude Code de este PC con tu plan Pro/Max. $0 extra: usa tu cupo (ventana de 5 h y semanal).',
   },
   {
+    mode: 'claude-apikey',
+    label: 'Claude · API Key',
+    short: 'Claude Key',
+    model: `claude-code:${CLAUDE_SUBSCRIPTION_MODEL}`,
+    description: 'Claude Code con tu clave de API (OneProvider / Anthropic). Sin gastar el cupo de tu plan Pro.',
+  },
+  {
     mode: 'claude-cheap',
     label: 'Claude económico · Haiku 5.5',
     short: 'Claude Haiku',
@@ -91,7 +103,7 @@ export const ORCHESTRATOR_OPTIONS: OrchestratorOption[] = [
 export const DEFAULT_ORCHESTRATOR: OrchestratorMode = 'free';
 
 export function isOrchestratorMode(v: unknown): v is OrchestratorMode {
-  return v === 'free' || v === 'claude-subscription' || v === 'claude-cheap' || v === 'claude-quality';
+  return v === 'free' || v === 'claude-subscription' || v === 'claude-apikey' || v === 'claude-cheap' || v === 'claude-quality';
 }
 
 export function getOrchestratorOption(mode: OrchestratorMode): OrchestratorOption {

@@ -11,6 +11,7 @@ import {
   CLAUDE_SUBSCRIPTION_MODEL,
   DEFAULT_ORCHESTRATOR,
   getOrchestratorOption,
+  isClaudeCodeMode,
   isOrchestratorMode,
   llmCost,
   type OrchestratorMode,
@@ -20,6 +21,7 @@ import {
  * Orquestador: un solo punto para todo el texto que genera la app.
  * - 'free'  → pool de claves de Gemini (free tier), rota si una falla.
  * - 'claude-subscription' → Claude Code de este PC con la suscripción de la persona ($0 extra).
+ * - 'claude-apikey' → Claude Code con clave de API (p. ej. OneProvider).
  * - 'claude-cheap' / 'claude-quality' → Claude vía OpenRouter, con costo real por tokens.
  * Si un modo sin costo (Gemini gratis o la suscripción) no está disponible NO salta a pago solo:
  * lanza FreeQuotaError y la interfaz pregunta antes de gastar.
@@ -38,7 +40,7 @@ function subscriptionModel(): string {
 }
 
 /**
- * Llama a Claude Code con la suscripción. Si no está instalado, sin sesión o sin cupo,
+ * Llama a Claude Code (con suscripción o con API Key). Si no está instalado, sin sesión o sin cupo,
  * lanza FreeQuotaError (mismo flujo que Gemini agotado: la interfaz pregunta antes de pagar).
  */
 async function callSubscription(req: Parameters<typeof runClaudeCode>[0]): Promise<ClaudeCodeResult> {
@@ -46,20 +48,25 @@ async function callSubscription(req: Parameters<typeof runClaudeCode>[0]): Promi
     return await runClaudeCode({ ...req, model: subscriptionModel() });
   } catch (err) {
     if (err instanceof ClaudeCodeError && err.reason !== 'failed') {
-      throw new FreeQuotaError(err.reason, `${err.message} Puedes esperar o usar Claude vía OpenRouter (de pago).`);
+      throw new FreeQuotaError(err.reason, `${err.message} Puedes esperar o cambiar de opción en el selector IA.`);
     }
     throw err;
   }
 }
 
-async function recordSubscription(call: { tool: string; description: string }, r: ClaudeCodeResult) {
+async function recordSubscription(
+  call: { tool: string; description: string },
+  r: ClaudeCodeResult,
+  mode: 'claude-subscription' | 'claude-apikey' = 'claude-subscription'
+) {
   const tokens = r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens + r.usage.outputTokens;
+  const label = mode === 'claude-apikey' ? 'API Key' : 'suscripción';
   await recordUsage({
     tool: call.tool,
     kind: 'script',
     provider: 'claude-code',
     model: r.model,
-    description: `${call.description} · suscripción (≈ $${r.equivalentCostUSD.toFixed(4)} por API)`,
+    description: `${call.description} · ${label} (≈ $${r.equivalentCostUSD.toFixed(4)} por API)`,
     units: tokens || 1,
     unit: tokens ? 'tokens' : 'texto',
     costUSD: 0,
@@ -67,9 +74,12 @@ async function recordSubscription(call: { tool: string; description: string }, r
   });
 }
 
-function subscriptionMeta(r: ClaudeCodeResult): OrchestratorMeta {
+function subscriptionMeta(
+  r: ClaudeCodeResult,
+  mode: 'claude-subscription' | 'claude-apikey' = 'claude-subscription'
+): OrchestratorMeta {
   return {
-    mode: 'claude-subscription',
+    mode,
     model: r.model,
     provider: 'claude-code',
     inputTokens: r.usage.inputTokens + r.usage.cacheReadTokens + r.usage.cacheWriteTokens,
@@ -217,10 +227,16 @@ async function run<T>(call: OrchestratorCall, runner: Runner<T>): Promise<{ valu
 }
 
 export async function orchestrateText(call: OrchestratorCall) {
-  if ((await resolveMode(call.mode, call.confidential)) === 'claude-subscription') {
-    const r = await callSubscription({ system: call.system, prompt: call.prompt, files: call.files });
-    await recordSubscription(call, r);
-    return { text: r.text, meta: subscriptionMeta(r) };
+  const mode = await resolveMode(call.mode, call.confidential);
+  if (isClaudeCodeMode(mode)) {
+    const r = await callSubscription({
+      system: call.system,
+      prompt: call.prompt,
+      files: call.files,
+      useApiKey: mode === 'claude-apikey',
+    });
+    await recordSubscription(call, r, mode);
+    return { text: r.text, meta: subscriptionMeta(r, mode) };
   }
   const { value, meta } = await run<string>(call, async (model) => {
     const r = await generateText({ model, system: call.system, ...promptOrMessages(call), temperature: call.temperature ?? 0.7 });
@@ -230,18 +246,20 @@ export async function orchestrateText(call: OrchestratorCall) {
 }
 
 export async function orchestrateObject<S extends z.ZodType>(call: OrchestratorCall & { schema: S }) {
-  if ((await resolveMode(call.mode, call.confidential)) === 'claude-subscription') {
+  const mode = await resolveMode(call.mode, call.confidential);
+  if (isClaudeCodeMode(mode)) {
     const r = await callSubscription({
       system: call.system,
       prompt: call.prompt,
       files: call.files,
       jsonSchema: claudeJsonSchema(call.schema),
+      useApiKey: mode === 'claude-apikey',
     });
-    await recordSubscription(call, r);
+    await recordSubscription(call, r, mode);
     // Claude Code valida contra el JSON Schema; zod aplica además lo que el schema no expresa (defaults, refine)
     const parsed = call.schema.safeParse(r.structured ?? safeJson(r.text));
     if (!parsed.success) throw new Error(`Claude devolvió una respuesta con formato inválido: ${parsed.error.message.slice(0, 300)}`);
-    return { object: parsed.data as z.infer<S>, meta: subscriptionMeta(r) };
+    return { object: parsed.data as z.infer<S>, meta: subscriptionMeta(r, mode) };
   }
   const { value, meta } = await run<z.infer<S>>(call, async (model) => {
     const r = await generateObject({
@@ -272,7 +290,7 @@ export async function orchestrateTextStream(call: {
   const mode = await resolveMode(call.mode, call.confidential);
   const option = getOrchestratorOption(mode);
 
-  if (mode === 'claude-subscription') return subscriptionStream(call);
+  if (isClaudeCodeMode(mode)) return subscriptionStream(call, mode);
 
   const record = async (inputTokens = 0, outputTokens = 0) => {
     const tokens = inputTokens + outputTokens;
@@ -381,12 +399,15 @@ function safeJson(text: string): unknown {
  * Streaming con Claude Code. Espera al primer fragmento antes de responder: si el CLI falla
  * antes (sin instalar, sin sesión, sin cupo) se lanza el error y la ruta responde 409/500 como siempre.
  */
-async function subscriptionStream(call: {
-  tool: string;
-  description: string;
-  system?: string;
-  messages: ModelMessage[];
-}): Promise<Response> {
+async function subscriptionStream(
+  call: {
+    tool: string;
+    description: string;
+    system?: string;
+    messages: ModelMessage[];
+  },
+  mode: 'claude-subscription' | 'claude-apikey' = 'claude-subscription'
+): Promise<Response> {
   const encoder = new TextEncoder();
   let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
   const pending: string[] = [];
@@ -403,6 +424,7 @@ async function subscriptionStream(call: {
   const run = callSubscription({
     system: call.system,
     prompt: messagesToPrompt(call.messages),
+    useApiKey: mode === 'claude-apikey',
     onText: (delta) => {
       push(delta);
       onFirst();
@@ -421,7 +443,7 @@ async function subscriptionStream(call: {
         .then(async (r) => {
           if (!sent && r.text) c.enqueue(encoder.encode(r.text)); // respuesta sin fragmentos parciales
           c.close();
-          await recordSubscription(call, r);
+          await recordSubscription(call, r, mode);
         })
         .catch((err) => {
           c.enqueue(encoder.encode(`\n\n[Error: ${errorMessage(err, 'Claude Code no pudo terminar la respuesta.')}]`));
@@ -433,7 +455,7 @@ async function subscriptionStream(call: {
   return new Response(body, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'X-Orchestrator': 'claude-subscription',
+      'X-Orchestrator': mode,
       'X-Model-Used': `claude-code:${subscriptionModel()}`,
     },
   });

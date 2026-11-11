@@ -51,6 +51,8 @@ export interface ClaudeCodeRequest {
   timeoutMs?: number;
   /** Cada fragmento de texto según llega (streaming). */
   onText?: (delta: string) => void;
+  /** true = usa ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL (API Key) en vez de la suscripción Pro/Max. */
+  useApiKey?: boolean;
 }
 
 export interface ClaudeCodeUsage {
@@ -87,8 +89,12 @@ export interface ClaudeCodeStatus {
   loggedIn: boolean;
   authMethod?: string;
   subscriptionType?: string;
-  /** Hay una ANTHROPIC_API_KEY en el entorno de la app (el puente la ignora). */
+  /** Hay una ANTHROPIC_API_KEY en el entorno de la app (el puente la ignora en modo suscripción). */
   apiKeyInEnv: boolean;
+  /** Hay ANTHROPIC_AUTH_TOKEN o ANTHROPIC_API_KEY configurada para el modo "Claude · API Key". */
+  apiKeyConfigured: boolean;
+  /** Servidor de API Key (p. ej. api.oneprovider.dev). */
+  apiKeyBaseUrl?: string;
   rateLimit?: RateLimitInfo;
   error?: string;
 }
@@ -179,6 +185,26 @@ export function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv 
   return env as NodeJS.ProcessEnv;
 }
 
+/** Variables de entorno para usar Claude Code por API Key (p. ej. OneProvider) sin tocar la suscripción. */
+export function claudeApiKeyEnv(): Record<string, string> {
+  const token = (process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || '').trim();
+  const baseUrl = (process.env.ANTHROPIC_BASE_URL || 'https://api.oneprovider.dev').trim();
+  if (!token) return {};
+  return {
+    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_AUTH_TOKEN: token,
+  };
+}
+
+export function hasClaudeApiKey(): boolean {
+  return Boolean((process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || '').trim());
+}
+
+export function claudeApiKeyHost(): string {
+  const raw = (process.env.ANTHROPIC_BASE_URL || 'https://api.oneprovider.dev').trim();
+  return raw.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+
 function runQuick(cli: string, args: string[], timeoutMs = 15_000): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(cli, args, { env: childEnv(), cwd: os.tmpdir(), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -200,15 +226,24 @@ function runQuick(cli: string, args: string[], timeoutMs = 15_000): Promise<{ co
 
 /** Estado del CLI (instalado, sesión iniciada, cupo). Se guarda 60 s. */
 export async function getClaudeCodeStatus(force = false): Promise<ClaudeCodeStatus> {
+  const apiKeyConfigured = hasClaudeApiKey();
+  const apiKeyBaseUrl = apiKeyConfigured ? claudeApiKeyHost() : undefined;
   if (!force && state.status && Date.now() - state.status.at < 60_000) {
-    return { ...state.status.value, rateLimit: state.rateLimit };
+    return { ...state.status.value, apiKeyConfigured, apiKeyBaseUrl, rateLimit: state.rateLimit };
   }
   if (force) state.cliPath = undefined;
   const apiKeyInEnv = Boolean(process.env.ANTHROPIC_API_KEY);
   const cli = resolveClaudeCli();
   let value: ClaudeCodeStatus;
   if (!cli) {
-    value = { installed: false, loggedIn: false, apiKeyInEnv, error: 'No se encontró el programa `claude` (Claude Code).' };
+    value = {
+      installed: false,
+      loggedIn: false,
+      apiKeyInEnv,
+      apiKeyConfigured,
+      apiKeyBaseUrl,
+      error: 'No se encontró el programa `claude` (Claude Code).',
+    };
   } else {
     const [ver, auth] = await Promise.all([runQuick(cli, ['--version']), runQuick(cli, ['auth', 'status', '--json'])]);
     let parsed: { loggedIn?: boolean; authMethod?: string; subscriptionType?: string } = {};
@@ -225,6 +260,8 @@ export async function getClaudeCodeStatus(force = false): Promise<ClaudeCodeStat
       authMethod: parsed.authMethod,
       subscriptionType: parsed.subscriptionType,
       apiKeyInEnv,
+      apiKeyConfigured,
+      apiKeyBaseUrl,
       error: ver.code === 0 ? undefined : (ver.stderr || 'El programa `claude` no respondió.').slice(0, 300),
     };
   }
@@ -505,6 +542,12 @@ export function acquireClaudeSlot(): Promise<() => void> {
 }
 
 export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeResult> {
+  if (req.useApiKey && !hasClaudeApiKey()) {
+    throw new ClaudeCodeError(
+      'not_logged_in',
+      'Falta ANTHROPIC_AUTH_TOKEN en frontend/.env.local para usar Claude · API Key.'
+    );
+  }
   const release = await acquire();
   const dir = path.join(/*turbopackIgnore: true*/ os.tmpdir(), 'lulo-claude', randomUUID());
   try {
@@ -554,6 +597,7 @@ export async function runClaudeCode(req: ClaudeCodeRequest): Promise<ClaudeCodeR
       args,
       cwd: dir,
       stdin: prompt,
+      env: req.useApiKey ? childEnv(claudeApiKeyEnv()) : undefined,
       signal: req.signal,
       timeoutMs: req.timeoutMs,
       defaultModel: req.model,

@@ -14,6 +14,8 @@ interface ClaudeCodeStatus {
   loggedIn: boolean;
   version?: string;
   subscriptionType?: string;
+  apiKeyConfigured?: boolean;
+  apiKeyBaseUrl?: string;
   rateLimit?: { status: string; fiveHour?: number; sevenDay?: number };
   error?: string;
 }
@@ -29,6 +31,14 @@ function subscriptionHint(st: ClaudeCodeStatus | null): { text: string; ready: b
   const rl = st.rateLimit;
   const cupo = rl ? ` · usado: 5 h ${pct(rl.fiveHour)}, semana ${pct(rl.sevenDay)}` : '';
   return { text: `${plan}${cupo}`, ready: true };
+}
+
+/** Texto de estado de Claude Code bajo la opción "API Key". */
+function apiKeyHint(st: ClaudeCodeStatus | null): { text: string; ready: boolean } {
+  if (!st) return { text: 'Comprobando Claude Code…', ready: false };
+  if (!st.installed) return { text: 'Claude Code no está instalado en este PC.', ready: false };
+  if (!st.apiKeyConfigured) return { text: 'Falta ANTHROPIC_AUTH_TOKEN en frontend/.env.local.', ready: false };
+  return { text: `Clave activa · ${st.apiKeyBaseUrl || 'API'}`, ready: true };
 }
 
 /** Selector global: quién genera guiones, escenas y textos en este PC. */
@@ -127,7 +137,12 @@ export function OrchestratorPicker() {
           </p>
           {ORCHESTRATOR_OPTIONS.map((o) => {
             const active = o.mode === mode;
-            const hint = o.mode === 'claude-subscription' ? subscriptionHint(claudeStatus) : null;
+            const hint =
+              o.mode === 'claude-subscription'
+                ? subscriptionHint(claudeStatus)
+                : o.mode === 'claude-apikey'
+                  ? apiKeyHint(claudeStatus)
+                  : null;
             const disabled = Boolean(hint && !hint.ready && !active);
             return (
               <button

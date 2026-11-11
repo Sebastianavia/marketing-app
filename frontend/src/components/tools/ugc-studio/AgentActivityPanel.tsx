@@ -135,7 +135,8 @@ export function AgentActivityPanel() {
   const phase = useUgcStudioStore((s) => s.phase);
   const busy = useUgcStudioStore((s) => s.busy);
   const doneCount = activities.filter((a) => a.status === 'done').length;
-  const claudeMode = useOrchestratorMode() === 'claude-subscription';
+  const currentMode = useOrchestratorMode();
+  const claudeMode = currentMode === 'claude-subscription' || currentMode === 'claude-apikey';
 
   return (
     <div className="surface-card rounded-xl p-4 space-y-4">

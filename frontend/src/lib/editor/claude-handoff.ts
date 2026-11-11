@@ -1,11 +1,12 @@
+import { isClaudeCodeMode } from '@/config/llm-models';
 import { resolveMode } from '@/lib/ai/orchestrator';
 import { errorMessage } from '@/lib/errors';
 import { createEdit } from './actions';
 import { listProfiles } from './profile-store';
 
 /**
- * Modo "Claude · mi suscripción": un video ya montado (UGC Studio, Director) pasa a Edición de video
- * y Claude lo mejora a su criterio (se transcribe ≈ $0,004/min y luego Claude trabaja con la suscripción).
+ * Modo Claude Code (suscripción o API Key): un video ya montado (UGC Studio, Director) pasa a Edición de video
+ * y Claude lo mejora a su criterio.
  * Nunca lanza: devuelve null fuera del modo Claude o { error } si no se pudo.
  */
 export async function sendToClaudeEditor(o: {
@@ -14,7 +15,7 @@ export async function sendToClaudeEditor(o: {
   /** Qué es el video y qué debe cuidar Claude al editarlo. */
   pedido: string;
 }): Promise<{ id: string; titulo: string } | { error: string } | null> {
-  if ((await resolveMode()) !== 'claude-subscription') return null;
+  if (!isClaudeCodeMode(await resolveMode())) return null;
   try {
     const perfil = (await listProfiles())[0];
     if (!perfil) return { error: 'No hay perfiles de edición.' };

@@ -35,6 +35,7 @@ interface DroppedLocalFile {
 const AVAILABLE_MODELS = [
   { id: 'orchestrator', name: 'Según selector IA', badge: 'Auto' },
   { id: 'claude-subscription', name: 'Claude (mi suscripción)', badge: 'Pro' },
+  { id: 'claude-apikey', name: 'Claude (API Key)', badge: 'Key' },
   ...LLM_MODELS.map((m) => ({ id: m.id, name: m.name, badge: m.badge })),
 ];
 

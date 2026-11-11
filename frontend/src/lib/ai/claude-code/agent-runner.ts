@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { getDataDir } from '@/lib/data/data-dir';
+import { getSettings } from '@/lib/data/settings';
 import { getStorageBasePath } from '@/lib/storage/project-storage';
 import { errorMessage } from '@/lib/errors';
 import { recordUsage } from '@/lib/usage/usage-store';
@@ -13,7 +14,7 @@ import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
-import { ClaudeCodeError, acquireClaudeSlot, childEnv, execClaude, type ToolUseEvent } from './bridge';
+import { ClaudeCodeError, acquireClaudeSlot, childEnv, claudeApiKeyEnv, execClaude, hasClaudeApiKey, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
 /**
@@ -483,6 +484,10 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
         .flatMap((d) => ['--add-dir', d]),
     ];
     const sessionArgs = () => (session.resume ? ['--resume', session.id] : ['--session-id', session.id]);
+    const useApiKey = (await getSettings().catch(() => ({ orchestrator: undefined }))).orchestrator === 'claude-apikey';
+    if (useApiKey && !hasClaudeApiKey()) {
+      throw new ClaudeCodeError('not_logged_in', 'Falta ANTHROPIC_AUTH_TOKEN en frontend/.env.local para usar Claude · API Key.');
+    }
 
     const ffmpegDir = path.isAbsolute(ffmpegBin) ? path.dirname(ffmpegBin) : '';
     const env = childEnv({
@@ -503,6 +508,7 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       HYPERFRAMES_SKIP_SKILLS: '1',
       // Herramientas largas (storyboard, render, edición): que Claude Code no las corte antes
       MCP_TOOL_TIMEOUT: String(40 * 60_000),
+      ...(useApiKey ? claudeApiKeyEnv() : {}),
     });
 
     const exec = (stdin: string) =>
@@ -556,7 +562,7 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       kind: 'script',
       provider: 'claude-code',
       model: r.model,
-      description: `${spec.usage.description} · suscripción (≈ $${r.equivalentCostUSD.toFixed(4)} por API)`,
+      description: `${spec.usage.description} · ${useApiKey ? 'API Key' : 'suscripción'} (≈ $${r.equivalentCostUSD.toFixed(4)} por API)`,
       units: tokens || 1,
       unit: tokens ? 'tokens' : 'texto',
       costUSD: 0,

@@ -924,7 +924,7 @@ export async function chatWithDirector(id: string, raw: unknown, orchestrator?: 
   const p = await getDirectorProduction(id);
   const d = p.director!;
   const { object, meta } = await think(p, d, ChatReplySchema, chatPrompt(d, p.nombre, input), 'chat', { orchestrator, withPdf: true, temperature: 0.4 });
-  const textCost = meta.costUSD > 0 || (meta.mode !== 'free' && meta.mode !== 'claude-subscription') ? '< 1 ¢' : '$0';
+  const textCost = meta.costUSD > 0 || (meta.mode !== 'free' && meta.mode !== 'claude-subscription' && meta.mode !== 'claude-apikey') ? '< 1 ¢' : '$0';
   const elevenCost = d.locucion ? `≈ ${formatUSD(sttCost(d.locucion.duracionSeg))}` : undefined;
   const { plan, motivo } = planChatAction(d, object.accion, { textCost, elevenCost, enfoque: input.enfoque });
   return { respuesta: object.respuesta.trim().slice(0, 1500), plan, motivo, modelo: meta.model, costoUSD: meta.costUSD };

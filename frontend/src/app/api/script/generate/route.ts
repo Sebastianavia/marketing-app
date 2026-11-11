@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
           ? 'Gemini (gratis)'
           : meta.mode === 'claude-subscription'
             ? 'Claude (tu suscripción)'
-            : 'Claude vía OpenRouter',
+            : meta.mode === 'claude-apikey'
+              ? 'Claude (API Key)'
+              : 'Claude vía OpenRouter',
       orchestrator: meta.mode,
       costUSD: meta.costUSD,
     });

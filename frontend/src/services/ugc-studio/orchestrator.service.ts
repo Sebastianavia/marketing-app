@@ -72,8 +72,9 @@ async function runAgent<T>(
   const agentId = label ? `${agent.id}:${label}` : agent.id;
   emit({ type: 'agent_start', agentId, agentName: label ? `${agent.name} (${label})` : agent.name });
   try {
-    // Con "Claude · mi suscripción": el equipo lo hace Gemini (gratis) y Claude decide en el chat y revisa
-    if (claude && (await resolveMode()) === 'claude-subscription') {
+    // Con Claude Code (suscripción o API Key): el equipo lo hace Gemini (gratis) y Claude decide en el chat y revisa
+    const currentMode = await resolveMode();
+    if (claude && (currentMode === 'claude-subscription' || currentMode === 'claude-apikey')) {
       const { prompt, files } = contentToPrompt(content);
       const { object } = await orchestrateObject({
         tool: 'ugc-generator',
@@ -83,7 +84,7 @@ async function runAgent<T>(
         files,
         schema: agent.schema,
         temperature: agent.temperature,
-        mode: 'claude-subscription',
+        mode: currentMode,
       });
       emit({ type: 'agent_done', agentId });
       return object as T;
@@ -507,7 +508,8 @@ async function claudeProductionReview(
   emit: Emit,
   signal?: AbortSignal
 ): Promise<Storyboard> {
-  if ((await resolveMode()) !== 'claude-subscription') return storyboard;
+  const currentMode = await resolveMode();
+  if (currentMode !== 'claude-subscription' && currentMode !== 'claude-apikey') return storyboard;
   const MAX_ROUNDS = 2;
   let current = storyboard;
   const pedidos: string[] = [];
@@ -557,7 +559,7 @@ async function claudeProductionReview(
         files,
         schema: ProductionReviewSchema,
         temperature: 0.3,
-        mode: 'claude-subscription',
+        mode: currentMode,
       }));
       emit({ type: 'agent_done', agentId });
     } catch (err) {
