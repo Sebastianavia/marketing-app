@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 }
 
 const ActionSchema = z.discriminatedUnion('accion', [
-  z.object({ accion: z.literal('instalar'), que: z.enum(['python', 'torch', 'whisper', 'opencv', 'modelo-resnet50', 'modelo-mobilenetv3']) }),
+  z.object({ accion: z.literal('instalar'), que: z.enum(['python', 'torch', 'whisper', 'opencv', 'modelo-resnet50', 'modelo-mobilenetv3', 'claude-base']) }),
   z.object({
     accion: z.literal('ajustes'),
     transcriptor: z.enum(['elevenlabs', 'whisper']).optional(),

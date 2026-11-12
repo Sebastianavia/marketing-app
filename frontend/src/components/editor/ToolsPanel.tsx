@@ -242,7 +242,7 @@ export function ToolsPanel({ system }: { system: SystemStatus | null }) {
         </div>
       </section>
 
-      {claude && <ClaudeToolsSection data={claude} />}
+      {claude && <ClaudeToolsSection data={claude} preparing={running} onPrepare={() => void install('claude-base')} />}
 
       {jobs.length > 0 && (
         <section className="space-y-2">

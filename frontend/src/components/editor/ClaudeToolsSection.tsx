@@ -1,11 +1,11 @@
 'use client';
 
 import React from 'react';
-import { Bot, CheckCircle2, Circle } from 'lucide-react';
+import { Bot, CheckCircle2, Circle, Download, Loader2 } from 'lucide-react';
 import type { ClaudeToolbox } from '@/lib/editor/claude-toolbox';
 
 /** Lo que los Claude de la app pueden usar en este PC, incluido lo que se han instalado ellos mismos. */
-export function ClaudeToolsSection({ data }: { data: ClaudeToolbox }) {
+export function ClaudeToolsSection({ data, preparing = false, onPrepare }: { data: ClaudeToolbox; preparing?: boolean; onPrepare?: () => void }) {
   const row = (ok: boolean, label: string, detalle: string, para?: string) => (
     <li className="flex items-start gap-3 px-4 py-3">
       {ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-fg-subtle" />}
@@ -22,14 +22,21 @@ export function ClaudeToolsSection({ data }: { data: ClaudeToolbox }) {
   const otros = data.python.paquetes.filter((p) => !p.para);
   return (
     <section className="space-y-3">
-      <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="max-w-[80ch]">
         <h3 className="flex items-center gap-2 text-[15px] font-semibold text-fg">
           <Bot className="h-4 w-4 text-accent" /> Herramientas de Claude
         </h3>
         <p className="text-[12px] text-fg-muted">
           Lo que Claude puede usar al editar en este PC, incluido lo que se ha instalado él mismo. Ocupa {data.totalMb >= 1024 ? `${(data.totalMb / 1024).toFixed(1)} GB` : `${data.totalMb} MB`} en{' '}
-          <span className="font-mono text-[11px]">{data.carpeta}</span>.
+          <span className="font-mono text-[11px]">{data.carpeta}</span>. Cada PC tiene las suyas: Claude instala lo que le falte la primera vez que lo necesita (macOS y Windows), o lo dejas listo de una vez con el botón.
         </p>
+      </div>
+      {onPrepare && (
+        <button type="button" onClick={onPrepare} disabled={preparing} className="btn-secondary h-9 shrink-0 px-3 text-[12px]" title="Instala el kit base (NumPy, SciPy, OpenCV, MediaPipe, FontTools, Pillow) y el Chrome de HyperFrames">
+          {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Preparar herramientas de Claude
+        </button>
+      )}
       </div>
 
       <ul className="divide-y divide-line rounded-xl border border-line bg-surface">

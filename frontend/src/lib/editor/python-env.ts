@@ -252,7 +252,7 @@ export async function envStatus(force = false): Promise<EnvStatus> {
 
 // ── Instalaciones con botón ──────────────────────────────────────────────────
 
-export type InstallTarget = 'python' | 'torch' | 'whisper' | 'opencv' | 'modelo-resnet50' | 'modelo-mobilenetv3';
+export type InstallTarget = 'python' | 'torch' | 'whisper' | 'opencv' | 'modelo-resnet50' | 'modelo-mobilenetv3' | 'claude-base';
 
 export interface InstallJob {
   id: string;
@@ -296,6 +296,54 @@ async function pip(job: InstallJob, pkgs: string[], extra: string[] = []) {
   if (r.code !== 0) throw new Error(`pip terminó con código ${r.code}. Mira el registro.`);
 }
 
+/** pip install en una carpeta propia (--target): así lo instala la app igual que lo haría Claude. */
+async function pipTarget(job: InstallJob, pkgs: string[], target: string) {
+  const py = await findPython(true);
+  if (!py) throw new Error('No se encontró Python 3.9 o superior en este PC. Instálalo primero (botón de arriba).');
+  await fs.mkdir(target, { recursive: true });
+  const args = [...py.args, '-m', 'pip', 'install', '--upgrade', '--target', target, ...pkgs];
+  log(job, `> ${py.cmd} ${args.join(' ')}`);
+  const r = await runProcess(py.cmd, args, { timeoutMs: 60 * 60_000, onLine: (l) => log(job, l) });
+  if (r.code !== 0) throw new Error(`pip terminó con código ${r.code}. Mira el registro.`);
+}
+
+/** Kit base de Claude: paquetes de Python que más usa + HyperFrames con su Chrome (macOS y Windows). */
+async function installClaudeBase(job: InstallJob) {
+  const target = path.join(/*turbopackIgnore: true*/ await ensureDataDir(), 'claude-herramientas', 'py');
+  log(job, `Carpeta de herramientas de Claude: ${target}`);
+  await pipTarget(job, ['numpy', 'scipy', 'opencv-python-headless', 'fonttools', 'pillow', 'tqdm'], target);
+  try {
+    await pipTarget(job, ['mediapipe'], target);
+  } catch (err) {
+    log(job, `Aviso: MediaPipe no se pudo instalar (${errorMessage(err)}). Suele pasar con Python 3.13 o más nuevo: Claude usará otras vías para recortar a la persona.`);
+  }
+  // HyperFrames (Node) y su Chrome: así el primer render de Claude no espera la descarga
+  try {
+    const { HYPERFRAMES_VERSION } = await import('@/lib/ai/claude-code/code-video');
+    const crossSpawn = (await import('cross-spawn')).default;
+    log(job, `> npx -y hyperframes@${HYPERFRAMES_VERSION} browser ensure`);
+    const code = await new Promise<number | null>((resolve) => {
+      const child = crossSpawn('npx', ['-y', `hyperframes@${HYPERFRAMES_VERSION}`, 'browser', 'ensure'], {
+        env: { ...process.env, HYPERFRAMES_NO_TELEMETRY: '1', HYPERFRAMES_SKIP_SKILLS: '1', CI: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      const onData = (d: Buffer) => d.toString().split(/\r?\n/).filter(Boolean).forEach((l) => log(job, l));
+      child.stdout?.on('data', onData);
+      child.stderr?.on('data', onData);
+      child.on('error', (e) => {
+        log(job, `No se pudo lanzar npx: ${errorMessage(e)} (¿está Node.js instalado?)`);
+        resolve(-1);
+      });
+      child.on('close', resolve);
+    });
+    if (code !== 0) log(job, 'Aviso: no se pudo preparar el Chrome de HyperFrames; se descargará en el primer render.');
+  } catch (err) {
+    log(job, `Aviso: HyperFrames no se preparó (${errorMessage(err)}).`);
+  }
+  (globalThis as { __luloToolbox?: unknown }).__luloToolbox = undefined;
+}
+
 async function runInstall(job: InstallJob) {
   const done = (msg: string) => {
     job.estado = 'ok';
@@ -328,6 +376,11 @@ async function runInstall(job: InstallJob) {
         await pip(job, ['torch'], process.platform === 'darwin' ? [] : ['--index-url', 'https://download.pytorch.org/whl/cpu']);
       }
       done('PyTorch instalado.');
+      return;
+    }
+    case 'claude-base': {
+      await installClaudeBase(job);
+      done('Herramientas de Claude listas. Claude las reutiliza en cada edición.');
       return;
     }
     case 'opencv': {
