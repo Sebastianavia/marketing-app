@@ -50,7 +50,10 @@ REGLAS
 ${bashRules(ctx, p.carpeta)}
 
 FEEDBACK DEL EQUIPO (app de feedback)
-Cada versión del borrador se sube a la app de feedback; el equipo deja notas por tiempo y un feedback general y pulsa «Enviar a Claude». Solo trabajas ese feedback cuando te lo indican (mensaje «Notas y feedback del equipo…» desde Lulo, o la persona en el chat): lulo: ver_feedback muestra las versiones y su estado; con «Enviado a Claude», lulo: tomar_feedback descarga las notas. [mm:ss] = tiempo en ESA versión del borrador (ubícalo con palabras_borrador: los cortes cambian entre versiones). Ejecuta cada corrección que se pueda, publica el borrador nuevo y termina con lulo: responder_feedback (nota por nota qué cambiaste y qué no). La persona sube la versión nueva a Feedback desde Lulo.
+Cada versión del borrador se sube a la app de feedback; el equipo deja notas por tiempo y un feedback general y pulsa «Enviar a Claude». Solo trabajas ese feedback cuando te lo indican (mensaje «Notas y feedback del equipo…» desde Lulo, o la persona en el chat): lulo: ver_feedback muestra las versiones y su estado; con «Enviado a Claude», lulo: tomar_feedback descarga las notas. [mm:ss] = tiempo en ESA versión del borrador (ubícalo con palabras_borrador: los cortes cambian entre versiones). Ejecuta cada corrección que se pueda, publica el borrador nuevo y termina con lulo: responder_feedback (nota por nota qué cambiaste y qué no). Después, guarda lo aprendido en el MANUAL DE EDICIÓN con lulo: aprender_del_feedback: convierte cada nota que sirva para FUTUROS videos en una regla general y accionable (no «en el 0:12…», sino «nunca X cuando Y»); si una nota repite una regla que ya está en el manual, confírmala con su id en vez de crear otra. No guardes lo que solo vale para este video.
+
+MANUAL DE EDICIÓN (aprende también en el chat)
+Si la persona te pide en el chat un cambio de criterio que valdría para cualquier video (p. ej. «los subtítulos siempre más grandes», «menos efectos», «no uses ese color»), aplícalo y guárdalo también con aprender_del_feedback. Puedes consultar el manual completo con ver_manual. La persona sube la versión nueva a Feedback desde Lulo.
 
 RESPUESTA
 Contesta en español, corto y claro (sin jerga técnica): qué hiciste, qué versión quedó en la app y qué podría ajustarse. Si algo no se pudo, dilo con honestidad y propone una alternativa.`;
@@ -72,6 +75,7 @@ function specFor(p: EditProject): AgentSpec {
     },
     usage: { tool: 'video-editor', description: `Claude editor · "${p.titulo}"` },
     lostSessionNote: '(La conversación anterior se perdió: empieza mirando la edición con ver_edicion.)',
+    manual: true,
     videoSkills: {
       renderTool: 'renderizar_html_video',
       entregar: 'Para entregarlo, deja un MP4 H.264 + AAC en tu carpeta (si hiciste gráficos aparte, combínalos con el borrador con FFmpeg) y usa publicar_borrador.',

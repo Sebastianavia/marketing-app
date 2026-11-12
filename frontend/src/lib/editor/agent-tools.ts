@@ -12,6 +12,7 @@ import { ffmpeg, probeVideo } from './media';
 import { keptIntervals, phraseText, subtitleWords } from './timeline';
 import { snapToFrames } from './render';
 import { placeGraphics } from './graphics';
+import { AREA_LABEL, LessonSchema, learnLessons, loadManual } from './manual';
 import { ACTIVE_STATUSES, type EditProject } from './types';
 import { isInside } from '@/lib/fs/inside';
 import { RHYTHM_BUDGET, analyzeRhythm, directedProfile, CAMERA_TYPES, DirectionError, DirectionInputSchema, ELEMENT_ENTRIES, ELEMENT_MODES, ELEMENT_POSITIONS, KEY_EFFECTS, TRANSITION_TYPES, AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, describeDirection, directionInFinal, prepareDirection } from './direction';
@@ -354,11 +355,44 @@ const tomarFeedback = tool({
   run: async (editId, { key }) => takeFeedbackFromAgent(key, 'Claude · editor', { servicio: 'edicion', id: editId }),
 });
 
+const verManual = tool({
+  name: 'ver_manual',
+  description: 'El MANUAL DE EDICIÓN de Lulo (compartido por el equipo): todas las reglas activas con su id, área, por qué y cuántas veces el feedback las confirmó. Úsalo antes de aprender_del_feedback para confirmar reglas existentes en vez de duplicarlas. $0.',
+  schema: z.object({}),
+  run: async () => {
+    const { manual, compartido, aviso } = await loadManual();
+    return {
+      version: manual.version,
+      compartido,
+      aviso,
+      reglas: manual.reglas
+        .filter((r) => r.estado === 'activa')
+        .map((r) => ({ id: r.id, area: AREA_LABEL[r.area], regla: r.regla, porQue: r.porQue, confirmaciones: r.confirmaciones })),
+    };
+  },
+});
+
+const aprenderDelFeedback = tool({
+  name: 'aprender_del_feedback',
+  description:
+    'Guarda en el MANUAL DE EDICIÓN (compartido por los 4 del equipo) lo aprendido del feedback o de lo que pide la persona: reglas GENERALES y accionables para cualquier video. Cada lección: area, regla, porQue, nota (la del equipo que la originó) y, si repite una regla existente, confirma = su id (ver_manual). Entran activas al momento. $0.',
+  schema: z.object({ lecciones: z.array(LessonSchema).min(1).max(12) }),
+  run: async (editId, { lecciones }) => {
+    const p = await getEdit(editId);
+    const { manual, result } = await learnLessons(lecciones, p.titulo, 'Claude');
+    await updateEdit(editId, (x) => logActivity(x, `Claude guardó ${result.length} lección(es) en el manual de edición (v${manual.version}).`));
+    return { ok: true, version: manual.version, lecciones: result };
+  },
+});
+
 const responderFeedback = tool({
   name: 'responder_feedback',
   description: 'Al terminar de aplicar el feedback, deja tu respuesta para el equipo: nota por nota qué cambiaste y qué no se pudo (y por qué). La verán en la app de feedback y el video pasa a «Claude respondió». $0.',
   schema: z.object({ key: z.string().min(1).max(400), resumen: z.string().min(10).max(4000) }),
-  run: async (editId, { key, resumen }) => respondFromAgent(key, resumen, { servicio: 'edicion', id: editId }),
+  run: async (editId, { key, resumen }) => ({
+    ...(await respondFromAgent(key, resumen, { servicio: 'edicion', id: editId })),
+    siguiente: 'Ahora guarda en el manual las lecciones generales de estas notas con aprender_del_feedback (mira ver_manual para confirmar las que ya existen).',
+  }),
 });
 
 const revisarHtmlVideo = tool({
@@ -489,7 +523,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [catalogoEdicion, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

@@ -150,3 +150,41 @@ export async function listAll(): Promise<_Object[]> {
   } while (token);
   return out;
 }
+
+/** JSON con su ETag (para escribir después solo si nadie lo cambió entretanto). */
+export async function getJsonTagged<T>(key: string): Promise<{ data: T | null; etag: string | null }> {
+  const { s3, bucket } = client();
+  try {
+    const r = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    const text = await r.Body?.transformToString('utf-8');
+    return { data: text ? (JSON.parse(text) as T) : null, etag: r.ETag ?? null };
+  } catch (err) {
+    const name = (err as { name?: string })?.name;
+    if (name === 'NoSuchKey' || name === 'NotFound') return { data: null, etag: null };
+    throw err;
+  }
+}
+
+/**
+ * Escritura condicional: con etag, solo si el objeto sigue igual (If-Match); sin etag, solo si no
+ * existe (If-None-Match). Devuelve false si otra persona lo cambió (412): hay que leer y reintentar.
+ */
+export async function putJsonIfUnchanged(key: string, data: unknown, etag: string | null): Promise<boolean> {
+  const { s3, bucket } = client();
+  try {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: JSON.stringify(data),
+        ContentType: 'application/json; charset=utf-8',
+        ...(etag ? { IfMatch: etag } : { IfNoneMatch: '*' }),
+      })
+    );
+    return true;
+  } catch (err) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e.$metadata?.httpStatusCode === 412 || e.name === 'PreconditionFailed') return false;
+    throw err;
+  }
+}

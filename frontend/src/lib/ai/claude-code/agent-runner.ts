@@ -14,6 +14,7 @@ import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_DEFAULT_EFFORT, CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
+import { manualPrompt } from '@/lib/editor/manual';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, claudeApiKeyEnv, execClaude, hasClaudeApiKey, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
@@ -143,6 +144,8 @@ export interface AgentSpec {
    * la clave `key`), Claude la puede leer. `comoUsar`: cómo se usan sus archivos en esta herramienta.
    */
   material?: { comoUsar: string };
+  /** Añade el manual de edición vivo (lib/editor/manual.ts) a las instrucciones. */
+  manual?: boolean;
 }
 
 type AgentDirs = {
@@ -440,7 +443,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const systemPrompt =
       spec.systemPrompt(ctx) +
       (plugin && spec.videoSkills ? '\n' + videoSkillsPrompt(spec.videoSkills) : '') +
-      (material && spec.material ? '\n' + (await materialPrompt(material, { puedeCopiar: mode !== 'sin_bash', comoUsar: spec.material.comoUsar })) : '');
+      (material && spec.material ? '\n' + (await materialPrompt(material, { puedeCopiar: mode !== 'sin_bash', comoUsar: spec.material.comoUsar })) : '') +
+      (spec.manual ? '\n' + (await manualPrompt().catch(() => '')) : '');
     await fsp.writeFile(systemFile, systemPrompt, 'utf8');
     // Configuración en archivos y no en la línea de comandos: con claude.cmd (npm) Windows corta la
     // orden a 8191 caracteres
