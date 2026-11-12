@@ -88,7 +88,7 @@ export async function buildFinalAudio(o: {
     musicBajoVoz = dm.bajoVozDb;
     ducking = dm.ducking;
     if (dm.modo === 'generada' && dm.estilo) {
-      const g = generateStyledMusic(dm.estilo, D + 0.5, dm.secciones, o.seed);
+      const g = generateStyledMusic(dm.estilo, D + 0.5, dm.secciones, o.seed, !o.direccion?.bucle);
       music = f(`musica-${dm.estilo}.wav`);
       await writeWav(music, g.left, g.right);
       notas.push(`Música ${dm.estilo} generada (${MUSIC_CATALOG[dm.estilo].bpm} BPM${dm.secciones.length ? `, ${dm.secciones.length} secciones` : ''}).`);
@@ -156,7 +156,9 @@ export async function buildFinalAudio(o: {
       const musicLufs = (await measureLoudness(music, 60)).lufs;
       const gain = vozLufs - musicBajoVoz - musicLufs;
       args.push('-stream_loop', '-1', ...(musicStart > 0 ? ['-ss', musicStart.toFixed(2)] : []), '-i', music);
-      const fadeOut = Math.max(0, D - 1.5);
+      // En bucle la música no se desvanece al final (el video vuelve a empezar): solo un corte limpio
+      const loop = !!o.direccion?.bucle;
+      const fadeOut = Math.max(0, D - (loop ? 0.08 : 1.5));
       // Secciones sobre un archivo: silencio = 0, suave = −9 dB (rampas de 0,15 s)
       const sectionVol = musicSections.length
         ? `,volume='${musicSections
@@ -170,7 +172,7 @@ export async function buildFinalAudio(o: {
         : '';
       graph.push(
         `[${idx}:a]${STEREO},atrim=0:${D.toFixed(3)},asetpts=PTS-STARTPTS,volume=${gain.toFixed(2)}dB${sectionVol},` +
-          `afade=t=in:d=0.6,afade=t=out:st=${fadeOut.toFixed(3)}:d=1.5,apad=whole_dur=${D.toFixed(3)}[mq]`
+          `afade=t=in:d=0.6,afade=t=out:st=${fadeOut.toFixed(3)}:d=${loop ? '0.08' : '1.5'},apad=whole_dur=${D.toFixed(3)}[mq]`
       );
       if (ducking > 0) {
         // Umbral 14 dB por debajo de la voz: con este ratio la música baja ~duckingDb mientras hablas

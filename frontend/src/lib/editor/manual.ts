@@ -266,6 +266,16 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Estructura de retención (dirigir_edicion; tiempos de la línea principal)',
+    items: [
+      'Arranque en frío: el momento más fuerte (1,5–4 s) se repite al inicio como avance, con destello y «swish», y luego empieza el video.',
+      'Silencio dramático: 0,4–0,8 s de silencio total con la imagen congelada (y zoom lento) justo antes del remate; 1–2 por video.',
+      'Progreso de una lista: barra que crece arriba y contador «PASO 2/5» que cambia en cada ítem.',
+      'Bucle: el final enlaza con el inicio sin silencio ni cola de música; el control de calidad mide cuánto se parecen el último y el primer plano.',
+      'Re-ganchos (≈3 s, ≈8 s y la mitad), bucles abiertos y pregunta final: criterio de dirección; el informe de ritmo avisa si falta un re-gancho.',
+    ],
+  },
+  {
     titulo: 'Recorte de persona (cuando aporte: 1–3 momentos clave por video, no todo el tiempo)',
     items: [
       'Usos: palabra gigante o gráfico DETRÁS de la persona (profundidad); la persona sobre un fondo de diseño o de color para marcar un cambio de tema; la persona como «sticker» sobre un b-roll o una captura; contorno brillante o sombra para destacarla; que «salga» del marco de un gráfico.',

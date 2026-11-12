@@ -156,6 +156,24 @@ export const DirectionInputSchema = z.object({
   musica: MusicSchema.optional(),
   /** Nivel base de los efectos: dB por debajo de la voz (8 = muy presentes … 30 = muy suaves). */
   efectosBajoVozDb: z.number().min(8).max(30).optional(),
+  // ── Estructura de retención (Fase 1) — tiempos de la línea PRINCIPAL (la de palabras_borrador) ──
+  /** Silencio dramático: fotograma congelado + silencio total justo en t (antes del remate). */
+  pausas: z.array(z.object({ t: sec, duracion: z.number().min(0.25).max(1.5).default(0.6), zoom: z.boolean().default(true) })).max(4).optional(),
+  /** Arranque en frío: este tramo se repite al inicio como avance (el original sigue en su sitio). */
+  arranque: z.object({ desde: sec, hasta: sec, transicion: z.enum(['corte', 'flash']).default('flash') }).optional(),
+  /** Bucle: el final enlaza con el inicio (sin cola de música ni silencio al final). */
+  bucle: z.boolean().optional(),
+  /** Progreso de una lista: barra que crece y/o contador «3 de 5» que cambia en cada marca. */
+  progreso: z
+    .object({
+      tipo: z.enum(['barra', 'contador', 'ambos']).default('ambos'),
+      /** Segundo en que empieza cada ítem de la lista (el contador cambia ahí). */
+      marcas: z.array(sec).min(2).max(12),
+      color: hex.optional(),
+      /** Texto antes del número del contador, p. ej. «PASO». */
+      etiqueta: z.string().max(16).optional(),
+    })
+    .optional(),
 });
 export type DirectionInput = z.infer<typeof DirectionInputSchema>;
 
@@ -206,6 +224,9 @@ function convert<T extends Omit<DirectionInput, 'graficos'>>(d: T, fn: (t: numbe
     elementos: m(d.elementos),
     sonidos: m(d.sonidos),
     musica: d.musica ? { ...d.musica, secciones: m(d.musica.secciones) ?? [] } : undefined,
+    pausas: m(d.pausas),
+    arranque: d.arranque ? mapTimes(d.arranque, fn, TIME_KEYS) : undefined,
+    progreso: d.progreso ? { ...d.progreso, marcas: d.progreso.marcas.map((t) => r2(fn(t))) } : undefined,
   };
 }
 
@@ -282,6 +303,12 @@ export function prepareDirection(
     m.secciones.forEach((s, i) => range(s.desde, s.hasta, `musica.secciones[${i}]`));
   }
   input.graficos?.forEach((g, i) => within(g.t, `graficos[${i}]`));
+  input.pausas?.forEach((x, i) => within(x.t, `pausas[${i}]`));
+  if (input.arranque) {
+    range(input.arranque.desde, input.arranque.hasta, 'arranque');
+    if (input.arranque.hasta - input.arranque.desde > 4.5) problems.push('arranque: el avance del inicio debe durar como mucho 4,5 s (el momento más fuerte, no un resumen).');
+  }
+  input.progreso?.marcas.forEach((t, i) => within(t, `progreso.marcas[${i}]`));
   // Cámara: los tramos no se pueden pisar (el motor no sabría cuál aplicar)
   const cams = [...(input.camara ?? [])].sort((a, b) => a.desde - b.desde);
   for (let i = 1; i < cams.length; i++) {
@@ -572,6 +599,11 @@ export interface ResolvedDirection {
   /** Ventanas con pantalla dividida (los subtítulos van al centro, sobre la unión). */
   divididas: Array<[number, number]>;
   sombra?: { px: number; color: string };
+  /** Estructura (se aplica al final, sobre el video ya montado). */
+  pausas: Array<{ t: number; duracion: number; zoom: boolean }>;
+  arranque?: { desde: number; hasta: number; transicion: 'corte' | 'flash' };
+  bucle: boolean;
+  progreso?: { tipo: 'barra' | 'contador' | 'ambos'; marcas: number[]; color?: string; etiqueta?: string };
 }
 
 /** El plan listo para el render: tiempos del final y rutas absolutas. */
@@ -631,6 +663,10 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     palabrasClave: f.palabrasClave ?? [],
     divididas: elementos.filter((e) => e.modo === 'pantalla_dividida').map((e) => [e.desde, e.hasta] as [number, number]),
     sombra: sub?.sombra ? { px: sub.sombra, color: sub.colorSombra ?? '#000000' } : undefined,
+    pausas: (f.pausas ?? []).filter((x) => x.t > 0.2 && x.t < total - 0.2).sort((a, b) => a.t - b.t),
+    arranque: f.arranque && f.arranque.hasta > f.arranque.desde + 0.3 ? { ...f.arranque, desde: Math.max(0, f.arranque.desde), hasta: Math.min(total, f.arranque.hasta) } : undefined,
+    bucle: !!f.bucle,
+    progreso: f.progreso ? { ...f.progreso, marcas: [...f.progreso.marcas].filter((t) => t < total).sort((a, b) => a - b) } : undefined,
   };
 }
 
@@ -685,7 +721,7 @@ export interface RhythmReport {
 
 /** Analiza el plan (tiempos del video FINAL) contra el presupuesto de ritmo. */
 export function analyzeRhythm(
-  d: Pick<DirectionInput, 'camara' | 'elementos' | 'transiciones' | 'sonidos' | 'palabrasClave'>,
+  d: Pick<DirectionInput, 'camara' | 'elementos' | 'transiciones' | 'sonidos' | 'palabrasClave' | 'pausas'>,
   graphicStarts: number[],
   total: number,
   subtituloPx?: number
@@ -727,6 +763,8 @@ export function analyzeRhythm(
   }
   for (const t of d.transiciones ?? []) marks.add(r1(t.t));
   for (const g of graphicStarts) marks.add(r1(g));
+  for (const k of d.palabrasClave ?? []) if (k.t !== undefined) marks.add(r1(k.t));
+  for (const pz of d.pausas ?? []) marks.add(r1(pz.t));
   const sorted = [...marks].filter((t) => t >= 0 && t <= total).sort((a, b) => a - b);
   let longest = { desde: 0, hasta: total, segundos: total };
   let best = 0;
@@ -780,6 +818,13 @@ export function analyzeRhythm(
   if ((d.camara ?? []).length >= 6 && cams.frac > 0.7) avisos.push(`El ${Math.round(cams.frac * 100)} % de los movimientos de cámara son «${cams.top}»: alterna planos, punch, acercar/alejar y paneos.`);
   const keyFx = share(d.palabrasClave ?? [], (k) => k.efecto);
   if ((d.palabrasClave ?? []).length >= 6 && keyFx.frac > 0.8) avisos.push(`Casi todas las palabras clave llevan «${keyFx.top}»: varía el efecto según el peso de cada palabra.`);
+  // Re-ganchos: algo fuerte cerca de donde más gente se va (≈3 s, ≈8 s y la mitad)
+  if (total > 12) {
+    const inner = sorted.filter((t) => t > 0.3 && t < total - 0.3);
+    for (const [c, label] of [[3, '≈3 s'], [8, '≈8 s'], [total / 2, 'la mitad']] as Array<[number, string]>) {
+      if (!inner.some((t) => Math.abs(t - c) <= 1.2)) avisos.push(`Sin re-gancho en ${label} (${r1(c)} s): ahí se va mucha gente; pon un cambio fuerte (punch, palabra gigante, elemento, pregunta).`);
+    }
+  }
   if (subtituloPx !== undefined && subtituloPx < 64) avisos.push(`Subtítulos pequeños (${subtituloPx} px): en vertical usa 72–100 px para que se lean en el móvil.`);
 
   return {

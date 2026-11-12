@@ -99,7 +99,9 @@ export function generateStyledMusic(
   style: MusicStyle,
   seconds: number,
   sections: MusicSection[] = [],
-  seed = 3
+  seed = 3,
+  /** false en videos en bucle: sin desvanecido final (el video vuelve a empezar). */
+  fadeOut = true
 ): { left: Float32Array; right: Float32Array; bpm: number } {
   const st = STYLES[style];
   const D = Math.max(2, Math.min(600, seconds));
@@ -277,7 +279,7 @@ export function generateStyledMusic(
     R[i] = dR[i] * gd + hR[i] * gh;
   }
   // Fundido de salida de 1,2 s
-  const fo = Math.round(1.2 * SR);
+  const fo = Math.round((fadeOut ? 1.2 : 0.02) * SR);
   for (let i = Math.max(0, n - fo); i < n; i++) {
     const g = (n - i) / fo;
     L[i] *= g;

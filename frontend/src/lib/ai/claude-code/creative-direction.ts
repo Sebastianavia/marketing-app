@@ -41,6 +41,15 @@ PRESUPUESTO DE FORMATOS (equilibrio: ni plano aburrido ni saturado)
 
 GANCHO (0–2 s): el primer fotograma ya engancha: texto gancho grande que tensa o resume la primera frase, movimiento de cámara (punch o acercamiento), sonido de entrada (impacto, riser que remata o swish) y música que arranca con energía (o en suave para crecer). Nada de arranques planos.
 
+ESTRUCTURA DE RETENCIÓN (decide cuáles aplica este video; no todas en todos)
+- BUCLE ABIERTO: si el contenido lo permite, promete al inicio algo que se paga más tarde («y lo tercero es el que nadie hace»); si la promesa no está en la voz, ponla como texto. Paga SIEMPRE lo prometido.
+- RE-GANCHOS: algo fuerte cerca de los 3 s, de los 8 s y de la mitad (punch, palabra gigante, elemento, pregunta, cambio de música): ahí es donde más gente se va. El informe de ritmo lo comprueba.
+- ARRANQUE EN FRÍO (campo arranque): cuando el mejor momento está a mitad del video, ábrelo con un avance de 1,5–4 s de ese momento y luego empieza. Úsalo cuando el inicio real es flojo.
+- SILENCIO DRAMÁTICO (campo pausas): 0,4–0,8 s de silencio total con la imagen congelada justo antes del remate o del dato más fuerte. Como mucho 1–2 por video.
+- PROGRESO (campo progreso): en videos tipo lista (pasos, errores, tips), barra que crece y contador «2/5» para que se queden hasta el último.
+- BUCLE (campo bucle): si la última frase puede llevar a la primera, hazlo en bucle; corta el cierre para que enlace y deja el último plano con el mismo encuadre que el primero. Sube mucho las reproducciones.
+- PREGUNTA FINAL: cierra con una pregunta concreta que invite a comentar (grande en pantalla, con su sonido), salvo que el pedido tenga otro CTA.
+
 CÁMARA: simula varios ángulos con una sola cámara: normal (1,0), medio (1,15–1,2), primer plano (1,3–1,45). Cambia en cada idea y en los cortes, que el cambio SE NOTE (diferencia ≥ 0,12 de zoom). Punch-in (1,25–1,4) en las palabras fuertes, acercar lento en tensión o emoción, alejar al cerrar una idea, sacudida en golpes, paneo leve para dinamismo. Ningún plano fijo de más de 4 s.
 
 SUBTÍTULOS: diseñados para el concepto, no por defecto: fuente display gruesa, 72–100 px en vertical, 1–3 palabras por línea, mayúsculas si el tono es enérgico, borde o sombra que los haga legibles sobre cualquier fondo, a la altura del pecho o al centro (nunca sobre la cara ni en la zona de botones). Animación viva (pop o caja_activa si es enérgico; karaoke si explica; frase si es sobrio). La palabra clave de cada línea en el acento, 130–160 % y con efecto (rebote, crecer, sacudida en sorpresas, brillo en lo premium). Máximo una palabra clave por línea.
@@ -64,7 +73,7 @@ export const EDITOR_FIRST_PASS = `PRIMERA VERSIÓN: DIRÍGELA Y DISÉÑALA ENTER
 3. Tiempos: palabras_borrador (segundos del video final con esos cortes). Todo el plan va en esos segundos.
 4. Concepto creativo + paleta + storyboard (MÉTODO 2–4). Escríbelos en el plan (campos concepto y paleta).
 5. Produce las ayudas visuales en ./claude/ con la herramienta que mejor sirva a cada una (motor, HyperFrames, FFmpeg, material; no diseñes con Pillow/PIL), variando recursos y con el listón de calidad del MÉTODO 5. Si usas HyperFrames: una composición por ayuda, .mov transparente 1080×1920 de la duración exacta, revisada con revisar_html_video y renderizada con renderizar_html_video. Mira un fotograma de cada ayuda antes de usarla.
-6. dirigir_edicion con el plan COMPLETO: concepto, paleta, camara (tramos seguidos que cubran todo), transiciones, color, subtitulos, palabrasClave, gancho, graficos, elementos, sonidos y musica. Corrige los avisos de RITMO (equilibrio y variedad) hasta que no quede ninguno.
+6. dirigir_edicion con el plan COMPLETO: concepto, paleta, camara (tramos seguidos que cubran todo), transiciones, color, subtitulos, palabrasClave, gancho, graficos, elementos, sonidos y musica, más la ESTRUCTURA que elijas (arranque, pausas, progreso, bucle). Corrige los avisos de RITMO (equilibrio y variedad) hasta que no quede ninguno.
 7. renderizar → hoja de fotogramas cada 1–2 s + escuchar_audio → crítica exigente → corrige y re-renderiza. Repite hasta que se vea profesional.
 8. Solo si el concepto exige algo que el plan no puede (p. ej. la persona dentro de una composición compleja), compón ese tramo o el video en HyperFrames y publícalo con publicar_borrador, respetando igual el PRESUPUESTO DE FORMATOS.
 9. Responde corto: el concepto, las ideas visuales principales, la música y qué podría ajustar la persona.`;

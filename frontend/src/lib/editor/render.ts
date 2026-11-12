@@ -4,6 +4,7 @@ import fsSync from 'fs';
 import { formatSize, networkInfo, safeZone } from '@/config/editor-looks';
 import { errorMessage } from '@/lib/errors';
 import { buildFinalAudio, measureLoudness, musicDir, type SfxEvent } from './audio';
+import { applyStructure, counterEvents, progressBarFilter } from './structure';
 import { cameraFilter, colorFilter, describeDirection, directedProfile, elementsFilter, faceCenter, resolveDirection } from './direction';
 import { buildAss, buildBehindAss, defaultSubMargin } from './ass';
 import { cardStyle, faceWindow, graphicsEvents, placeGraphics } from './graphics';
@@ -218,6 +219,10 @@ export async function renderEdit(
     }
   }
   const style = cardStyle(perfil);
+  // Progreso de una lista (barra y contador), con el acento de la paleta
+  const progressColor = dir?.progreso?.color ?? perfil.subtitulos.colorResaltado;
+  const sz0 = safeZone(perfil.red, perfil.formato);
+  const progressCounter = dir?.progreso ? counterEvents(dir.progreso, total, W, sz0.top, sz0.right, progressColor) : [];
   const words = subtitleWords(p.frases, intervals);
   const subs = buildAss({
     perfil,
@@ -228,13 +233,13 @@ export async function renderEdit(
     centrar: dir?.divididas,
     sombra: dir?.sombra,
     duracionFinal: total,
-    graficos: gfx.front,
+    graficos: [...gfx.front, ...progressCounter],
     ocultar: gfx.hide,
     cardStyle: style,
     marginV: subMargin,
   });
   await fs.writeFile(f('subtitulos.ass'), subs.ass, 'utf-8');
-  const burn = (perfil.subtitulos.activo && words.length > 0) || hookOn || gfx.front.length > 0 || Boolean(perfil.firma?.activo && perfil.firma.texto.trim());
+  const burn = (perfil.subtitulos.activo && words.length > 0) || hookOn || gfx.front.length > 0 || progressCounter.length > 0 || Boolean(perfil.firma?.activo && perfil.firma.texto.trim());
   const behindOn = !!matte && gfx.behind.length > 0;
   if (behindOn) await fs.writeFile(f('detras.ass'), buildBehindAss(perfil, style, gfx.behind), 'utf-8');
   if ((burn || behindOn) && !(await hasSubtitlesFilter())) {
@@ -308,7 +313,14 @@ export async function renderEdit(
   } else {
     c.push(`[comp]null[zc]`);
   }
-  c.push(burn ? `[zc]subtitles=subtitulos.ass${fontsOpt}[vout]` : `[zc]null[vout]`);
+  // Barra de progreso (listas) antes de los subtítulos
+  const bar = dir?.progreso ? progressBarFilter(dir.progreso, total, W, sz0.top, progressColor) : null;
+  if (bar) {
+    c.push(`[zc]${bar}[zb]`);
+    c.push(burn ? `[zb]subtitles=subtitulos.ass${fontsOpt}[vout]` : `[zb]null[vout]`);
+  } else {
+    c.push(burn ? `[zc]subtitles=subtitulos.ass${fontsOpt}[vout]` : `[zc]null[vout]`);
+  }
 
   // Efectos en los gráficos: whoosh al entrar una tarjeta, golpe en las palabras gigantes
   if (sfx.efectosGraficos !== false) for (const x of placed) eventos.push({ tipo: x.g.tipo === 'detras' ? 'impacto' : 'whoosh', t: Math.max(0, x.start - 0.03) });
@@ -340,6 +352,21 @@ export async function renderEdit(
     args: ['-y', '-hide_banner', '-i', videoOnly, '-i', audio.master, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-shortest', '-movflags', '+faststart', out],
     timeoutMs: 10 * 60 * 1000,
   });
+
+  // ── E. Estructura de retención: silencios dramáticos, arranque en frío y bucle (sobre el video montado) ──
+  let finalDur = total;
+  if (dir && (dir.pausas.length || dir.arranque || dir.bucle)) {
+    onProgress?.(97, 'sonido', 'Estructura: avance, pausas y bucle');
+    const st = await applyStructure({ carpeta: p.carpeta, file: f(out), dir, total, W, H, fps: FPS });
+    finalDur = st.duracion;
+    notas.push(...st.notas);
+    if (st.bucleParecido !== undefined) {
+      calidad.push({
+        ok: st.bucleParecido >= 0.55,
+        texto: `Bucle: el último plano se parece al primero en un ${Math.round(st.bucleParecido * 100)} %${st.bucleParecido >= 0.55 ? '' : ' (iguala encuadre y zoom del final con los del inicio)'}`,
+      });
+    }
+  }
 
   // Portada: un fotograma con el gancho en pantalla (o el primer segundo)
   const portada = `portada-v${version}.jpg`;
@@ -378,7 +405,7 @@ export async function renderEdit(
   if (placed.length) {
     calidad.push({ ok: true, texto: `${placed.length} gráfico${placed.length === 1 ? '' : 's'}, cada uno en su palabra${faces ? ', colocados según dónde está tu cara' : ''}${behindOn ? ' · palabras gigantes detrás de ti' : ''}` });
   }
-  calidad.push({ ok: total <= red.maxSeg, texto: `Duración ${total.toFixed(1)} s (${red.label} admite hasta ${Math.round(red.maxSeg / 60)} min)` });
+  calidad.push({ ok: finalDur <= red.maxSeg, texto: `Duración ${finalDur.toFixed(1)} s (${red.label} admite hasta ${Math.round(red.maxSeg / 60)} min)` });
   calidad.push({ ok: null, texto: 'Míralo en el móvil con y sin sonido, y comprueba que nada te tape la cara (también con el zoom)' });
 
   // Limpieza: intermedios de esta versión y bases de cortes anteriores (la actual se guarda para volver a renderizar rápido)
@@ -391,5 +418,5 @@ export async function renderEdit(
     // no pasa nada si no se puede limpiar
   }
 
-  return { archivo: out, duracion: total, portada: portadaOk ? portada : undefined, calidad, notas };
+  return { archivo: out, duracion: finalDur, portada: portadaOk ? portada : undefined, calidad, notas };
 }

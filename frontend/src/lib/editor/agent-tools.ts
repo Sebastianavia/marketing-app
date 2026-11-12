@@ -75,6 +75,25 @@ function snapshot(p: EditProject) {
   };
 }
 
+/**
+ * Con arranque en frío o pausas, el borrador final dura más que la línea principal: cómo pasar de uno
+ * a otro (las notas del equipo [mm:ss] vienen en tiempos del BORRADOR).
+ */
+function structureNote(p: EditProject) {
+  if (!p.direccion?.arranque && !p.direccion?.pausas?.length) return {};
+  const plan = planInFinal(p);
+  const avance = plan.arranque ? Number((plan.arranque.hasta - plan.arranque.desde).toFixed(2)) : 0;
+  const pausas = (plan.pausas ?? []).map((x) => ({ enPrincipal: x.t, duracion: x.duracion }));
+  return {
+    estructura: {
+      avanceAlInicioSeg: avance,
+      pausas,
+      comoConvertir:
+        'Estos tiempos (y los del plan) son de la línea PRINCIPAL. En el borrador final: tiempo = principal + avanceAlInicioSeg + la suma de las pausas que caen antes. Para una nota del equipo en [mm:ss] del borrador, haz la cuenta al revés.',
+    },
+  };
+}
+
 /** El plan de dirección con tiempos del video final (los cortes actuales). */
 function planInFinal(p: EditProject) {
   const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
@@ -198,6 +217,7 @@ const palabrasBorrador = tool({
     const kept = p.frases.filter((f) => !f.cortar);
     return {
       nota: 'Tiempos del borrador que hace el motor (renderizar). Si tu versión cambia la duración o el orden, recalcula a partir de estos.',
+      ...structureNote(p),
       frases: kept.map((f, i) => ({
         frase: i,
         texto: f.textoEditado ?? phraseText(f),
@@ -465,6 +485,13 @@ const catalogoEdicion = tool({
         nota: 'Puedes cambiar cualquier campo de los subtítulos del perfil (fuente, tamano, colores, grosorBorde, caja, posicion, palabrasPorLinea, mayusculas, escalaClave) y además sombra/colorSombra.',
       },
       archivosEnLaCarpeta: { imagenes: of(IMAGE_EXT), videos: of(VIDEO_EXT), audios: of(AUDIO_EXT) },
+      estructura: {
+        pausas: 'Silencio dramático: [{t, duracion 0,25–1,5, zoom}] → fotograma congelado (zoom lento) y silencio TOTAL justo antes del remate. 1–2 por video como mucho.',
+        arranque: 'Arranque en frío: {desde, hasta (≤ 4,5 s), transicion corte|flash} → ese tramo se repite al inicio como avance y luego empieza el video. Usa el momento más fuerte o intrigante.',
+        bucle: 'bucle: true → el final enlaza con el inicio sin silencio ni cola de música. Escribe/corta el cierre para que la última frase lleve a la primera e iguala encuadre y zoom del final con los del inicio.',
+        progreso: 'Listas: {tipo barra|contador|ambos, marcas: [segundo en que empieza cada ítem], etiqueta?, color?} → barra que crece arriba y «PASO 2/5» que cambia en cada ítem.',
+        tiempos: 'Todo en segundos de la línea PRINCIPAL (palabras_borrador); el borrador final dura más si hay avance o pausas.',
+      },
       paleta: 'Elige TÚ la paleta de este video (primario, acento, secundario, texto, fondo) en el campo paleta del plan: se aplica a subtítulos, gancho y gráficos. No estás atado a los colores del perfil.',
       presupuestoDeRitmo: RHYTHM_BUDGET,
       tiempos: 'Todas las marcas de tiempo del plan son del VIDEO FINAL: sácalas de palabras_borrador.',
