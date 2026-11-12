@@ -276,6 +276,17 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Sonido (dirigir_edicion + biblioteca_audio + beats_musica)',
+    items: [
+      'Cuadrícula de beats de la música (generada: exacta; archivo: detectada): cortes, punch y entradas en el beat; cambios grandes al inicio de compás; impactos en los golpes. El informe de ritmo avisa si los cortes no caen en el beat.',
+      'Biblioteca de audio del equipo (pestaña «Audio», compartida): efectos, música y ambientes reales con licencia, como «biblioteca:<id>». Los sonidos en tendencia «solo en la app» se recomiendan para añadirlos al publicar.',
+      'Voz: mejora (presencia + de-esser), respiraciones y chasquidos atenuados, y efectos por tramo: teléfono, radio, megáfono, eco, sala, pensamiento, grave y agudo.',
+      'Ambientes de fondo por tramos: lluvia, viento, oficina, ciudad, naturaleza, tensión, sala (sintetizados) o un archivo.',
+      'Velocidad de los clips de apoyo: cámara lenta (0,25–0,9) o rápida (1,5–4).',
+      'Volumen final por red (Instagram/Shorts −14 LUFS, TikTok −13) o el que elijas entre −16 y −9.',
+    ],
+  },
+  {
     titulo: 'Recorte de persona (cuando aporte: 1–3 momentos clave por video, no todo el tiempo)',
     items: [
       'Usos: palabra gigante o gráfico DETRÁS de la persona (profundidad); la persona sobre un fondo de diseño o de color para marcar un cambio de tema; la persona como «sticker» sobre un b-roll o una captura; contorno brillante o sombra para destacarla; que «salga» del marco de un gráfico.',

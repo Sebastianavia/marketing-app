@@ -8,6 +8,8 @@ import { generateMusic, sfxImpact, sfxWhoosh, writeWav } from './synth';
 import { generateStyledMusic, MUSIC_CATALOG } from './music';
 import { buildSfxTrack, decodeMono, sfxSamples, type SfxPlacement } from './sfx';
 import type { ResolvedDirection } from './direction';
+import type { SubWord } from './timeline';
+import { buildAmbientTrack, processVoice } from './voice';
 
 /**
  * Pasada de sonido (después del video):
@@ -51,6 +53,12 @@ export async function measureLoudness(file: string, maxSeconds?: number): Promis
   return { lufs: num(i), tp: num(tp) };
 }
 
+/**
+ * Volumen final por red (LUFS integrados). Instagram y YouTube normalizan a ≈ −14: más fuerte no
+ * suena más alto, solo se aplasta. TikTok normaliza menos: −13 sin perder dinámica.
+ */
+export const LOUDNESS_BY_NETWORK: Record<string, number> = { instagram: -14, shorts: -14, tiktok: -13 };
+
 const STEREO = 'aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
 
 export interface FinalAudio {
@@ -71,11 +79,21 @@ export async function buildFinalAudio(o: {
   seed: number;
   /** Plan de Claude: su música y sus efectos sustituyen a los del perfil. */
   direccion?: ResolvedDirection | null;
+  /** Palabras con tiempos del video (para atenuar respiraciones entre ellas). */
+  words?: SubWord[];
 }): Promise<FinalAudio> {
-  const { carpeta, voz, duracion: D, perfil } = o;
+  const { carpeta, duracion: D, perfil } = o;
   const sonido = perfil.sonido;
   const notas: string[] = [];
   const f = (name: string) => path.join(/*turbopackIgnore: true*/ carpeta, name);
+
+  // Voz: mejora, respiraciones y efectos por tramo (solo con plan de Claude)
+  let voz = o.voz;
+  if (o.direccion?.voz) {
+    const pv = await processVoice({ carpeta, voz, D, plan: o.direccion.voz, words: o.words ?? [] });
+    voz = pv.file;
+    notas.push(...pv.notas);
+  }
 
   // Música (la del plan de Claude manda; si el plan no dice nada, la del perfil)
   let music: string | null = null;
@@ -141,9 +159,23 @@ export async function buildFinalAudio(o: {
   if (eventos.some((e) => e.tipo === 'impacto')) await writeWav(f('sfx-impacto.wav'), sfxImpact());
   if (eventos.some((e) => e.tipo === 'whoosh')) await writeWav(f('sfx-whoosh.wav'), sfxWhoosh());
 
+  // Ambientes de fondo (una pista con todos, cada uno a su nivel respecto a la voz)
+  let ambTrack: string | null = null;
+  let vozLufsCache: number | null = null;
+  const vozLoudness = async () => (vozLufsCache ??= (await measureLoudness(voz)).lufs);
+  const ambs = o.direccion?.ambientes ?? [];
+  if (ambs.length) {
+    const tr = await buildAmbientTrack(D, ambs, await vozLoudness(), o.seed);
+    if (tr.usados) {
+      ambTrack = f('ambiente-pista.wav');
+      await writeWav(ambTrack, tr.left, tr.right);
+      notas.push(`${tr.usados} ambiente${tr.usados === 1 ? '' : 's'} de fondo.`);
+    }
+  }
+
   let premix = voz;
-  if (music || eventos.length || sfxTrack) {
-    const vozLufs = (await measureLoudness(voz)).lufs;
+  if (music || eventos.length || sfxTrack || ambTrack) {
+    const vozLufs = await vozLoudness();
     const args: string[] = ['-y', '-hide_banner', '-i', voz];
     const graph: string[] = [];
     const mixIn: string[] = [];
@@ -207,6 +239,14 @@ export async function buildFinalAudio(o: {
       idx++;
     }
 
+    if (ambTrack) {
+      // Ya viene a su nivel respecto a la voz (buildAmbientTrack)
+      args.push('-i', ambTrack);
+      graph.push(`[${idx}:a]${STEREO},apad=whole_dur=${D.toFixed(3)},atrim=0:${D.toFixed(3)}[amb]`);
+      mixIn.push('[amb]');
+      idx++;
+    }
+
     // amix divide entre el número de entradas: todas duran D, así que se compensa con un volumen fijo
     graph.push(`${mixIn.join('')}amix=inputs=${mixIn.length}:duration=first:dropout_transition=0,volume=${mixIn.length},${STEREO}[mix]`);
     await fs.writeFile(f('mezcla-filtros.txt'), graph.join(';\n'), 'utf-8');
@@ -220,8 +260,9 @@ export async function buildFinalAudio(o: {
 
   if (!perfil.ritmo.normalizarAudio) return { master: premix, notas };
 
-  // Máster en dos pasadas: medir y aplicar en lineal
-  const target = 'I=-14:TP=-1.5:LRA=11';
+  // Máster en dos pasadas: medir y aplicar en lineal. Volumen por red (lo que pida el plan manda)
+  const lufs = o.direccion?.volumenFinal ?? LOUDNESS_BY_NETWORK[perfil.red] ?? -14;
+  const target = `I=${lufs}:TP=-1.5:LRA=11`;
   const measure = await ffmpeg({ args: ['-hide_banner', '-nostats', '-i', premix, '-af', `loudnorm=${target}:print_format=json`, '-f', 'null', '-'] });
   const json = measure.slice(measure.lastIndexOf('{'), measure.lastIndexOf('}') + 1);
   let m: Record<string, string> | null = null;
@@ -236,6 +277,6 @@ export async function buildFinalAudio(o: {
     ? `loudnorm=${target}:measured_I=${m!.input_i}:measured_TP=${m!.input_tp}:measured_LRA=${m!.input_lra}:measured_thresh=${m!.input_thresh}:offset=${m!.target_offset}:linear=true,aresample=48000`
     : `loudnorm=${target},aresample=48000`;
   await ffmpeg({ args: ['-y', '-hide_banner', '-i', premix, '-af', af, '-c:a', 'pcm_s16le', master], timeoutMs: 10 * 60 * 1000 });
-  notas.push('Máster a −14 LUFS (dos pasadas).');
+  notas.push(`Máster a ${String(lufs).replace('-', '−')} LUFS (dos pasadas).`);
   return { master, notas };
 }

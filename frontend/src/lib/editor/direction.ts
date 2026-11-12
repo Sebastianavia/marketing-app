@@ -6,6 +6,7 @@ import { isInside } from '@/lib/fs/inside';
 import { mapTime, type KeptInterval } from './timeline';
 import { SFX_TYPES, type SfxType } from './sfx';
 import { MUSIC_STYLES, type MusicSection, type MusicStyle } from './music';
+import { AMBIENT_TYPES, VOICE_FX, type AmbientType, type VoiceFx } from './voice';
 import type { FaceTrack } from './advanced';
 import type { EditGraphic, EditProject } from './types';
 
@@ -95,6 +96,8 @@ const ElementSchema = z.object({
   entrada: z.enum(ELEMENT_ENTRIES).default('pop'),
   borde: z.boolean().default(false),
   colorBorde: hex.default('#FFFFFF'),
+  /** Velocidad de un video de apoyo: 0,25–0,9 cámara lenta, 1 normal, 1,5–4 rápido (timelapse). */
+  velocidad: z.number().min(0.25).max(4).default(1),
 });
 
 /** Paleta del video (la elige Claude para ESTE video; no está atada al perfil). */
@@ -156,6 +159,31 @@ export const DirectionInputSchema = z.object({
   musica: MusicSchema.optional(),
   /** Nivel base de los efectos: dB por debajo de la voz (8 = muy presentes … 30 = muy suaves). */
   efectosBajoVozDb: z.number().min(8).max(30).optional(),
+  // ── Sonido (Fase 2) ──
+  /** Voz: mejora (presencia + de-esser), respiraciones atenuadas y efectos por tramo. */
+  voz: z
+    .object({
+      mejorar: z.boolean().default(true),
+      respiraciones: z.boolean().default(true),
+      efectos: z.array(z.object({ desde: sec, hasta: sec, efecto: z.enum(VOICE_FX) })).max(20).default([]),
+    })
+    .optional(),
+  /** Ambientes de fondo por tramos (sintetizados o un archivo / «biblioteca:<id>»). */
+  ambientes: z
+    .array(
+      z.object({
+        desde: sec,
+        hasta: sec,
+        tipo: z.union([z.enum(AMBIENT_TYPES), z.literal('archivo')]),
+        archivo: z.string().max(300).optional(),
+        /** dB por debajo de la voz (18 se nota … 40 casi imperceptible). */
+        bajoVozDb: z.number().min(14).max(45).default(28),
+      })
+    )
+    .max(12)
+    .optional(),
+  /** Volumen final del máster en LUFS (−14 por defecto; TikTok admite −12/−11 si el video es enérgico). */
+  volumenFinal: z.number().min(-16).max(-9).optional(),
   // ── Estructura de retención (Fase 1) — tiempos de la línea PRINCIPAL (la de palabras_borrador) ──
   /** Silencio dramático: fotograma congelado + silencio total justo en t (antes del remate). */
   pausas: z.array(z.object({ t: sec, duracion: z.number().min(0.25).max(1.5).default(0.6), zoom: z.boolean().default(true) })).max(4).optional(),
@@ -225,6 +253,8 @@ function convert<T extends Omit<DirectionInput, 'graficos'>>(d: T, fn: (t: numbe
     sonidos: m(d.sonidos),
     musica: d.musica ? { ...d.musica, secciones: m(d.musica.secciones) ?? [] } : undefined,
     pausas: m(d.pausas),
+    ambientes: m(d.ambientes),
+    voz: d.voz ? { ...d.voz, efectos: m(d.voz.efectos) ?? [] } : undefined,
     arranque: d.arranque ? mapTimes(d.arranque, fn, TIME_KEYS) : undefined,
     progreso: d.progreso ? { ...d.progreso, marcas: d.progreso.marcas.map((t) => r2(fn(t))) } : undefined,
   };
@@ -303,6 +333,14 @@ export function prepareDirection(
     m.secciones.forEach((s, i) => range(s.desde, s.hasta, `musica.secciones[${i}]`));
   }
   input.graficos?.forEach((g, i) => within(g.t, `graficos[${i}]`));
+  input.voz?.efectos.forEach((e, i) => range(e.desde, e.hasta, `voz.efectos[${i}]`));
+  input.ambientes?.forEach((a, i) => {
+    range(a.desde, a.hasta, `ambientes[${i}]`);
+    if (a.tipo === 'archivo') {
+      if (!a.archivo) problems.push(`ambientes[${i}]: con tipo «archivo» falta «archivo».`);
+      else problems.push(...checkFile(p.carpeta, a.archivo, AUDIO_EXT, `ambientes[${i}]`));
+    }
+  });
   input.pausas?.forEach((x, i) => within(x.t, `pausas[${i}]`));
   if (input.arranque) {
     range(input.arranque.desde, input.arranque.hasta, 'arranque');
@@ -509,6 +547,7 @@ export interface ResolvedElement {
   borde: boolean;
   colorBorde: string;
   esImagen: boolean;
+  velocidad?: number;
 }
 
 /** Entradas de FFmpeg (args) y cadena de overlays para los elementos, sobre [inLabel] → [outLabel]. */
@@ -574,8 +613,11 @@ export function elementsFilter(
     const fades = `${dIn ? `,fade=t=in:st=${f4(a)}:d=${f4(dIn)}:alpha=1` : ''},fade=t=out:st=${f4(Math.max(a, fin - 0.15))}:d=0.15:alpha=1`;
     // Un video más corto que su ventana se congela en su último fotograma (si no, en un split quedaba
     // la persona recortada sobre sí misma al acabarse el clip)
-    const hold = e.esImagen ? '' : `tpad=stop_mode=clone:stop_duration=${f4(len)},`;
-    graph.push(`[${idx}:v]${hold}setpts=PTS-STARTPTS+${f4(a)}/TB,${size},format=rgba${fades},setsar=1[el${i}]`);
+    const v = e.esImagen ? 1 : Math.max(0.25, Math.min(4, e.velocidad ?? 1));
+    const hold = e.esImagen ? '' : `tpad=stop_mode=clone:stop_duration=${f4(len * Math.max(1, v))},`;
+    // Velocidad: cámara lenta (v < 1) o rápida (v > 1) del clip de apoyo
+    const pts = v === 1 ? 'PTS-STARTPTS' : `(PTS-STARTPTS)/${v.toFixed(3)}`;
+    graph.push(`[${idx}:v]${hold}setpts=${pts}+${f4(a)}/TB,${size},format=rgba${fades},setsar=1[el${i}]`);
     // Movimiento de entrada: el pop sube 70 px con rebote; deslizar entra desde el lado
     const p = `clip((t-${f4(a)})/0.22,0,1)`;
     if (e.entrada === 'pop') y = `${y}+70*pow(1-${p},3)`;
@@ -601,6 +643,9 @@ export interface ResolvedDirection {
   sombra?: { px: number; color: string };
   /** Estructura (se aplica al final, sobre el video ya montado). */
   pausas: Array<{ t: number; duracion: number; zoom: boolean }>;
+  voz?: { mejorar: boolean; respiraciones: boolean; efectos: Array<{ desde: number; hasta: number; efecto: VoiceFx }> };
+  ambientes: Array<{ desde: number; hasta: number; tipo: AmbientType | 'archivo'; abs?: string; bajoVozDb: number }>;
+  volumenFinal?: number;
   arranque?: { desde: number; hasta: number; transicion: 'corte' | 'flash' };
   bucle: boolean;
   progreso?: { tipo: 'barra' | 'contador' | 'ambos'; marcas: number[]; color?: string; etiqueta?: string };
@@ -652,6 +697,19 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     }
     musica = { modo: m.modo, estilo: m.estilo, abs, bajoVozDb: m.bajoVozDb, ducking: m.ducking, inicioArchivo: m.inicioArchivo, secciones: clampR(m.secciones) };
   }
+  const ambientes: ResolvedDirection['ambientes'] = [];
+  for (const a of clampR(f.ambientes)) {
+    if (a.tipo !== 'archivo') {
+      ambientes.push({ desde: a.desde, hasta: a.hasta, tipo: a.tipo, bajoVozDb: a.bajoVozDb });
+      continue;
+    }
+    try {
+      const abs = editAsset(p.carpeta, a.archivo ?? '');
+      if (fsSync.existsSync(abs)) ambientes.push({ desde: a.desde, hasta: a.hasta, tipo: 'archivo', abs, bajoVozDb: a.bajoVozDb });
+    } catch {
+      // fuera de la carpeta: se ignora
+    }
+  }
   const sub = d.subtitulos;
   return {
     camara: clampR(f.camara).sort((a, b) => a.desde - b.desde),
@@ -664,6 +722,9 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     divididas: elementos.filter((e) => e.modo === 'pantalla_dividida').map((e) => [e.desde, e.hasta] as [number, number]),
     sombra: sub?.sombra ? { px: sub.sombra, color: sub.colorSombra ?? '#000000' } : undefined,
     pausas: (f.pausas ?? []).filter((x) => x.t > 0.2 && x.t < total - 0.2).sort((a, b) => a.t - b.t),
+    voz: f.voz ? { ...f.voz, efectos: clampR(f.voz.efectos) } : undefined,
+    ambientes,
+    volumenFinal: f.volumenFinal,
     arranque: f.arranque && f.arranque.hasta > f.arranque.desde + 0.3 ? { ...f.arranque, desde: Math.max(0, f.arranque.desde), hasta: Math.min(total, f.arranque.hasta) } : undefined,
     bucle: !!f.bucle,
     progreso: f.progreso ? { ...f.progreso, marcas: [...f.progreso.marcas].filter((t) => t < total).sort((a, b) => a - b) } : undefined,
@@ -683,6 +744,8 @@ export function describeDirection(d: EditDirection, graficos?: number): string {
   if (graficos) parts.push(`${graficos} gráficos`);
   if (d.musica) parts.push(d.musica.modo === 'generada' ? `música ${d.musica.estilo}` : d.musica.modo === 'archivo' ? `música: ${d.musica.archivo}` : 'sin música');
   if (d.subtitulos?.estilo) parts.push(`subtítulos «${d.subtitulos.estilo}»`);
+  if (d.ambientes?.length) parts.push(`${d.ambientes.length} ambiente${d.ambientes.length === 1 ? '' : 's'}`);
+  if (d.voz?.efectos.length) parts.push(`${d.voz.efectos.length} efecto${d.voz.efectos.length === 1 ? '' : 's'} de voz`);
   if (d.color) parts.push('color');
   return parts.join(' · ');
 }

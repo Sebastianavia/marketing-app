@@ -15,10 +15,13 @@ import { placeGraphics } from './graphics';
 import { AREA_LABEL, LessonSchema, learnLessons, loadManual } from './manual';
 import { ACTIVE_STATUSES, type EditProject } from './types';
 import { isInside } from '@/lib/fs/inside';
-import { RHYTHM_BUDGET, analyzeRhythm, directedProfile, CAMERA_TYPES, DirectionError, DirectionInputSchema, ELEMENT_ENTRIES, ELEMENT_MODES, ELEMENT_POSITIONS, KEY_EFFECTS, TRANSITION_TYPES, AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, describeDirection, directionInFinal, prepareDirection } from './direction';
+import { RHYTHM_BUDGET, analyzeRhythm, directedProfile, CAMERA_TYPES, DirectionError, DirectionInputSchema, ELEMENT_ENTRIES, ELEMENT_MODES, ELEMENT_POSITIONS, KEY_EFFECTS, TRANSITION_TYPES, AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, describeDirection, directionInFinal, editAsset, prepareDirection, resolveDirection } from './direction';
 import { SFX_CATALOG } from './sfx';
 import { MUSIC_CATALOG } from './music';
-import { listMusic, musicDir } from './audio';
+import { LOUDNESS_BY_NETWORK, listMusic, musicDir } from './audio';
+import { AMBIENT_INFO, VOICE_FX_INFO } from './voice';
+import { beatAlignment, detectBeats, generatedBeats, nearestBeat, type BeatGrid } from './beats';
+import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
 import { fontsDir } from './media';
 import { totalDuration } from './timeline';
 import { FONT_SUGGESTIONS, SUBTITLE_STYLES } from '@/config/editor-looks';
@@ -98,6 +101,35 @@ function structureNote(p: EditProject) {
 function planInFinal(p: EditProject) {
   const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
   return directionInFinal(p.direccion!, intervals, totalDuration(intervals));
+}
+
+/** Cuadrícula de beats de la música del plan, en tiempos del video (línea principal). */
+async function planBeats(p: EditProject): Promise<{ grid: BeatGrid; musica: string } | null> {
+  if (!p.direccion?.musica || p.direccion.musica.modo === 'ninguna') return null;
+  const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+  const total = totalDuration(intervals);
+  const m = resolveDirection(p, p.direccion, intervals, total, await musicDir()).musica;
+  if (!m) return null;
+  if (m.modo === 'generada' && m.estilo) return { grid: generatedBeats(m.estilo, total, m.secciones), musica: `generada ${m.estilo}` };
+  if (m.modo === 'archivo' && m.abs) return { grid: await detectBeats(m.abs, m.inicioArchivo, total), musica: path.basename(m.abs) };
+  return null;
+}
+
+/** ¿Los cortes visuales del plan caen en el beat? (solo si la pulsación es clara) */
+function beatReport(plan: ReturnType<typeof directionInFinal>, grid: BeatGrid) {
+  const cuts = [
+    ...(plan.camara ?? []).map((c) => c.desde).filter((t) => t > 0.2),
+    ...(plan.transiciones ?? []).map((t) => t.t),
+    ...(plan.elementos ?? []).map((e) => e.desde),
+  ].sort((a, b) => a - b);
+  const al = beatAlignment(cuts, grid.beats, 0.08);
+  const clear = grid.fuente === 'generada' || (grid.confianza ?? 0) >= 0.35;
+  const avisos: string[] = [];
+  if (clear && cuts.length >= 4 && al.fraccion < 0.5) {
+    const ej = al.fuera.slice(0, 5).map((t) => `${t}→${nearestBeat(t, grid.beats)}`).join(', ');
+    avisos.push(`Solo ${al.alineados} de ${al.total} cortes visuales caen en el beat de la música (${grid.bpm} BPM). Donde la voz lo permita, mueve cortes de cámara, transiciones y entradas al beat más cercano (ej.: ${ej}); los cambios grandes, al inicio de compás.`);
+  }
+  return { bpm: grid.bpm, confianza: grid.confianza, cortesEnElBeat: `${al.alineados}/${al.total}`, avisos };
 }
 
 function assertIdle(p: EditProject) {
@@ -492,6 +524,25 @@ const catalogoEdicion = tool({
         progreso: 'Listas: {tipo barra|contador|ambos, marcas: [segundo en que empieza cada ítem], etiqueta?, color?} → barra que crece arriba y «PASO 2/5» que cambia en cada ítem.',
         tiempos: 'Todo en segundos de la línea PRINCIPAL (palabras_borrador); el borrador final dura más si hay avance o pausas.',
       },
+      sonido: {
+        voz: {
+          campo: 'voz: {mejorar, respiraciones, efectos: [{desde, hasta, efecto}]}',
+          mejorar: 'true (por defecto) = presencia a 3,5 kHz + de-esser: la voz se entiende mejor en el móvil.',
+          respiraciones: 'true (por defecto) = baja 12 dB los huecos entre palabras (respiraciones, chasquidos de boca). Ponlo en false si el silencio es parte del ritmo.',
+          efectos: Object.fromEntries(Object.entries(VOICE_FX_INFO).map(([k, v]) => [k, v.uso])),
+          regla: 'Efecto de voz = recurso puntual (1–3 por video, 0,5–4 s cada uno), siempre por un motivo narrativo.',
+        },
+        ambientes: {
+          campo: 'ambientes: [{desde, hasta, tipo, archivo?, bajoVozDb}]',
+          sintetizados: AMBIENT_INFO,
+          archivo: 'tipo «archivo» con archivo: «biblioteca:<id>» (tipo ambiente de biblioteca_audio) o ruta de la carpeta.',
+          nivel: 'bajoVozDb 24–32: se siente, no se escucha. Un ambiente bajo la voz da «lugar» al video; quítalo en los tramos con música fuerte.',
+        },
+        bibliotecaDelEquipo: 'Efectos, música y ambientes reales que subió el equipo (con licencia): mira biblioteca_audio y úsalos con archivo «biblioteca:<id>» en sonidos (tipo archivo), musica (modo archivo) o ambientes.',
+        beats: 'beats_musica da la cuadrícula de la música del plan (o de un archivo): corta, haz punch y mete efectos EN el beat; los cambios grandes al inicio de compás; los «drops» en los golpes.',
+        velocidad: 'elementos[].velocidad: 0,5 = cámara lenta (momento emotivo, detalle de producto), 2–4 = rápido (proceso, timelapse). Solo en videos de apoyo, nunca en la persona hablando.',
+        volumenFinal: { porRed: LOUDNESS_BY_NETWORK, nota: 'Por defecto según la red del perfil. Puedes subirlo a −12/−11 LUFS en TikTok si el video es muy enérgico; nunca por encima de −9.' },
+      },
       paleta: 'Elige TÚ la paleta de este video (primario, acento, secundario, texto, fondo) en el campo paleta del plan: se aplica a subtítulos, gancho y gráficos. No estás atado a los colores del perfil.',
       presupuestoDeRitmo: RHYTHM_BUDGET,
       tiempos: 'Todas las marcas de tiempo del plan son del VIDEO FINAL: sácalas de palabras_borrador.',
@@ -499,16 +550,90 @@ const catalogoEdicion = tool({
   },
 });
 
+const bibliotecaAudio = tool({
+  name: 'biblioteca_audio',
+  description:
+    'Biblioteca de audio DEL EQUIPO (compartida): efectos, música y ambientes reales con licencia que subieron las personas. Filtra por tipo (efecto|musica|ambiente) y/o texto (nombre, etiquetas, nota). Úsalos en dirigir_edicion con archivo «biblioteca:<id>» (la app los copia a la carpeta). Los marcados soloEnApp son sonidos en tendencia: no van en el MP4, recomiéndalos en tu respuesta para añadirlos al publicar. $0.',
+  schema: z.object({ tipo: z.enum(AUDIO_KINDS).optional(), texto: z.string().max(80).optional() }),
+  run: async (_editId, input) => {
+    const { biblioteca, compartida, aviso } = await loadLibrary();
+    const items = libraryForClaude(biblioteca, input);
+    return {
+      compartida,
+      ...(aviso ? { aviso } : {}),
+      total: items.length,
+      items: items.slice(0, 120),
+      ...(items.length ? {} : { nota: 'No hay nada con ese filtro. Usa los efectos y la música generados por la app (catalogo_edicion) o pídele a la persona que suba audios en la pestaña «Audio».' }),
+    };
+  },
+});
+
+const beatsMusica = tool({
+  name: 'beats_musica',
+  description:
+    'Cuadrícula de beats de la música (en segundos del video, línea principal): bpm, cada tiempo (beats), inicio de compás (compases) y golpes fuertes (golpes/«drops»). Sin argumentos usa la música del plan; también acepta archivo («biblioteca:<id>», nombre de la música propia o ruta en la carpeta) con inicioArchivo, o estilo de música generada. Úsala para cortar, hacer punch y poner efectos EN el beat. $0.',
+  schema: z.object({
+    desde: z.number().min(0).optional(),
+    hasta: z.number().min(0).optional(),
+    archivo: z.string().max(300).optional(),
+    inicioArchivo: z.number().min(0).max(600).default(0),
+    estilo: z.enum(Object.keys(MUSIC_CATALOG) as [keyof typeof MUSIC_CATALOG, ...Array<keyof typeof MUSIC_CATALOG>]).optional(),
+  }),
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+    const total = totalDuration(intervals);
+    let res: { grid: BeatGrid; musica: string } | null = null;
+    if (input.estilo) res = { grid: generatedBeats(input.estilo, total), musica: `generada ${input.estilo}` };
+    else if (input.archivo) {
+      let abs: string;
+      const ref = /^biblioteca:([a-z0-9]+)$/i.exec(input.archivo);
+      if (ref) abs = await ensureLocal(await findItem(ref[1]));
+      else {
+        const own = path.join(/*turbopackIgnore: true*/ await musicDir(), path.basename(input.archivo));
+        abs = !/[\\/]/.test(input.archivo) && fsSync.existsSync(own) ? own : editAsset(p.carpeta, input.archivo);
+      }
+      if (!fsSync.existsSync(abs)) throw new AgentToolError(`No encuentro «${input.archivo}».`);
+      res = { grid: await detectBeats(abs, input.inicioArchivo, total), musica: path.basename(abs) };
+    } else res = await planBeats(p);
+    if (!res) throw new AgentToolError('El plan no tiene música: indica archivo o estilo, o pon música en dirigir_edicion.');
+    const a = input.desde ?? 0;
+    const b = input.hasta ?? total;
+    const win = (xs: number[]) => xs.filter((t) => t >= a && t <= b);
+    const g = res.grid;
+    const beats = win(g.beats);
+    return {
+      musica: res.musica,
+      bpm: g.bpm,
+      segundosPorBeat: Math.round((60 / g.bpm) * 1000) / 1000,
+      ...(g.confianza !== undefined ? { confianza: g.confianza } : {}),
+      beats: beats.slice(0, 240),
+      ...(beats.length > 240 ? { nota: 'Hay más beats: pide un tramo con desde/hasta.' } : {}),
+      compases: win(g.compases),
+      golpes: win(g.golpes),
+      consejo:
+        g.fuente === 'archivo' && (g.confianza ?? 0) < 0.35
+          ? 'La pulsación de esta música no es clara (confianza baja): guíate por los golpes, no por la cuadrícula.'
+          : 'Cortes y punch en beats; cambios de sección y entradas grandes al inicio de compás; efectos de impacto en los golpes. La voz manda: no partas una palabra por caer en el beat.',
+    };
+  },
+});
+
 const dirigirEdicion = tool({
   name: 'dirigir_edicion',
   description:
-    'Guarda TU plan de dirección y el motor lo ejecuta tal cual al renderizar (sin reglas automáticas): camara, transiciones, color, subtitulos (diseño y animación), palabrasClave (color/tamaño/efecto por palabra), gancho (texto y estilo), graficos (los escribes tú: tarjeta|numero|lista|detras en el segundo t), estiloGraficos, elementos (imágenes/videos de la carpeta en pantalla completa, flotantes o pantalla dividida), sonidos (efectos en su segundo exacto, todos los que quieras) y musica (generada por estilo con secciones suave/completa/silencio, o un archivo). TIEMPOS EN SEGUNDOS DEL VIDEO FINAL (palabras_borrador). Cada sección que mandes reemplaza a la anterior; las que no mandes se conservan. `borrar: true` quita el plan entero (vuelve al estilo automático del perfil). Mira catalogo_edicion. Después, renderizar.',
+    'Guarda TU plan de dirección y el motor lo ejecuta tal cual al renderizar (sin reglas automáticas): camara, transiciones, color, subtitulos (diseño y animación), palabrasClave (color/tamaño/efecto por palabra), gancho (texto y estilo), graficos (los escribes tú: tarjeta|numero|lista|detras en el segundo t), estiloGraficos, elementos (imágenes/videos de la carpeta en pantalla completa, flotantes o pantalla dividida), sonidos (efectos en su segundo exacto, todos los que quieras) y musica (generada por estilo con secciones suave/completa/silencio, o un archivo), voz (mejora, respiraciones, efectos de voz por tramo), ambientes de fondo y volumenFinal; los audios de la biblioteca del equipo van como «biblioteca:<id>». TIEMPOS EN SEGUNDOS DEL VIDEO FINAL (palabras_borrador). Cada sección que mandes reemplaza a la anterior; las que no mandes se conservan. `borrar: true` quita el plan entero (vuelve al estilo automático del perfil). Mira catalogo_edicion. Después, renderizar.',
   schema: DirectionInputSchema.extend({ borrar: z.boolean().optional() }),
   run: async (editId, input) => {
     const { borrar, ...plan } = input;
     let resumen = '';
     let avisos: string[] = [];
     const lib = await musicDir();
+    if (!borrar) {
+      // «biblioteca:<id>» → copia en la carpeta de la edición
+      const probs = await materializeLibraryRefs((await getEdit(editId)).carpeta, plan);
+      if (probs.length) throw new AgentToolError(`El plan tiene problemas, corrígelos y vuelve a mandarlo:\n${probs.join('\n')}`);
+    }
     const { edit } = await updateEdit(editId, (p) => {
       assertIdle(p);
       if (borrar) {
@@ -537,11 +662,15 @@ const dirigirEdicion = tool({
     const graphicStarts = placeGraphics(edit, intervals, total).map((g) => g.start);
     const sub = directedProfile(edit.perfil, edit.direccion!).subtitulos;
     const ritmo = analyzeRhythm(finalPlan, graphicStarts, total, sub.activo ? sub.tamano : undefined);
+    const pb = await planBeats(edit).catch(() => null);
+    const beat = pb ? beatReport(finalPlan, pb.grid) : undefined;
+    if (beat?.avisos.length) ritmo.avisos.push(...beat.avisos);
     return {
       ok: true,
       resumen,
       avisos,
       ritmo,
+      ...(beat ? { musicaBeat: { musica: pb!.musica, bpm: beat.bpm, confianza: beat.confianza, cortesEnElBeat: beat.cortesEnElBeat } } : {}),
       siguiente: ritmo.avisos.length
         ? 'Corrige los avisos de ritmo (vuelve a llamar a dirigir_edicion solo con las secciones que cambien) y después renderizar.'
         : 'El ritmo está equilibrado: renderizar y después revisa fotogramas en los momentos clave y escuchar_audio.',
@@ -550,7 +679,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

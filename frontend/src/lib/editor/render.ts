@@ -344,7 +344,7 @@ export async function renderEdit(
 
   // ── D. Sonido ──
   onProgress?.(91, 'sonido', 'Efectos, música y volumen');
-  const audio = await buildFinalAudio({ carpeta: p.carpeta, voz: f(voz), duracion: total, perfil, eventos: dir ? [] : spaced, seed: seedFrom(p.id), direccion: dir });
+  const audio = await buildFinalAudio({ carpeta: p.carpeta, voz: f(voz), duracion: total, perfil, eventos: dir ? [] : spaced, seed: seedFrom(p.id), direccion: dir, words });
   notas.push(...audio.notas);
   const out = `borrador-v${version}.mp4`;
   await ffmpeg({

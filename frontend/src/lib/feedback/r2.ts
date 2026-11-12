@@ -188,3 +188,28 @@ export async function putJsonIfUnchanged(key: string, data: unknown, etag: strin
     throw err;
   }
 }
+
+/** Sube un archivo cualquiera (audio de la biblioteca, etc.). */
+export async function putFile(key: string, file: string, contentType: string, meta: Record<string, string> = {}) {
+  const { s3, bucket } = client();
+  const size = fs.statSync(file).size;
+  const up = new Upload({
+    client: s3,
+    params: { Bucket: bucket, Key: key, Body: fs.createReadStream(file), ContentType: contentType, ContentLength: size, Metadata: asciiMeta(meta) },
+    partSize: 10 * 1024 * 1024,
+    queueSize: 3,
+  });
+  await up.done();
+  return size;
+}
+
+/** Descarga un objeto a un archivo local (escribe en .part y renombra al terminar). */
+export async function getFile(key: string, dest: string): Promise<void> {
+  const { s3, bucket } = client();
+  const r = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const bytes = await r.Body?.transformToByteArray();
+  if (!bytes) throw new FeedbackError(`No se pudo descargar ${key}.`, 502);
+  const tmp = `${dest}.part`;
+  await fs.promises.writeFile(tmp, bytes);
+  await fs.promises.rename(tmp, dest);
+}
