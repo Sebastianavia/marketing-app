@@ -76,6 +76,8 @@ export async function applyStructure(o: { carpeta: string; file: string; dir: Re
   const v: string[] = [];
   const a: string[] = [];
   const g: string[] = [];
+  const inputs: string[] = ['-i', file];
+  let nextInput = 1;
   const fade = 0.008;
   const seg = (from: number, to: number, idx: number) => {
     g.push(`[0:v]trim=start=${f3(from)}:end=${f3(to)},setpts=PTS-STARTPTS,format=yuv420p[v${idx}]`);
@@ -108,9 +110,15 @@ export async function applyStructure(o: { carpeta: string; file: string; dir: Re
     const zoom = pz.zoom
       ? `,scale=${W * 2}:${H * 2},zoompan=z='1+0.07*on/${frames}':x='iw/2-iw/zoom/2':y='ih*0.4-ih/zoom*0.4':d=1:s=${W}x${H}:fps=${fps}`
       : '';
-    g.push(
-      `[0:v]trim=start=${f3(Math.max(0, pz.t - 1 / fps))}:end=${f3(pz.t)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${f3(pz.duracion)}${zoom},trim=duration=${f3(pz.duracion)},setsar=1,format=yuv420p[v${idx}]`
-    );
+    const frozen = `[0:v]trim=start=${f3(Math.max(0, pz.t - 1.5 / fps))}:end=${f3(pz.t)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${f3(pz.duracion)}${zoom},trim=duration=${f3(pz.duracion)},setsar=1`;
+    if (pz.capaAbs) {
+      // Anotación (flecha, círculo…) que se dibuja sobre el fotograma congelado
+      const k = nextInput++;
+      inputs.push('-i', pz.capaAbs);
+      g.push(`${frozen}[fz${idx}]`);
+      g.push(`[${k}:v]setpts=PTS-STARTPTS,scale=${W}:${H},format=rgba[cp${idx}]`);
+      g.push(`[fz${idx}][cp${idx}]overlay=eof_action=pass:format=auto,trim=duration=${f3(pz.duracion)},format=yuv420p[v${idx}]`);
+    } else g.push(`${frozen},format=yuv420p[v${idx}]`);
     g.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${f3(pz.duracion)}[a${idx}]`);
     v.push(`[v${idx}]`);
     a.push(`[a${idx}]`);
@@ -122,14 +130,14 @@ export async function applyStructure(o: { carpeta: string; file: string; dir: Re
   g.push(`${v.map((x, i) => `${x}${a[i]}`).join('')}concat=n=${n}:v=1:a=1[vc][ac]`);
 
   // Sonido del paso avance → video: «swish» que termina en la unión
-  const inputs: string[] = ['-i', file];
   let audioOut = '[ac]';
   if (arr?.transicion === 'flash') {
     const sw = f('sfx-arranque.wav');
     await writeWav(sw, sfxSamples('swish'));
+    const k = nextInput++;
     inputs.push('-i', sw);
     const ms = Math.max(0, Math.round((teaserLen - 0.25) * 1000));
-    g.push(`[1:a]aformat=sample_fmts=fltp:channel_layouts=stereo,volume=0.6,adelay=${ms}|${ms}[sw]`);
+    g.push(`[${k}:a]aformat=sample_fmts=fltp:channel_layouts=stereo,volume=0.6,adelay=${ms}|${ms}[sw]`);
     g.push(`[ac][sw]amix=inputs=2:duration=first:dropout_transition=0,volume=2[am]`);
     audioOut = '[am]';
   }

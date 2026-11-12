@@ -297,6 +297,18 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Kit de gráficos de Lulo (kit_grafico; .mov transparente con la paleta del video)',
+    items: [
+      'Stickers y emojis con rebote; trazos a mano que se dibujan solos (flecha, círculo, subrayado, tachado).',
+      'Gráficas que crecen con contador: barras, anillo de porcentaje, línea.',
+      'Antes/después con cortinilla (imágenes o videos); tarjetas de capítulo («PASO 2»).',
+      'Texto kinético palabra a palabra con los tiempos exactos de la voz (desdeVideo/hastaVideo).',
+      'Intro y cierre de marca (pestaña «Marcas», compartida): logo, colores, tipografía, lema y CTA.',
+      'Capturas o grabaciones dentro de un teléfono o portátil con zoom, cursor y clic; zonas_de_cambio dice dónde cambia la pantalla.',
+      'Anotación sobre un fotograma congelado (pausas[].capa) y portada diseñada con la persona recortada (disenar_portada).',
+    ],
+  },
+  {
     titulo: 'HyperFrames (diseño y animación)',
     items: [
       'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',

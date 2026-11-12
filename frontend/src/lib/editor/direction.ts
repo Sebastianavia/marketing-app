@@ -186,7 +186,18 @@ export const DirectionInputSchema = z.object({
   volumenFinal: z.number().min(-16).max(-9).optional(),
   // ── Estructura de retención (Fase 1) — tiempos de la línea PRINCIPAL (la de palabras_borrador) ──
   /** Silencio dramático: fotograma congelado + silencio total justo en t (antes del remate). */
-  pausas: z.array(z.object({ t: sec, duracion: z.number().min(0.25).max(1.5).default(0.6), zoom: z.boolean().default(true) })).max(4).optional(),
+  pausas: z
+    .array(
+      z.object({
+        t: sec,
+        duracion: z.number().min(0.25).max(3).default(0.6),
+        zoom: z.boolean().default(true),
+        /** Anotación sobre el fotograma congelado (.mov transparente de la carpeta, p. ej. un trazo del kit). */
+        capa: z.string().max(300).optional(),
+      })
+    )
+    .max(4)
+    .optional(),
   /** Arranque en frío: este tramo se repite al inicio como avance (el original sigue en su sitio). */
   arranque: z.object({ desde: sec, hasta: sec, transicion: z.enum(['corte', 'flash']).default('flash') }).optional(),
   /** Bucle: el final enlaza con el inicio (sin cola de música ni silencio al final). */
@@ -341,7 +352,10 @@ export function prepareDirection(
       else problems.push(...checkFile(p.carpeta, a.archivo, AUDIO_EXT, `ambientes[${i}]`));
     }
   });
-  input.pausas?.forEach((x, i) => within(x.t, `pausas[${i}]`));
+  input.pausas?.forEach((x, i) => {
+    within(x.t, `pausas[${i}]`);
+    if (x.capa) problems.push(...checkFile(p.carpeta, x.capa, VIDEO_EXT, `pausas[${i}].capa`));
+  });
   if (input.arranque) {
     range(input.arranque.desde, input.arranque.hasta, 'arranque');
     if (input.arranque.hasta - input.arranque.desde > 4.5) problems.push('arranque: el avance del inicio debe durar como mucho 4,5 s (el momento más fuerte, no un resumen).');
@@ -642,7 +656,7 @@ export interface ResolvedDirection {
   divididas: Array<[number, number]>;
   sombra?: { px: number; color: string };
   /** Estructura (se aplica al final, sobre el video ya montado). */
-  pausas: Array<{ t: number; duracion: number; zoom: boolean }>;
+  pausas: Array<{ t: number; duracion: number; zoom: boolean; capaAbs?: string }>;
   voz?: { mejorar: boolean; respiraciones: boolean; efectos: Array<{ desde: number; hasta: number; efecto: VoiceFx }> };
   ambientes: Array<{ desde: number; hasta: number; tipo: AmbientType | 'archivo'; abs?: string; bajoVozDb: number }>;
   volumenFinal?: number;
@@ -721,7 +735,18 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     palabrasClave: f.palabrasClave ?? [],
     divididas: elementos.filter((e) => e.modo === 'pantalla_dividida').map((e) => [e.desde, e.hasta] as [number, number]),
     sombra: sub?.sombra ? { px: sub.sombra, color: sub.colorSombra ?? '#000000' } : undefined,
-    pausas: (f.pausas ?? []).filter((x) => x.t > 0.2 && x.t < total - 0.2).sort((a, b) => a.t - b.t),
+    pausas: (f.pausas ?? [])
+      .filter((x) => x.t > 0.2 && x.t < total - 0.2)
+      .sort((a, b) => a.t - b.t)
+      .map(({ capa, ...x }) => {
+        let capaAbs: string | undefined;
+        try {
+          capaAbs = capa ? editAsset(p.carpeta, capa) : undefined;
+        } catch {
+          capaAbs = undefined;
+        }
+        return { ...x, capaAbs: capaAbs && fsSync.existsSync(capaAbs) ? capaAbs : undefined };
+      }),
     voz: f.voz ? { ...f.voz, efectos: clampR(f.voz.efectos) } : undefined,
     ambientes,
     volumenFinal: f.volumenFinal,

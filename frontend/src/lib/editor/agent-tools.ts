@@ -21,6 +21,8 @@ import { MUSIC_CATALOG } from './music';
 import { LOUDNESS_BY_NETWORK, listMusic, musicDir } from './audio';
 import { AMBIENT_INFO, VOICE_FX_INFO } from './voice';
 import { beatAlignment, detectBeats, generatedBeats, nearestBeat, type BeatGrid } from './beats';
+import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
+import { KIT_FONTS, loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
 import { fontsDir } from './media';
 import { totalDuration } from './timeline';
@@ -481,7 +483,7 @@ const catalogoEdicion = tool({
     const walk = async (dir: string, depth: number): Promise<string[]> => {
       const out: string[] = [];
       for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
-        if (e.name.startsWith('.') || /^(plate|voz|matte|caras|borrador|portada|musica|sfx|mezcla|master|video-sin-audio)/.test(e.name)) continue;
+        if (e.name.startsWith('.') || e.name === '_src' || /^(plate|voz|matte|caras|borrador|portada|musica|sfx|mezcla|master|video-sin-audio|ambiente-pista)/.test(e.name)) continue;
         const full = path.join(/*turbopackIgnore: true*/ dir, e.name);
         if (e.isDirectory() && depth < 4) out.push(...(await walk(full, depth + 1)));
         else if (e.isFile()) out.push(path.relative(p.carpeta, full).split(path.sep).join('/'));
@@ -518,7 +520,7 @@ const catalogoEdicion = tool({
       },
       archivosEnLaCarpeta: { imagenes: of(IMAGE_EXT), videos: of(VIDEO_EXT), audios: of(AUDIO_EXT) },
       estructura: {
-        pausas: 'Silencio dramático: [{t, duracion 0,25–1,5, zoom}] → fotograma congelado (zoom lento) y silencio TOTAL justo antes del remate. 1–2 por video como mucho.',
+        pausas: 'Silencio dramático: [{t, duracion 0,25–3, zoom, capa?}] → fotograma congelado (zoom lento) y silencio TOTAL justo antes del remate; con capa (un trazo del kit: flecha o círculo) se dibuja una anotación encima mientras está congelado («mira esto»). 1–2 por video como mucho.',
         arranque: 'Arranque en frío: {desde, hasta (≤ 4,5 s), transicion corte|flash} → ese tramo se repite al inicio como avance y luego empieza el video. Usa el momento más fuerte o intrigante.',
         bucle: 'bucle: true → el final enlaza con el inicio sin silencio ni cola de música. Escribe/corta el cierre para que la última frase lleve a la primera e iguala encuadre y zoom del final con los del inicio.',
         progreso: 'Listas: {tipo barra|contador|ambos, marcas: [segundo en que empieza cada ítem], etiqueta?, color?} → barra que crece arriba y «PASO 2/5» que cambia en cada ítem.',
@@ -543,6 +545,7 @@ const catalogoEdicion = tool({
         velocidad: 'elementos[].velocidad: 0,5 = cámara lenta (momento emotivo, detalle de producto), 2–4 = rápido (proceso, timelapse). Solo en videos de apoyo, nunca en la persona hablando.',
         volumenFinal: { porRed: LOUDNESS_BY_NETWORK, nota: 'Por defecto según la red del perfil. Puedes subirlo a −12/−11 LUFS en TikTok si el video es muy enérgico; nunca por encima de −9.' },
       },
+      kitDeGraficos: { tipos: KIT_CATALOG, como: 'kit_grafico crea la pieza (.mov transparente en kit/) con la paleta del plan; colócala como elemento «capa». Una anotación (trazo) puede ir sobre un silencio dramático: pausas[].capa.' },
       paleta: 'Elige TÚ la paleta de este video (primario, acento, secundario, texto, fondo) en el campo paleta del plan: se aplica a subtítulos, gancho y gráficos. No estás atado a los colores del perfil.',
       presupuestoDeRitmo: RHYTHM_BUDGET,
       tiempos: 'Todas las marcas de tiempo del plan son del VIDEO FINAL: sácalas de palabras_borrador.',
@@ -619,6 +622,125 @@ const beatsMusica = tool({
   },
 });
 
+const kitGrafico = tool({
+  name: 'kit_grafico',
+  description:
+    'Kit de gráficos de Lulo: piezas animadas con la paleta del video, listas en segundos y con calidad constante (HyperFrames por debajo, .mov transparente en kit/). Tipos: ' +
+    Object.entries(KIT_CATALOG)
+      .map(([k, v]) => `${k} — ${v}`)
+      .join(' | ') +
+    ' Devuelve el archivo y el elemento listo para el plan (modo «capa»). Con colocarEn (segundo del video final) y agregar: true se añade solo al plan. La misma pieza no se vuelve a renderizar. $0.',
+  schema: KitInputSchema,
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+    const words = subtitleWords(p.frases, intervals);
+    let r;
+    try {
+      r = await buildKitPiece(p, input, words);
+    } catch (err) {
+      if (err instanceof KitError) throw new AgentToolError(err.message, err.status);
+      throw err;
+    }
+    const elemento = input.colocarEn !== undefined ? { archivo: r.archivo, modo: 'capa' as const, desde: input.colocarEn, hasta: Math.round((input.colocarEn + r.duracion) * 100) / 100 } : undefined;
+    let agregado = false;
+    if (input.agregar && elemento) {
+      const total = totalDuration(intervals);
+      const prev = p.direccion ? directionInFinal(p.direccion, intervals, total).elementos ?? [] : [];
+      const lib = await musicDir();
+      await updateEdit(editId, (q) => {
+        assertIdle(q);
+        try {
+          const res = prepareDirection(q, DirectionInputSchema.parse({ elementos: [...prev, elemento] }), intervals, total, q.direccion, lib);
+          q.direccion = res.direccion;
+        } catch (err) {
+          if (err instanceof DirectionError) throw new AgentToolError(err.message);
+          throw err;
+        }
+        logActivity(q, `Claude añadió una pieza del kit (${input.tipo}).`);
+      });
+      agregado = true;
+    }
+    return {
+      ok: true,
+      ...r,
+      ...(elemento ? { elemento } : {}),
+      agregadoAlPlan: agregado,
+      siguiente: agregado
+        ? 'Ya está en el plan. Añade su sonido (pop, swish, click…) en sonidos y renderiza cuando termines.'
+        : 'Ponlo en dirigir_edicion → elementos como { archivo, modo: "capa", desde, hasta } (o vuelve a llamar con colocarEn y agregar: true). Míralo con fotogramas si dudas.',
+    };
+  },
+});
+
+const zonasDeCambio = tool({
+  name: 'zonas_de_cambio',
+  description:
+    'Analiza una grabación de pantalla (archivo de la carpeta) y devuelve dónde y cuándo cambia algo: tramos con su recuadro (x, y, w, h de 0 a 1) y un zoom sugerido. Úsalo para los enfoques (zoom + cursor + clic) de kit_grafico tipo «pantalla». $0.',
+  schema: z.object({ archivo: z.string().min(1).max(300) }),
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    let abs: string;
+    try {
+      abs = editAsset(p.carpeta, input.archivo);
+    } catch (err) {
+      throw new AgentToolError(err instanceof Error ? err.message : String(err));
+    }
+    if (!fsSync.existsSync(abs)) throw new AgentToolError(`No existe «${input.archivo}» en la carpeta de la edición.`);
+    const zonas = await changeZones(abs);
+    return {
+      zonas,
+      nota: zonas.length
+        ? 'Para «pantalla»: enfoques [{ t: desde de la zona (relativo al inicio de la pieza, restando inicioVideo), x, y, zoom }]. Varias zonas seguidas en el mismo sitio = un solo enfoque.'
+        : 'No hay cambios claros: la pantalla está quieta (usa un enfoque al punto que se nombra en la voz).',
+    };
+  },
+});
+
+const disenarPortada = tool({
+  name: 'disenar_portada',
+  description:
+    'Diseña la portada del borrador actual: un fotograma (t, segundos del borrador) con la persona recortada (MediaPipe, si está instalado), texto GRANDE detrás de ella con la paleta del video y palabras destacadas. Queda como portada del borrador (Proyectos y feedback la usan). Elige un fotograma con gesto fuerte y la cara limpia (sin elementos encima). $0.',
+  schema: z.object({
+    t: z.number().min(0).max(3600),
+    texto: z.string().trim().min(2).max(60),
+    destacar: z.array(z.string().max(30)).max(4).default([]),
+    posicion: z.enum(['arriba', 'abajo']).default('arriba'),
+    recorte: z.boolean().default(true),
+    fuente: z.enum(KIT_FONTS).optional(),
+  }),
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    assertIdle(p);
+    let r;
+    try {
+      r = await designCover(p, input);
+    } catch (err) {
+      if (err instanceof KitError) throw new AgentToolError(err.message, err.status);
+      throw err;
+    }
+    await updateEdit(editId, (q) => {
+      if (q.borrador && q.borrador.version === p.borrador?.version) q.borrador.portada = r.archivo;
+      logActivity(q, 'Claude diseñó la portada.');
+    });
+    return { ok: true, ...r, siguiente: `Mírala (Read ${r.archivo}) y corrígela si hace falta.` };
+  },
+});
+
+const marcasTool = tool({
+  name: 'marcas',
+  description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
+  schema: z.object({}),
+  run: async () => {
+    const { marcas, compartidas, aviso } = await loadBrands();
+    return {
+      compartidas,
+      ...(aviso ? { aviso } : {}),
+      marcas: marcas.filter((m) => m.estado === 'activa').map((m) => ({ id: m.id, nombre: m.nombre, colores: m.colores, fuente: m.fuente, lema: m.lema, usuario: m.usuario, cta: m.cta, nota: m.nota, conLogo: !!m.logoExt })),
+    };
+  },
+});
+
 const dirigirEdicion = tool({
   name: 'dirigir_edicion',
   description:
@@ -679,7 +801,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

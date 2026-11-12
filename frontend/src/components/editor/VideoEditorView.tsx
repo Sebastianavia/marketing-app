@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, BookOpen, Clapperboard, Loader2, Music2, Palette, Plus, Wrench } from 'lucide-react';
+import { AlertCircle, BookOpen, Clapperboard, Loader2, Music2, Palette, Plus, Stamp, Wrench } from 'lucide-react';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditSummary } from '@/lib/editor/types';
 import { editorApi, type SystemStatus } from './editor-api';
@@ -12,6 +12,7 @@ import { EditDetail } from './EditDetail';
 import { ToolsPanel } from './ToolsPanel';
 import { ManualPanel } from './ManualPanel';
 import { AudioLibraryPanel } from './AudioLibraryPanel';
+import { BrandsPanel } from './BrandsPanel';
 
 /**
  * Edición de video: subes un video en bruto, eliges tu perfil y la app lo transcribe,
@@ -19,7 +20,7 @@ import { AudioLibraryPanel } from './AudioLibraryPanel';
  * Todo corre en este PC; solo la transcripción y la IA llaman a servicios externos.
  */
 
-type Tab = 'nueva' | 'ediciones' | 'perfiles' | 'manual' | 'audio' | 'herramientas';
+type Tab = 'nueva' | 'ediciones' | 'perfiles' | 'manual' | 'audio' | 'marcas' | 'herramientas';
 const OPEN_KEY = 'lulo_editor_open';
 
 export function VideoEditorView() {
@@ -107,6 +108,7 @@ export function VideoEditorView() {
     { id: 'perfiles', label: 'Perfiles', icon: Palette, count: perfiles.length },
     { id: 'manual', label: 'Manual', icon: BookOpen },
     { id: 'audio', label: 'Audio', icon: Music2 },
+    { id: 'marcas', label: 'Marcas', icon: Stamp },
     { id: 'herramientas', label: 'Herramientas', icon: Wrench },
   ];
 
@@ -165,6 +167,7 @@ export function VideoEditorView() {
       {tab === 'herramientas' && <ToolsPanel system={system} />}
       {tab === 'manual' && <ManualPanel />}
       {tab === 'audio' && <AudioLibraryPanel />}
+      {tab === 'marcas' && <BrandsPanel />}
 
       {tab === 'perfiles' && (
         <ProfilesPanel
