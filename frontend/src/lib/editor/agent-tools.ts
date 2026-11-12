@@ -10,7 +10,9 @@ import { runAction } from './actions';
 import { EditError, getEdit, logActivity, updateEdit } from './edit-store';
 import { ffmpeg, probeVideo } from './media';
 import { keptIntervals, phraseText, subtitleWords } from './timeline';
-import { snapToFrames } from './render';
+import { buildPlate, snapToFrames } from './render';
+import { PersonUnavailable, ensurePersonTrack, lightStats, matchLightFilter, measureShake, personSummary } from './person';
+import { formatSize } from '@/config/editor-looks';
 import { placeGraphics } from './graphics';
 import { AREA_LABEL, LessonSchema, learnLessons, loadManual } from './manual';
 import { ACTIVE_STATUSES, type EditProject } from './types';
@@ -545,6 +547,15 @@ const catalogoEdicion = tool({
         velocidad: 'elementos[].velocidad: 0,5 = cámara lenta (momento emotivo, detalle de producto), 2–4 = rápido (proceso, timelapse). Solo en videos de apoyo, nunca en la persona hablando.',
         volumenFinal: { porRed: LOUDNESS_BY_NETWORK, nota: 'Por defecto según la red del perfil. Puedes subirlo a −12/−11 LUFS en TikTok si el video es muy enérgico; nunca por encima de −9.' },
       },
+      imagenYCamara: {
+        reencuadre: 'camaraSigueCara (por defecto true): con zoom, la cámara sigue la cara en cada momento (pista de persona), no un centro fijo.',
+        seguir: 'elementos[].seguir cara|mano_izquierda|mano_derecha (flotante o capa) + seguirDx/seguirDy; en capa, seguirAncla = punto de la capa que se pega (crea la pieza del kit en x=0,5, y=0,5). Mira pista_persona: solo cuando la mano se ve.',
+        detrasDePersona: 'elementos[].detrasDePersona: la persona queda DELANTE del elemento (gráfica, texto o imagen detrás de ella). Va dentro de la escena: se mueve con la cámara.',
+        persona: 'persona: [{desde, hasta, efecto desenfocar_fondo (intensidad 8–30, «cámara cara» en un plano cerrado) | cambiar_fondo (fondo #RRGGBB o archivo: marca un cambio de tema) | clon (clonDesde = segundo de otro momento, clonLado, clonEscala, espejo: «el yo que no publica vs el que sí»)}]. Recursos puntuales, 2–6 s.',
+        movimientos: 'pista_persona da los movimientos amplios del cuerpo: buenos puntos para cortar, transicionar (mano que cruza = corte «tapado») o lanzar un efecto.',
+        estabilizar: 'estabilizar: true si analizar_imagen dice que tiembla (vidstab, dos pasadas).',
+        igualarLuz: 'igualarLuz: true si las tomas no casan de luz o tinte.',
+      },
       kitDeGraficos: { tipos: KIT_CATALOG, como: 'kit_grafico crea la pieza (.mov transparente en kit/) con la paleta del plan; colócala como elemento «capa». Una anotación (trazo) puede ir sobre un silencio dramático: pausas[].capa.' },
       paleta: 'Elige TÚ la paleta de este video (primario, acento, secundario, texto, fondo) en el campo paleta del plan: se aplica a subtítulos, gancho y gráficos. No estás atado a los colores del perfil.',
       presupuestoDeRitmo: RHYTHM_BUDGET,
@@ -727,6 +738,64 @@ const disenarPortada = tool({
   },
 });
 
+/** Video base de la edición (el mismo que usa el render: misma clave, se reutiliza). */
+async function editPlate(p: EditProject) {
+  const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
+  const intervals = snapToFrames(keptIntervals(p.frases, perfil.ritmo, p.original.duracion));
+  const r = await buildPlate(p, perfil, intervals);
+  return { ...r, intervals, perfil };
+}
+
+const pistaPersona = tool({
+  name: 'pista_persona',
+  description:
+    'Analiza a la persona con MediaPipe (una vez por video, ~20 s por minuto; luego queda en caché): dónde está su cara y cuánto se mueve, cuándo se ven sus manos y los MOVIMIENTOS amplios del cuerpo (gesto rápido, mano que cruza delante, inclinación, mano que entra) con su segundo exacto en la línea principal. Úsalo para cortar o transicionar «con el cuerpo», para que un elemento siga una mano (elementos[].seguir) y antes de usar persona (fondo desenfocado/cambiado, clon) o detrasDePersona. $0.',
+  schema: z.object({}),
+  run: async (editId) => {
+    const p = await getEdit(editId);
+    assertIdle(p);
+    const { key, plate, total, perfil } = await editPlate(p);
+    const { width: W, height: H } = formatSize(perfil.formato);
+    try {
+      const r = await ensurePersonTrack({ carpeta: p.carpeta, plate, key, W, H, frames: Math.round(total * 30) });
+      return { ok: true, nueva: r.nueva, ...personSummary(r.track), nota: 'Tiempos de la línea principal (palabras_borrador). manos: % del video en que se ve cada mano (izquierda/derecha de la persona).' };
+    } catch (err) {
+      if (err instanceof PersonUnavailable) throw new AgentToolError(err.message, 503);
+      throw err;
+    }
+  },
+});
+
+const analizarImagen = tool({
+  name: 'analizar_imagen',
+  description:
+    'Mide la toma: temblor de la cámara (quieto/leve/tiembla, en píxeles) y brillo y tinte de cada tramo (si las tomas son de momentos distintos y no casan). Te dice si conviene estabilizar: true o igualarLuz: true en dirigir_edicion. $0.',
+  schema: z.object({}),
+  run: async (editId) => {
+    const p = await getEdit(editId);
+    assertIdle(p);
+    const { plate, intervals } = await editPlate(p);
+    const shake = await measureShake(p.carpeta, plate).catch(() => null);
+    const tramos = intervals.map((iv) => [iv.out, iv.out + (iv.e - iv.s)] as [number, number]);
+    const luz = await lightStats(p.carpeta, plate, tramos).catch(() => []);
+    const lm = matchLightFilter(luz);
+    const r1 = (n: number) => Math.round(n * 10) / 10;
+    const ys = luz.map((x) => x.y);
+    return {
+      temblor: shake ?? { nota: 'Este FFmpeg no trae vidstab: no se puede medir (la estabilización usaría deshake).' },
+      luz: {
+        tramos: luz.length,
+        brillo: ys.length ? { min: r1(Math.min(...ys)), max: r1(Math.max(...ys)) } : null,
+        tramosQueSeDesvian: lm.ajustados,
+      },
+      recomendacion: [
+        shake && shake.nivel === 'tiembla' ? 'estabilizar: true (la cámara tiembla).' : shake && shake.nivel === 'leve' ? 'Temblor leve: estabiliza solo si vas a hacer zoom fuerte.' : 'No hace falta estabilizar.',
+        lm.ajustados ? `igualarLuz: true (${lm.ajustados} tramo(s) con otra luz o tinte).` : 'La luz es pareja entre tramos.',
+      ],
+    };
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -801,7 +870,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

@@ -309,6 +309,16 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Imagen y cámara (pista de persona con MediaPipe; pista_persona y analizar_imagen)',
+    items: [
+      'Reencuadre: con zoom, la cámara sigue la cara en cada momento (camaraSigueCara).',
+      'Elementos que siguen la cara o una mano (elementos[].seguir) y elementos detrás de la persona (detrasDePersona).',
+      'Fondo desenfocado («cámara cara»), cambio de fondo (color, imagen o video) y efecto clon (la persona de otro momento a su lado).',
+      'Movimientos amplios del cuerpo con su segundo exacto, para cortar o transicionar con ellos.',
+      'Estabilización (vidstab) e igualado de luz y tinte entre tramos.',
+    ],
+  },
+  {
     titulo: 'HyperFrames (diseño y animación)',
     items: [
       'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',

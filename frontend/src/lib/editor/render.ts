@@ -1,11 +1,12 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import fsSync from 'fs';
-import { formatSize, networkInfo, safeZone } from '@/config/editor-looks';
+import { formatSize, networkInfo, safeZone, type EditProfile } from '@/config/editor-looks';
 import { errorMessage } from '@/lib/errors';
 import { buildFinalAudio, measureLoudness, musicDir, type SfxEvent } from './audio';
 import { applyStructure, counterEvents, progressBarFilter } from './structure';
 import { cameraFilter, colorFilter, describeDirection, directedProfile, elementsFilter, faceCenter, resolveDirection } from './direction';
+import { PersonUnavailable, ensurePersonTrack, faceSeries, fitSeries, personFaces, lightStats, matchLightFilter, personEffectsGraph, seriesExpr, stabilizePlate, targetSeries, type PersonTrack } from './person';
 import { buildAss, buildBehindAss, defaultSubMargin } from './ass';
 import { cardStyle, faceWindow, graphicsEvents, placeGraphics } from './graphics';
 import { ffmpeg, filterScriptArgs, hasSubtitlesFilter, stageFonts } from './media';
@@ -52,39 +53,19 @@ export interface RenderResult {
   notas: string[];
 }
 
-/** Semilla estable por edición (la música generada no cambia entre versiones). */
-function seedFrom(id: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
-  return h >>> 0;
-}
-
-export type RenderStage = 'base' | 'recorte' | 'composicion' | 'sonido';
-
-export async function renderEdit(
+/**
+ * A. Video base: tramos conservados, encuadrados al formato, más la voz limpia. Se reutiliza si los
+ * cortes, el formato y la limpieza de voz no cambian (plate-<clave>.mp4 / voz-<clave>.wav).
+ */
+export async function buildPlate(
   p: EditProject,
-  version: number,
+  perfil: EditProfile,
+  intervals: KeptInterval[],
   onProgress?: (pct: number, etapa?: RenderStage, detalle?: string) => void
-): Promise<RenderResult> {
-  // Con plan de dirección de Claude, el perfil efectivo es el del plan y no hay reglas mecánicas
-  const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
-  const raw = keptIntervals(p.frases, perfil.ritmo, p.original.duracion);
-  const intervals = snapToFrames(raw);
-  if (!intervals.length) throw new Error('Con los cortes elegidos no queda nada del video. Vuelve a marcar alguna frase para conservar.');
+): Promise<{ key: string; plate: string; voz: string; total: number }> {
   const total = totalDuration(intervals);
   const { width: W, height: H } = formatSize(perfil.formato);
-  const notas: string[] = [];
-  const calidad: QualityCheck[] = [];
   const f = (name: string) => editFile(p, name);
-  const dir = p.direccion ? resolveDirection(p, p.direccion, intervals, total, await musicDir()) : null;
-  if (p.direccion) notas.push(`Dirigido por Claude: ${describeDirection(p.direccion, p.graficos?.filter((g) => g.activo).length)}.`);
-  // dirigir_edicion copia el texto del gancho a p.gancho: así, si la persona lo cambia en la app, manda su cambio
-  const ganchoTexto = p.gancho;
-
-  // Gráficos y subtítulos
-  const placed = placeGraphics(p, intervals, total);
-  const wantsBehind = perfil.graficos.textoDetras && placed.some((x) => x.g.tipo === 'detras');
-
   // ── A. Base (se reutiliza si los cortes, el formato y la limpieza de voz no cambian) ──
   const key = crypto
     .createHash('sha1')
@@ -135,7 +116,62 @@ export async function renderEdit(
       onProgress: (pct) => onProgress?.(Math.round(pct * 0.3), 'base', 'Cortando y encuadrando'),
     });
   }
+  return { key, plate, voz, total };
+}
+
+/** Semilla estable por edición (la música generada no cambia entre versiones). */
+function seedFrom(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+export type RenderStage = 'base' | 'recorte' | 'composicion' | 'sonido';
+
+export async function renderEdit(
+  p: EditProject,
+  version: number,
+  onProgress?: (pct: number, etapa?: RenderStage, detalle?: string) => void
+): Promise<RenderResult> {
+  // Con plan de dirección de Claude, el perfil efectivo es el del plan y no hay reglas mecánicas
+  const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
+  const raw = keptIntervals(p.frases, perfil.ritmo, p.original.duracion);
+  const intervals = snapToFrames(raw);
+  if (!intervals.length) throw new Error('Con los cortes elegidos no queda nada del video. Vuelve a marcar alguna frase para conservar.');
+  const total = totalDuration(intervals);
+  const { width: W, height: H } = formatSize(perfil.formato);
+  const notas: string[] = [];
+  const calidad: QualityCheck[] = [];
+  const f = (name: string) => editFile(p, name);
+  const dir = p.direccion ? resolveDirection(p, p.direccion, intervals, total, await musicDir()) : null;
+  if (p.direccion) notas.push(`Dirigido por Claude: ${describeDirection(p.direccion, p.graficos?.filter((g) => g.activo).length)}.`);
+  // dirigir_edicion copia el texto del gancho a p.gancho: así, si la persona lo cambia en la app, manda su cambio
+  const ganchoTexto = p.gancho;
+
+  // Gráficos y subtítulos
+  const placed = placeGraphics(p, intervals, total);
+  const wantsBehind = perfil.graficos.textoDetras && placed.some((x) => x.g.tipo === 'detras');
+
+  const { key: baseKey, plate: basePlate, voz } = await buildPlate(p, perfil, intervals, onProgress);
   onProgress?.(30, 'base');
+  // Estabilización (plan de Claude): la base estabilizada pasa a ser la base de todo lo demás
+  let key = baseKey;
+  let plate = basePlate;
+  if (dir?.estabilizar) {
+    const est = `plate-${baseKey}e.mp4`;
+    try {
+      if (!fsSync.existsSync(f(est))) {
+        onProgress?.(30, 'base', 'Estabilizando la toma');
+        const how = await stabilizePlate(p.carpeta, basePlate, est, W, H);
+        notas.push(how === 'vidstab' ? 'Toma estabilizada (vidstab, dos pasadas).' : 'Toma estabilizada (deshake; para más calidad instala FFmpeg «full» con vidstab).');
+      }
+      key = `${baseKey}e`;
+      plate = est;
+    } catch (err) {
+      await fs.rm(f(est), { force: true }).catch(() => undefined);
+      calidad.push({ ok: false, texto: `No se pudo estabilizar (${errorMessage(err)}): va la toma original` });
+    }
+  }
 
   // ── B. Recorte de la persona (solo si hay palabras detrás y está instalado) ──
   let matte: string | null = null;
@@ -197,6 +233,37 @@ export async function renderEdit(
       calidad.push({ ok: null, texto: `No se pudo detectar tu cara (${errorMessage(err)}): los gráficos van en su posición normal` });
     }
   }
+  // ── Pista de persona (MediaPipe): reencuadre, seguimiento, fondo, clon y persona delante ──
+  let person: PersonTrack | null = null;
+  let personMask: string | null = null;
+  const needPerson =
+    !!dir &&
+    (dir.persona.length > 0 ||
+      dir.elementos.some((e) => e.seguir || e.detrasDePersona) ||
+      (dir.camaraSigueCara && dir.camara.some((c) => c.zoom > 1.02 || (c.zoomFinal ?? 1) > 1.02)));
+  if (needPerson) {
+    try {
+      onProgress?.(66, 'composicion', 'Siguiendo a la persona');
+      const r = await ensurePersonTrack({
+        carpeta: p.carpeta,
+        plate,
+        key,
+        W,
+        H,
+        frames: Math.round(total * FPS),
+        onProgress: (done, tot) => onProgress?.(66, 'composicion', `Siguiendo a la persona · ${done}/${tot}`),
+      });
+      person = r.track;
+      personMask = r.mask;
+      if (r.nueva) notas.push('Pista de persona calculada (cara, manos, pose y máscara).');
+    } catch (err) {
+      const msg = err instanceof PersonUnavailable ? err.message : errorMessage(err);
+      const lost = [dir!.persona.length ? 'efectos de fondo y clon' : '', dir!.elementos.some((e) => e.seguir) ? 'elementos que siguen' : '', dir!.elementos.some((e) => e.detrasDePersona) ? 'persona delante de elementos' : ''].filter(Boolean);
+      calidad.push({ ok: lost.length ? false : null, texto: `Sin pista de persona (${msg})${lost.length ? `: sin ${lost.join(', ')}` : ''}. Instala el kit de herramientas de Claude en Edición → Herramientas.` });
+    }
+  }
+  // Sin detector de caras (OpenCV) pero con pista de persona: las caras salen de ella
+  if (!faces && person) faces = personFaces(person);
   onProgress?.(66, 'composicion', 'Gráficos, zoom y subtítulos');
 
   // ── C. Composición ──
@@ -264,18 +331,72 @@ export async function renderEdit(
   // Efectos de sonido: cada tipo se puede apagar en el perfil (Sonido)
   const sfx = perfil.sonido;
   const eventos: SfxEvent[] = hookOn && sfx.efectosGancho !== false ? [{ tipo: 'impacto', t: 0 }] : [];
-  const firstElementInput = matte ? 2 : 1;
-  let elementInputs: string[] = [];
+  let nextInput = matte ? 2 : 1;
+  const elementInputs: string[] = [];
   if (dir) {
-    // Plan de Claude: cámara → color → imágenes/videos → transiciones (todo con sus tiempos)
-    const cam = cameraFilter(dir.camara, W, H, FPS, faceCenter(faces));
+    // Plan de Claude: luz → persona (fondo, clon) → elementos «en la escena» → cámara → color →
+    // imágenes/videos → transiciones (todo con sus tiempos)
+    let scene = 'comp';
+    if (dir.igualarLuz) {
+      const tramos = intervals.map((iv) => [iv.out, iv.out + (iv.e - iv.s)] as [number, number]);
+      const lm = matchLightFilter(await lightStats(p.carpeta, plate, tramos).catch(() => []));
+      if (lm.filtro) {
+        c.push(`[${scene}]${lm.filtro}[lit]`);
+        scene = 'lit';
+        notas.push(`Luz y color igualados en ${lm.ajustados} tramo${lm.ajustados === 1 ? '' : 's'}.`);
+      } else notas.push('Luz pareja: no hizo falta igualar.');
+    }
+    // Elementos que siguen a la persona o quedan detrás de ella: van ANTES de la cámara (son parte de la escena)
+    const inScene = (e: (typeof dir.elementos)[number]) => !!person && (!!e.seguir || !!e.detrasDePersona);
+    const preEls = dir.elementos.filter(inScene).map((e) => {
+      if (!e.seguir || !person) return e;
+      const s = targetSeries(person, e.seguir);
+      if (!s) {
+        calidad.push({ ok: null, texto: `No se ve ${e.seguir.replace('_', ' ')} en ${e.desde.toFixed(1)}–${e.hasta.toFixed(1)} s: el elemento queda fijo` });
+        return e;
+      }
+      const ex = seriesExpr(fitSeries(s.x, e.desde, e.hasta, 40), 't');
+      const ey = seriesExpr(fitSeries(s.y, e.desde, e.hasta, 40), 't');
+      const dx = e.seguirDx ?? 0;
+      const dy = e.seguirDy ?? (e.seguir === 'cara' ? -0.17 : -0.07);
+      if (e.modo === 'capa') {
+        // La capa es de pantalla completa: su punto «ancla» se pega al objetivo (+ desplazamiento)
+        const an = e.seguirAncla ?? { x: 0.5, y: 0.5 };
+        return { ...e, pos: { x: `${W}*(${ex}+${dx.toFixed(4)}-${an.x.toFixed(4)})`, y: `${H}*(${ey}+${dy.toFixed(4)}-${an.y.toFixed(4)})` } };
+      }
+      return { ...e, pos: { x: `${W}*(${ex}+${dx.toFixed(4)})-overlay_w/2`, y: `${H}*(${ey}+${dy.toFixed(4)})-overlay_h/2` } };
+    });
+    const postEls = dir.elementos.filter((e) => !inScene(e));
+    if (person && personMask) {
+      const pfx = personEffectsGraph({ W, H, fps: FPS, total, plateIdx: nextInput, maskIdx: nextInput + 1, firstExtraInput: nextInput + 2, efectos: dir.persona });
+      elementInputs.push('-i', plate, '-i', personMask, ...pfx.inputs);
+      nextInput += 2 + pfx.inputs.filter((x) => x === '-i').length;
+      c.push(...pfx.build(scene, 'pfx'));
+      if (dir.persona.length) notas.push(`${dir.persona.length} efecto${dir.persona.length === 1 ? '' : 's'} con la persona (${[...new Set(dir.persona.map((x) => x.efecto.replace('_', ' ')))].join(', ')}).`);
+      const pre = elementsFilter(preEls, nextInput, 'pfx', 'pre', perfil, FPS, faceCenter(faces).y);
+      c.push(...pre.graph);
+      elementInputs.push(...pre.inputs);
+      nextInput += pre.inputs.filter((x) => x === '-i').length;
+      c.push(...pfx.front('pre', 'scn', preEls.filter((e) => e.detrasDePersona).map((e) => [e.desde, e.hasta] as [number, number])));
+      scene = 'scn';
+      if (preEls.some((e) => e.seguir)) notas.push(`${preEls.filter((e) => e.seguir).length} elemento(s) siguen a la persona.`);
+    }
+    // Reencuadre: la cámara sigue la cara en cada momento (suavizado)
+    const fs1 = dir.camaraSigueCara ? faceSeries(person, faces) : null;
+    // Solo importa donde hay zoom (con zoom 1 se ve todo el cuadro)
+    const zoomed = dir.camara.filter((c) => c.zoom > 1.02 || (c.zoomFinal ?? 1) > 1.02);
+    const za = zoomed.length ? Math.min(...zoomed.map((c) => c.desde)) : 0;
+    const zb = zoomed.length ? Math.max(...zoomed.map((c) => c.hasta)) : 0;
+    const follow = fs1 && zoomed.length ? { x: seriesExpr(fitSeries(fs1.x, za, zb, 60), `(on/${FPS})`), y: seriesExpr(fitSeries(fs1.y, za, zb, 60), `(on/${FPS})`) } : null;
+    const cam = cameraFilter(dir.camara, W, H, FPS, faceCenter(faces), follow);
+    if (follow && cam) notas.push('La cámara sigue tu cara.');
     const col = colorFilter(dir.color, dir.transiciones);
     // El color es de la toma (las capturas y fotos quedan con su color); los destellos y glitch, de todo
-    c.push(`[comp]${[cam, col.grade].filter(Boolean).join(',') || 'null'}[cam]`);
-    const els = elementsFilter(dir.elementos, firstElementInput, 'cam', 'elx', perfil, FPS, faceCenter(faces).y);
+    c.push(`[${scene}]${[cam, col.grade].filter(Boolean).join(',') || 'null'}[cam]`);
+    const els = elementsFilter(postEls, nextInput, 'cam', 'elx', perfil, FPS, faceCenter(faces).y);
     c.push(...els.graph);
     c.push(`[elx]${col.fx ?? 'null'}[zc]`);
-    elementInputs = els.inputs;
+    elementInputs.push(...els.inputs);
   } else if (r.zoomEnCortes || r.zoomSuave) {
     const n = intervals.length;
     c.push(n > 1 ? `[comp]split=${n}${intervals.map((_, i) => `[c${i}]`).join('')}` : `[comp]null[c0]`);
@@ -412,7 +533,8 @@ export async function renderEdit(
   for (const tmp of [videoOnly, 'mezcla.wav', 'master.wav']) await fs.rm(f(tmp), { force: true }).catch(() => undefined);
   try {
     for (const name of await fs.readdir(p.carpeta)) {
-      if (/^(plate|voz|matte|caras)-[0-9a-f]{10}\.(mp4|wav|json)$/.test(name) && !name.includes(key)) await fs.rm(f(name), { force: true });
+      // Se guardan la base actual (y su versión estabilizada) y la pista de persona de la base en uso
+      if (/^(plate|voz|matte|caras|persona|persona-mask)-[0-9a-f]{10}e?\.(mp4|wav|json)$/.test(name) && !name.includes(baseKey)) await fs.rm(f(name), { force: true });
     }
   } catch {
     // no pasa nada si no se puede limpiar

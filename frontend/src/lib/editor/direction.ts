@@ -7,6 +7,7 @@ import { mapTime, type KeptInterval } from './timeline';
 import { SFX_TYPES, type SfxType } from './sfx';
 import { MUSIC_STYLES, type MusicSection, type MusicStyle } from './music';
 import { AMBIENT_TYPES, VOICE_FX, type AmbientType, type VoiceFx } from './voice';
+import type { ResolvedPersonFx } from './person';
 import type { FaceTrack } from './advanced';
 import type { EditGraphic, EditProject } from './types';
 
@@ -98,6 +99,30 @@ const ElementSchema = z.object({
   colorBorde: hex.default('#FFFFFF'),
   /** Velocidad de un video de apoyo: 0,25–0,9 cámara lenta, 1 normal, 1,5–4 rápido (timelapse). */
   velocidad: z.number().min(0.25).max(4).default(1),
+  /** Sigue a la persona (pista de persona): el elemento se mueve con su cara o una mano (flotante o capa). */
+  seguir: z.enum(['cara', 'mano_izquierda', 'mano_derecha']).optional(),
+  /** Con seguir: desplazamiento respecto al punto seguido (fracción del ancho/alto). */
+  seguirDx: z.number().min(-0.5).max(0.5).optional(),
+  seguirDy: z.number().min(-0.5).max(0.5).optional(),
+  /** Capa que sigue: el punto de la capa (0–1) que se pega al objetivo; por defecto el centro (crea la pieza del kit en x=0,5, y=0,5). */
+  seguirAncla: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).optional(),
+  /** La persona queda DELANTE del elemento (recortada con la pista de persona). */
+  detrasDePersona: z.boolean().default(false),
+});
+
+const PersonFxSchema = z.object({
+  desde: sec,
+  hasta: sec,
+  efecto: z.enum(['desenfocar_fondo', 'cambiar_fondo', 'clon']),
+  /** Desenfoque: 4 leve … 40 muy fuerte. */
+  intensidad: z.number().min(2).max(60).default(16),
+  /** cambiar_fondo: «#RRGGBB» o archivo (imagen/video) de la carpeta. */
+  fondo: z.string().max(300).optional(),
+  /** clon: segundo (línea principal) del que sale la persona que se duplica. */
+  clonDesde: sec.optional(),
+  clonLado: z.enum(['izquierda', 'derecha']).default('derecha'),
+  clonEscala: z.number().min(0.5).max(1).default(0.85),
+  espejo: z.boolean().default(true),
 });
 
 /** Paleta del video (la elige Claude para ESTE video; no está atada al perfil). */
@@ -182,6 +207,15 @@ export const DirectionInputSchema = z.object({
     )
     .max(12)
     .optional(),
+  // ── Imagen y cámara (Fase 4) ──
+  /** La cámara virtual sigue la cara en cada momento (por defecto sí, si hay pista de persona o de caras). */
+  camaraSigueCara: z.boolean().optional(),
+  /** Efectos con la persona recortada: fondo desenfocado o cambiado y clon. */
+  persona: z.array(PersonFxSchema).max(12).optional(),
+  /** Estabilizar la toma (si tiembla; mira analizar_imagen). */
+  estabilizar: z.boolean().optional(),
+  /** Igualar brillo y tinte entre tramos (tomas grabadas en momentos distintos). */
+  igualarLuz: z.boolean().optional(),
   /** Volumen final del máster en LUFS (−14 por defecto; TikTok admite −12/−11 si el video es enérgico). */
   volumenFinal: z.number().min(-16).max(-9).optional(),
   // ── Estructura de retención (Fase 1) — tiempos de la línea PRINCIPAL (la de palabras_borrador) ──
@@ -250,7 +284,7 @@ function mapTimes<T extends object>(obj: T, fn: (t: number) => number, keys: str
   return out as T;
 }
 
-const TIME_KEYS = ['desde', 'hasta', 't'];
+const TIME_KEYS = ['desde', 'hasta', 't', 'clonDesde'];
 
 /** Convierte todas las marcas de tiempo del plan con `fn`. */
 function convert<T extends Omit<DirectionInput, 'graficos'>>(d: T, fn: (t: number) => number): T {
@@ -265,6 +299,7 @@ function convert<T extends Omit<DirectionInput, 'graficos'>>(d: T, fn: (t: numbe
     musica: d.musica ? { ...d.musica, secciones: m(d.musica.secciones) ?? [] } : undefined,
     pausas: m(d.pausas),
     ambientes: m(d.ambientes),
+    persona: m(d.persona),
     voz: d.voz ? { ...d.voz, efectos: m(d.voz.efectos) ?? [] } : undefined,
     arranque: d.arranque ? mapTimes(d.arranque, fn, TIME_KEYS) : undefined,
     progreso: d.progreso ? { ...d.progreso, marcas: d.progreso.marcas.map((t) => r2(fn(t))) } : undefined,
@@ -345,6 +380,20 @@ export function prepareDirection(
   }
   input.graficos?.forEach((g, i) => within(g.t, `graficos[${i}]`));
   input.voz?.efectos.forEach((e, i) => range(e.desde, e.hasta, `voz.efectos[${i}]`));
+  input.persona?.forEach((x, i) => {
+    range(x.desde, x.hasta, `persona[${i}]`);
+    if (x.efecto === 'cambiar_fondo') {
+      if (!x.fondo) problems.push(`persona[${i}]: con «cambiar_fondo» falta «fondo» (#RRGGBB o un archivo de la carpeta).`);
+      else if (!/^#[0-9a-fA-F]{6}$/.test(x.fondo)) problems.push(...checkFile(p.carpeta, x.fondo, [...IMAGE_EXT, ...VIDEO_EXT], `persona[${i}].fondo`));
+    }
+    if (x.efecto === 'clon') {
+      if (x.clonDesde === undefined) problems.push(`persona[${i}]: con «clon» falta «clonDesde» (el segundo del que sale la persona duplicada).`);
+      else within(x.clonDesde, `persona[${i}].clonDesde`);
+    }
+  });
+  input.elementos?.forEach((e, i) => {
+    if (e.seguir && (e.modo === 'pantalla_completa' || e.modo === 'pantalla_dividida')) problems.push(`elementos[${i}]: «seguir» solo vale con modo flotante o capa.`);
+  });
   input.ambientes?.forEach((a, i) => {
     range(a.desde, a.hasta, `ambientes[${i}]`);
     if (a.tipo === 'archivo') {
@@ -463,7 +512,15 @@ export function faceCenter(track: FaceTrack | null): { x: number; y: number } {
  * Cámara virtual con zoompan sobre el video al doble de tamaño (movimientos sin temblor).
  * z(T), centro x(T) e y(T) por tramos; fuera de los tramos, encuadre normal (zoom 1).
  */
-export function cameraFilter(cams: NonNullable<EditDirection['camara']>, W: number, H: number, fps: number, face: { x: number; y: number }): string | null {
+export function cameraFilter(
+  cams: NonNullable<EditDirection['camara']>,
+  W: number,
+  H: number,
+  fps: number,
+  face: { x: number; y: number },
+  /** Centro de la cara en cada momento (expresiones con `(on/fps)`): la cámara la sigue. */
+  follow?: { x: string; y: string } | null
+): string | null {
   const list = cams.filter((c) => c.hasta > c.desde + 0.04);
   if (!list.length) return null;
   const T = `(on/${fps})`;
@@ -501,8 +558,8 @@ export function cameraFilter(cams: NonNullable<EditDirection['camara']>, W: numb
     if (c.tipo === 'sacudida') sTerms.push(`${gate(a, b)}*exp(-(${T}-${f4(a)})*6)`);
   }
   const Z = `(1+${zTerms.join('+')})`;
-  const FX = `(${f4(face.x)}+${xTerms.join('+')})`;
-  const FY = `(${f4(face.y)}+${yTerms.join('+')})`;
+  const FX = follow ? `clip(${follow.x}+${xTerms.join('+')},0.06,0.94)` : `(${f4(face.x)}+${xTerms.join('+')})`;
+  const FY = follow ? `clip(${follow.y}+${yTerms.join('+')},0.08,0.92)` : `(${f4(face.y)}+${yTerms.join('+')})`;
   const shake = sTerms.length ? `(${sTerms.join('+')})` : '0';
   const x = `clip(${FX}*iw-iw/zoom/2+${shake}*iw*0.012*sin(${T}*53),0,iw-iw/zoom)`;
   const y = `clip(${FY}*ih-ih/zoom/2+${shake}*ih*0.008*cos(${T}*61),0,ih-ih/zoom)`;
@@ -562,6 +619,13 @@ export interface ResolvedElement {
   colorBorde: string;
   esImagen: boolean;
   velocidad?: number;
+  seguir?: 'cara' | 'mano_izquierda' | 'mano_derecha';
+  seguirDx?: number;
+  seguirDy?: number;
+  seguirAncla?: { x: number; y: number };
+  detrasDePersona?: boolean;
+  /** Posición calculada (expresiones de overlay en píxeles) cuando sigue a la persona. */
+  pos?: { x: string; y: string };
 }
 
 /** Entradas de FFmpeg (args) y cadena de overlays para los elementos, sobre [inLabel] → [outLabel]. */
@@ -636,6 +700,10 @@ export function elementsFilter(
     const p = `clip((t-${f4(a)})/0.22,0,1)`;
     if (e.entrada === 'pop') y = `${y}+70*pow(1-${p},3)`;
     if (e.entrada === 'deslizar') x = `${x}+main_w*pow(1-clip((t-${f4(a)})/0.28,0,1),3)`;
+    if (e.pos) {
+      x = e.pos.x;
+      y = e.pos.y;
+    }
     const next = i === els.length - 1 ? outLabel : `ov${i}`;
     graph.push(`[${cur}][el${i}]overlay=x='${x}':y='${y}':eof_action=pass:enable='between(t,${f4(a)},${f4(fin)})'[${next}]`);
     cur = next;
@@ -659,6 +727,10 @@ export interface ResolvedDirection {
   pausas: Array<{ t: number; duracion: number; zoom: boolean; capaAbs?: string }>;
   voz?: { mejorar: boolean; respiraciones: boolean; efectos: Array<{ desde: number; hasta: number; efecto: VoiceFx }> };
   ambientes: Array<{ desde: number; hasta: number; tipo: AmbientType | 'archivo'; abs?: string; bajoVozDb: number }>;
+  persona: ResolvedPersonFx[];
+  camaraSigueCara: boolean;
+  estabilizar: boolean;
+  igualarLuz: boolean;
   volumenFinal?: number;
   arranque?: { desde: number; hasta: number; transicion: 'corte' | 'flash' };
   bucle: boolean;
@@ -724,6 +796,24 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
       // fuera de la carpeta: se ignora
     }
   }
+  const persona: ResolvedPersonFx[] = [];
+  for (const x of clampR(f.persona)) {
+    const r: ResolvedPersonFx = { desde: x.desde, hasta: x.hasta, efecto: x.efecto, intensidad: x.intensidad, clonDesde: x.clonDesde, clonLado: x.clonLado, clonEscala: x.clonEscala, espejo: x.espejo };
+    if (x.efecto === 'cambiar_fondo') {
+      if (x.fondo && /^#[0-9a-fA-F]{6}$/.test(x.fondo)) r.fondoColor = x.fondo;
+      else {
+        try {
+          const abs = editAsset(p.carpeta, x.fondo ?? '');
+          if (!fsSync.existsSync(abs)) continue;
+          r.fondoAbs = abs;
+          r.fondoEsImagen = IMAGE_EXT.includes(path.extname(abs).toLowerCase());
+        } catch {
+          continue;
+        }
+      }
+    }
+    persona.push(r);
+  }
   const sub = d.subtitulos;
   return {
     camara: clampR(f.camara).sort((a, b) => a.desde - b.desde),
@@ -750,6 +840,10 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     voz: f.voz ? { ...f.voz, efectos: clampR(f.voz.efectos) } : undefined,
     ambientes,
     volumenFinal: f.volumenFinal,
+    persona,
+    camaraSigueCara: f.camaraSigueCara !== false,
+    estabilizar: !!f.estabilizar,
+    igualarLuz: !!f.igualarLuz,
     arranque: f.arranque && f.arranque.hasta > f.arranque.desde + 0.3 ? { ...f.arranque, desde: Math.max(0, f.arranque.desde), hasta: Math.min(total, f.arranque.hasta) } : undefined,
     bucle: !!f.bucle,
     progreso: f.progreso ? { ...f.progreso, marcas: [...f.progreso.marcas].filter((t) => t < total).sort((a, b) => a - b) } : undefined,
@@ -769,6 +863,9 @@ export function describeDirection(d: EditDirection, graficos?: number): string {
   if (graficos) parts.push(`${graficos} gráficos`);
   if (d.musica) parts.push(d.musica.modo === 'generada' ? `música ${d.musica.estilo}` : d.musica.modo === 'archivo' ? `música: ${d.musica.archivo}` : 'sin música');
   if (d.subtitulos?.estilo) parts.push(`subtítulos «${d.subtitulos.estilo}»`);
+  if (d.persona?.length) parts.push(`${d.persona.length} efecto${d.persona.length === 1 ? '' : 's'} con la persona`);
+  if (d.estabilizar) parts.push('estabilizado');
+  if (d.igualarLuz) parts.push('luz igualada');
   if (d.ambientes?.length) parts.push(`${d.ambientes.length} ambiente${d.ambientes.length === 1 ? '' : 's'}`);
   if (d.voz?.efectos.length) parts.push(`${d.voz.efectos.length} efecto${d.voz.efectos.length === 1 ? '' : 's'} de voz`);
   if (d.color) parts.push('color');
