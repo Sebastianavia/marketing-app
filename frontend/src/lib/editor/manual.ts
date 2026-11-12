@@ -241,6 +241,68 @@ export async function learnLessons(lecciones: Lesson[], video: string, quien = '
   );
 }
 
+// ── Radar de capacidades ─────────────────────────────────────────────────────
+
+/**
+ * Todo lo que Claude puede usar HOY para editar (va en la skill junto a las reglas aprendidas). Es
+ * código, no aprendizaje: se actualiza cuando la app gana capacidades. Recursos, no obligaciones:
+ * cada video usa lo que su concepto pida, con equilibrio.
+ */
+export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
+  {
+    titulo: 'Motor de Lulo (dirigir_edicion → renderizar)',
+    items: [
+      'Cortes por frase (falsos comienzos, muletillas, repeticiones, voces del apuntador) y pausas recortadas.',
+      'Cámara virtual centrada en la cara: plano (normal / medio / primer plano), punch-in, acercar, alejar, paneo y sacudida.',
+      'Transiciones: flash, fundido a negro, glitch y desenfoque.',
+      'Color: contraste, saturación, brillo, calidez, viñeta y grano.',
+      'Subtítulos: karaoke, palabra a palabra, frase, «pop» (cada palabra entra al decirse) y «caja_activa»; fuente, tamaño, colores, borde, sombra, posición y palabras por línea.',
+      'Palabras clave con color, tamaño y efecto (rebote, sacudida, crecer, brillo), por palabra o por aparición concreta.',
+      'Gancho de entrada con su estilo; gráficos nativos (tarjeta, número grande, lista, palabra gigante detrás).',
+      'Elementos de la carpeta en su segundo exacto: capa transparente a pantalla completa, flotante, pantalla completa o pantalla dividida (la persona se encuadra en su mitad).',
+      '20 efectos de sonido sintetizados (click, tick, pop, blip, swish, whoosh, swipe, riser, impacto, boom, thud, ding, éxito, error, cámara, teclado, glitch, brillo, palmada, caja registradora) o archivos propios, sin límite de cantidad, con volumen y paneo.',
+      'Música sin derechos generada en 7 estilos (trap, house, phonk, motivacional, cinemático, lo-fi, synthpop) con secciones suave / completa / silencio para «drops», o un archivo; ducking bajo la voz y máster a −14 LUFS.',
+      'Informe de ritmo y variedad al guardar el plan (formatos, tramos sin cambios, efectos por segundo, repeticiones).',
+    ],
+  },
+  {
+    titulo: 'Recorte de persona (cuando aporte: 1–3 momentos clave por video, no todo el tiempo)',
+    items: [
+      'Usos: palabra gigante o gráfico DETRÁS de la persona (profundidad); la persona sobre un fondo de diseño o de color para marcar un cambio de tema; la persona como «sticker» sobre un b-roll o una captura; contorno brillante o sombra para destacarla; que «salga» del marco de un gráfico.',
+      'Vía rápida: gráfico tipo «detras» del motor (usa RobustVideoMatting si está instalado en Herramientas; si no, el texto va delante).',
+      'Vía libre: MediaPipe (instalado) → máscara de la persona fotograma a fotograma → video con transparencia (FFmpeg alphamerge, .mov ProRes 4444) → elemento «capa» encima del fondo o del texto que diseñes.',
+      'Alternativa: el quitafondos de HyperFrames (skill media-use, `npx hyperframes remove-background`).',
+      'Revisa siempre el borde del recorte (pelo, manos) en fotogramas antes de entregar; si se ve sucio, suaviza la máscara o no lo uses.',
+    ],
+  },
+  {
+    titulo: 'HyperFrames (diseño y animación)',
+    items: [
+      'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',
+      'Render en .mov transparente para colocarlo como capa; revisar_html_video y renderizar_html_video.',
+      'Skill media-use: detección de beats de la música, medición de volumen, looks de color y recortes.',
+    ],
+  },
+  {
+    titulo: 'FFmpeg y Python (efectos a medida)',
+    items: [
+      'FFmpeg: rampas de velocidad y cámara lenta, congelar fotograma, reversa, máscaras, superposiciones complejas, estabilizar, quitar ruido, extraer fotogramas para revisar.',
+      'Python: MediaPipe (persona, manos, cara, pose), OpenCV (seguir objetos, detectar), SciPy (análisis de audio), leer Word y PDF del material.',
+    ],
+  },
+  {
+    titulo: 'Material y referencias',
+    items: [
+      'Carpeta de material y adjuntos de la persona (fotos, videos, logos, guiones); descargas libres de internet (iconos, fotos, música y efectos sin derechos); yt-dlp para videos de referencia.',
+      'Feedback del equipo (ver_feedback / tomar_feedback) y este manual (ver_manual / aprender_del_feedback).',
+    ],
+  },
+];
+
+function radarText(): string {
+  return CAPABILITIES_RADAR.map((g) => `${g.titulo}:\n${g.items.map((i) => `- ${i}`).join('\n')}`).join('\n');
+}
+
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
 /**
@@ -274,6 +336,10 @@ export function manualSkillMarkdown(m: EditingManual): string {
     }
     out.push('');
   }
+  out.push('## Lo que puedes usar (radar)', '', '_Recursos disponibles, no obligaciones: cada video usa lo que su concepto pida, con equilibrio._', '');
+  for (const g of CAPABILITIES_RADAR) {
+    out.push(`### ${g.titulo}`, '', ...g.items.map((i) => `- ${i}`), '');
+  }
   return out.join('\n');
 }
 
@@ -281,7 +347,6 @@ export function manualSkillMarkdown(m: EditingManual): string {
 export async function manualPrompt(): Promise<string> {
   const { manual } = await loadManual();
   const activas = manual.reglas.filter((r) => r.estado === 'activa');
-  if (!activas.length) return '';
   const lines: string[] = [];
   for (const area of MANUAL_AREAS) {
     const rs = activas.filter((r) => r.area === area).sort((a, b) => b.confirmaciones - a.confirmaciones);
@@ -292,5 +357,8 @@ export async function manualPrompt(): Promise<string> {
   return `
 ## MANUAL DE EDICIÓN LULO (aprendido del feedback del equipo; versión ${manual.version})
 Estas reglas salen de lo que el equipo ha pedido en videos anteriores: síguelas por encima de tus preferencias generales (las más confirmadas pesan más). Si el pedido de la persona contradice una regla, manda el pedido.
-${lines.join('\n')}`;
+${lines.join('\n')}
+
+## LO QUE PUEDES USAR (radar: recursos disponibles, no obligaciones; elige lo que pida cada video, con equilibrio)
+${radarText()}`;
 }
