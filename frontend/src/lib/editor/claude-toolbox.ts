@@ -22,7 +22,7 @@ const PACKAGE_USE: Record<string, string> = {
   numpy: 'Cálculo numérico (base de casi todo)',
   scipy: 'Cálculo científico y señales de audio',
   matplotlib: 'Gráficos de datos',
-  pillow: 'Imágenes (solo tareas técnicas: no para diseñar)',
+  pillow: 'Solo pieza interna de MediaPipe y Matplotlib: Claude no la usa para dibujar nada en pantalla',
   fonttools: 'Leer y recortar fuentes tipográficas',
   'ai-edge-litert': 'Modelos de IA ligeros (los usa MediaPipe)',
   jax: 'Cálculo acelerado (dependencia de MediaPipe)',
@@ -158,7 +158,7 @@ export async function claudeToolbox(force = false): Promise<ClaudeToolbox> {
 export async function toolboxPromptLine(): Promise<string> {
   const t = await claudeToolbox().catch(() => null);
   if (!t) return '';
-  const pk = t.python.paquetes.filter((p) => p.para).map((p) => p.nombre);
+  const pk = t.python.paquetes.filter((p) => p.para && p.nombre !== 'pillow').map((p) => p.nombre);
   const parts = [
     pk.length ? `paquetes de Python ya instalados (reutilízalos, no los reinstales): ${pk.join(', ')}` : '',
     t.programas.length ? `programas: ${t.programas.map((p) => p.nombre).join(', ')}` : '',

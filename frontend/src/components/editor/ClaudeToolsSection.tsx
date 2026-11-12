@@ -33,7 +33,7 @@ export function ClaudeToolsSection({ data, preparing = false, onPrepare }: { dat
         </p>
       </div>
       {onPrepare && (
-        <button type="button" onClick={onPrepare} disabled={preparing} className="btn-secondary h-9 shrink-0 px-3 text-[12px]" title="Instala el kit base (NumPy, SciPy, OpenCV, MediaPipe, FontTools, Pillow) y el Chrome de HyperFrames">
+        <button type="button" onClick={onPrepare} disabled={preparing} className="btn-secondary h-9 shrink-0 px-3 text-[12px]" title="Instala el kit base (NumPy, SciPy, OpenCV, MediaPipe, FontTools) y el Chrome de HyperFrames">
           {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Preparar herramientas de Claude
         </button>
       )}

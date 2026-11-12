@@ -311,7 +311,8 @@ async function pipTarget(job: InstallJob, pkgs: string[], target: string) {
 async function installClaudeBase(job: InstallJob) {
   const target = path.join(/*turbopackIgnore: true*/ await ensureDataDir(), 'claude-herramientas', 'py');
   log(job, `Carpeta de herramientas de Claude: ${target}`);
-  await pipTarget(job, ['numpy', 'scipy', 'opencv-python-headless', 'fonttools', 'pillow', 'tqdm'], target);
+  // Pillow NO se instala a propósito (el dueño no la quiere para diseñar); llega solo como dependencia de MediaPipe
+  await pipTarget(job, ['numpy', 'scipy', 'opencv-python-headless', 'fonttools', 'tqdm'], target);
   try {
     await pipTarget(job, ['mediapipe'], target);
   } catch (err) {
