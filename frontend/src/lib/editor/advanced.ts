@@ -1,6 +1,8 @@
+import path from 'path';
 import fs from 'fs/promises';
 import { resolveFfmpegPath } from '@/lib/video/ffmpeg';
 import { ffmpeg } from './media';
+import { pythonPackageDirs } from './claude-toolbox';
 import { envStatus, findPython, getEnvSettings, matteModelPath, pythonScript, runProcess } from './python-env';
 import type { EditWord } from './types';
 
@@ -125,6 +127,8 @@ export async function runFaces(o: { src: string; out: string; w: number; h: numb
     [...py.args, pythonScript('lulo_faces.py'), '--ffmpeg', resolveFfmpegPath(), '--src', o.src, '--sw', String(sw), '--sh', String(sh), '--fps', '4', '--out', o.out],
     {
       timeoutMs: 30 * 60_000,
+      // MediaPipe del kit de Claude como respaldo (OpenCV 5 no trae los detectores Haar)
+      env: { ...process.env, PYTHONPATH: [...pythonPackageDirs(), process.env.PYTHONPATH ?? ''].filter(Boolean).join(path.delimiter) },
       onLine: (l) => {
         if (l.startsWith('ERROR ')) error = l.slice(6);
       },

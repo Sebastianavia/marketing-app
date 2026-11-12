@@ -653,7 +653,12 @@ const kitGrafico = tool({
       if (err instanceof KitError) throw new AgentToolError(err.message, err.status);
       throw err;
     }
-    const elemento = input.colocarEn !== undefined ? { archivo: r.archivo, modo: 'capa' as const, desde: input.colocarEn, hasta: Math.round((input.colocarEn + r.duracion) * 100) / 100 } : undefined;
+    // Texto kinético y capítulos ya dicen el texto: los subtítulos se esconden mientras se ven
+    const hideSubs = input.tipo === 'texto_kinetico' || input.tipo === 'capitulo';
+    const elemento =
+      input.colocarEn !== undefined
+        ? { archivo: r.archivo, modo: 'capa' as const, desde: input.colocarEn, hasta: Math.round((input.colocarEn + r.duracion) * 100) / 100, ...(hideSubs ? { ocultarSubtitulos: true } : {}) }
+        : undefined;
     let agregado = false;
     if (input.agregar && elemento) {
       const total = totalDuration(intervals);
@@ -711,7 +716,7 @@ const zonasDeCambio = tool({
 const disenarPortada = tool({
   name: 'disenar_portada',
   description:
-    'Diseña la portada del borrador actual: un fotograma (t, segundos del borrador) con la persona recortada (MediaPipe, si está instalado), texto GRANDE detrás de ella con la paleta del video y palabras destacadas. Queda como portada del borrador (Proyectos y feedback la usan). Elige un fotograma con gesto fuerte y la cara limpia (sin elementos encima). $0.',
+    'Diseña la portada del borrador actual: un fotograma LIMPIO del video base (t = segundo de la línea principal, como en palabras_borrador; sin subtítulos ni gráficos) con la persona recortada (MediaPipe, si está instalado), texto GRANDE detrás de ella con la paleta del video y palabras destacadas. Queda como portada del borrador (Proyectos y feedback la usan). Elige un fotograma con gesto fuerte y la cara limpia (sin elementos encima). $0.',
   schema: z.object({
     t: z.number().min(0).max(3600),
     texto: z.string().trim().min(2).max(60),
@@ -723,9 +728,10 @@ const disenarPortada = tool({
   run: async (editId, input) => {
     const p = await getEdit(editId);
     assertIdle(p);
+    const { plate } = await editPlate(p);
     let r;
     try {
-      r = await designCover(p, input);
+      r = await designCover(p, { ...input, frame: plate });
     } catch (err) {
       if (err instanceof KitError) throw new AgentToolError(err.message, err.status);
       throw err;

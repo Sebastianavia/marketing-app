@@ -108,6 +108,8 @@ const ElementSchema = z.object({
   seguirAncla: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).optional(),
   /** La persona queda DELANTE del elemento (recortada con la pista de persona). */
   detrasDePersona: z.boolean().default(false),
+  /** Esconde los subtítulos mientras se ve (texto kinético, capítulos: si no, se duplica el texto). */
+  ocultarSubtitulos: z.boolean().default(false),
 });
 
 const PersonFxSchema = z.object({
@@ -624,6 +626,7 @@ export interface ResolvedElement {
   seguirDy?: number;
   seguirAncla?: { x: number; y: number };
   detrasDePersona?: boolean;
+  ocultarSubtitulos?: boolean;
   /** Posición calculada (expresiones de overlay en píxeles) cuando sigue a la persona. */
   pos?: { x: string; y: string };
 }

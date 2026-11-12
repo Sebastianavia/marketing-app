@@ -483,7 +483,7 @@ export function portada(
   const top = o.posicion === 'arriba' ? fr.safe.top + 30 : H * 0.6;
   // Con recorte y texto arriba: el texto termina un poco por debajo de la coronilla (la cabeza lo pisa
   // solo en el borde inferior, el efecto «detrás de la persona» sin tapar las palabras)
-  const limit = o.posicion === 'arriba' && o.recorte && o.cabeza ? Math.max(top + 260, o.cabeza * H + 0.07 * H) : o.posicion === 'arriba' ? H * 0.5 : H - fr.safe.bottom - 20;
+  const limit = o.posicion === 'arriba' && o.recorte && o.cabeza ? Math.max(top + 260, o.cabeza * H + 0.045 * H) : o.posicion === 'arriba' ? H * 0.5 : H - fr.safe.bottom - 20;
   const css = `#bgi,#cut{position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover}
 #vg{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 40%,transparent 40%,rgba(0,0,0,.55)),linear-gradient(${o.posicion === 'arriba' ? '180deg' : '0deg'},rgba(0,0,0,.6),transparent 45%)}
 #tx{position:absolute;left:40px;top:${n2(top)}px;width:${W - 80}px;text-align:center;font-size:${fs}px;line-height:.98;color:#fff}

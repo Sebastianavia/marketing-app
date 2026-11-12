@@ -301,7 +301,8 @@ export async function renderEdit(
     sombra: dir?.sombra,
     duracionFinal: total,
     graficos: [...gfx.front, ...progressCounter],
-    ocultar: gfx.hide,
+    // Elementos que piden esconder los subtítulos (texto kinético, capítulos)
+    ocultar: [...gfx.hide, ...(dir?.elementos.filter((e) => e.ocultarSubtitulos).map((e) => [e.desde, e.hasta] as [number, number]) ?? [])],
     cardStyle: style,
     marginV: subMargin,
   });

@@ -24,12 +24,23 @@ def main():
         import cv2
         import numpy as np
 
-        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-        if cascade.empty():
-            raise RuntimeError("no se pudo cargar el detector de caras de OpenCV")
-        frame = a.sw * a.sh
+        # OpenCV 5 ya no trae los detectores Haar: entonces se usa MediaPipe (kit de herramientas de Claude)
+        cascade = None
+        mp_face = None
+        if hasattr(cv2, "CascadeClassifier") and getattr(getattr(cv2, "data", None), "haarcascades", None):
+            cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+            if cascade.empty():
+                cascade = None
+        if cascade is None:
+            try:
+                import mediapipe as mp
+
+                mp_face = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.3)
+            except Exception:
+                raise RuntimeError("no se pudo cargar el detector de caras (OpenCV sin Haar y sin MediaPipe): instala el kit de herramientas de Claude o OpenCV < 5")
+        frame = a.sw * a.sh * 3
         rd = subprocess.Popen(
-            [a.ffmpeg, "-v", "error", "-i", a.src, "-vf", f"fps={a.fps},scale={a.sw}:{a.sh},format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+            [a.ffmpeg, "-v", "error", "-i", a.src, "-vf", f"fps={a.fps},scale={a.sw}:{a.sh}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
             stdout=subprocess.PIPE,
             bufsize=frame * 4,
         )
@@ -39,8 +50,16 @@ def main():
             buf = rd.stdout.read(frame)
             if len(buf) < frame:
                 break
-            img = np.frombuffer(buf, dtype=np.uint8).reshape(a.sh, a.sw)
-            img = cv2.equalizeHist(img)
+            rgb = np.frombuffer(buf, dtype=np.uint8).reshape(a.sh, a.sw, 3)
+            if mp_face is not None:
+                det = mp_face.process(rgb)
+                if det.detections:
+                    b = max(det.detections, key=lambda d: d.score[0]).location_data.relative_bounding_box
+                    frames.append({"x": max(0.0, b.xmin), "y": max(0.0, b.ymin), "w": b.width, "h": b.height})
+                else:
+                    frames.append(None)
+                continue
+            img = cv2.equalizeHist(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY))
             found = cascade.detectMultiScale(img, scaleFactor=1.1, minNeighbors=5, minSize=(min_side, min_side))
             if len(found):
                 x, y, w, h = max(found, key=lambda b: b[2] * b[3])

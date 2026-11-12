@@ -385,7 +385,8 @@ async function runInstall(job: InstallJob) {
       return;
     }
     case 'opencv': {
-      await pip(job, ['opencv-python-headless', 'numpy']);
+      // OpenCV 5 quitó los detectores Haar que usa lulo_faces.py
+      await pip(job, ['opencv-python-headless<5', 'numpy']);
       done('Detector de caras instalado.');
       return;
     }

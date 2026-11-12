@@ -333,15 +333,17 @@ export async function cutoutPerson(src: string, out: string): Promise<{ ok: bool
 
 export async function designCover(
   p: EditProject,
-  o: { t: number; texto: string; destacar: string[]; posicion: 'arriba' | 'abajo'; recorte: boolean; paleta?: KitInput['paleta']; fuente?: (typeof KIT_FONTS)[number] }
+  o: { t: number; texto: string; destacar: string[]; posicion: 'arriba' | 'abajo'; recorte: boolean; paleta?: KitInput['paleta']; fuente?: (typeof KIT_FONTS)[number]; /** Video del que sale el fotograma (por defecto el borrador). */ frame?: string }
 ): Promise<{ archivo: string; recorte: boolean; aviso?: string }> {
   if (!p.borrador) throw new KitError('Primero renderiza un borrador: la portada sale de un fotograma suyo.');
   const perfil = normalizeProfile(p.perfil);
   const { width: W, height: H } = formatSize(perfil.formato);
   const safe = safeZone(perfil.red, perfil.formato);
-  const draft = path.join(/*turbopackIgnore: true*/ p.carpeta, p.borrador.archivo);
-  const t = Math.max(0, Math.min(p.borrador.duracion - 0.1, o.t));
-  const h = hashOf(String(p.borrador.version), String(t), o.texto, o.destacar.join(','), o.posicion, String(o.recorte), JSON.stringify(o.paleta ?? p.direccion?.paleta ?? {}), o.fuente ?? '');
+  // El video base (sin subtítulos ni gráficos) si se pasa; si no, el borrador
+  const draft = path.join(/*turbopackIgnore: true*/ p.carpeta, o.frame ?? p.borrador.archivo);
+  const dur = o.frame ? ((await probeVideo(draft).catch(() => null))?.duracion ?? p.borrador.duracion) : p.borrador.duracion;
+  const t = Math.max(0, Math.min(dur - 0.1, o.t));
+  const h = hashOf(String(p.borrador.version), o.frame ?? '', String(t), o.texto, o.destacar.join(','), o.posicion, String(o.recorte), JSON.stringify(o.paleta ?? p.direccion?.paleta ?? {}), o.fuente ?? '');
   const projRel = `kit/_src/portada-${h}`;
   const projDir = path.join(/*turbopackIgnore: true*/ p.carpeta, projRel);
   await fs.rm(projDir, { recursive: true, force: true });
