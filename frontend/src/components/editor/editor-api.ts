@@ -1,5 +1,7 @@
 'use client';
 
+import type { ClaudeToolbox } from '@/lib/editor/claude-toolbox';
+
 import type { EditProfile, ProfileInput } from '@/config/editor-looks';
 import type { EditProject, EditSummary } from '@/lib/editor/types';
 import type { EditorEnvSettings, EnvStatus, InstallJob, InstallTarget } from '@/lib/editor/python-env';
@@ -52,7 +54,7 @@ export const editorApi = {
     api<{ perfil: EditProfile }>(`/api/editor/profiles/${id}`, { method: 'PUT', ...json(p) }).then((d) => d.perfil),
   deleteProfile: (id: string) => api<{ ok: boolean }>(`/api/editor/profiles/${id}`, { method: 'DELETE' }),
 
-  env: (detectar = false) => api<{ estado: EnvStatus; instalaciones: InstallJob[] }>(`/api/editor/env${detectar ? '?detectar=1' : ''}`),
+  env: (detectar = false) => api<{ estado: EnvStatus; instalaciones: InstallJob[]; claude: ClaudeToolbox | null }>(`/api/editor/env${detectar ? '?detectar=1' : ''}`),
   install: (que: InstallTarget) => api<{ instalacion: InstallJob }>('/api/editor/env', { method: 'POST', ...json({ accion: 'instalar', que }) }),
   envSettings: (patch: Partial<Omit<EditorEnvSettings, 'python'>>) =>
     api<{ ajustes: EditorEnvSettings }>('/api/editor/env', { method: 'POST', ...json({ accion: 'ajustes', ...patch }) }),

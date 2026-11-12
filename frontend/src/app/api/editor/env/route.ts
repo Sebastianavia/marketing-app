@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { claudeToolbox } from '@/lib/editor/claude-toolbox';
 import { z } from 'zod';
 import { assertAppUiRequest } from '@/lib/director/local-guard';
 import { envStatus, listInstallJobs, startInstall, updateEnvSettings } from '@/lib/editor/python-env';
@@ -12,7 +13,8 @@ export const maxDuration = 120;
 export async function GET(req: NextRequest) {
   try {
     const force = req.nextUrl.searchParams.get('detectar') === '1';
-    return NextResponse.json({ estado: await envStatus(force), instalaciones: listInstallJobs() });
+    const [estado, claude] = await Promise.all([envStatus(force), claudeToolbox(force).catch(() => null)]);
+    return NextResponse.json({ estado, instalaciones: listInstallJobs(), claude });
   } catch (err) {
     return editorError(err, 'No se pudo comprobar las herramientas.');
   }

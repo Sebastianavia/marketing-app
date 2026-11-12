@@ -15,6 +15,7 @@ import { CLAUDE_DEFAULT_EFFORT, CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-m
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
 import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
 import { manualPrompt } from '@/lib/editor/manual';
+import { pythonPackageDirs, toolboxPromptLine } from '@/lib/editor/claude-toolbox';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, claudeApiKeyEnv, execClaude, hasClaudeApiKey, type ToolUseEvent } from './bridge';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
@@ -102,6 +103,8 @@ export interface AgentContext {
   domains: string[];
   /** Carpetas donde puede crear y cambiar archivos. */
   escribir: string[];
+  /** Lo que ya tiene instalado en este PC (paquetes, programas) para reutilizarlo. */
+  instalado: string;
 }
 
 /** Bloque común del prompt: qué puede ejecutar Claude y dónde. */
@@ -112,7 +115,7 @@ export function bashRules(ctx: AgentContext, carpeta: string): string {
   const red = ctx.domains.includes('*')
     ? 'Tienes acceso a toda internet (fuentes, imágenes libres, música sin copyright, paquetes, lo que necesites).'
     : `La red solo deja descargar de: ${ctx.domains.join(', ')}.`;
-  return `- Puedes usar Bash con libertad: FFmpeg completo en \`${ctx.ffmpeg}\`${ctx.python ? `, Python en \`${ctx.python}\`` : ''}. Para instalar programas usa la carpeta de herramientas \`${ctx.tools}\` (p. ej. \`pip install --target "${path.join(ctx.tools, 'py')}" paquete\`, binarios en \`${path.join(ctx.tools, 'bin')}\`, descargas en \`${path.join(ctx.tools, 'descargas')}\`); ya está en PATH y PYTHONPATH.
+  return `- Puedes usar Bash con libertad: FFmpeg completo en \`${ctx.ffmpeg}\`${ctx.python ? `, Python en \`${ctx.python}\`` : ''}. Para instalar programas usa la carpeta de herramientas \`${ctx.tools}\` (SIEMPRE \`pip install --target "${path.join(ctx.tools, 'py')}" paquete\`, no crees otras carpetas py2/py3; binarios en \`${path.join(ctx.tools, 'bin')}\`, descargas en \`${path.join(ctx.tools, 'descargas')}\`); ya está en PATH y PYTHONPATH.${ctx.instalado ? `\n${ctx.instalado}` : ''}
 - Tu carpeta de trabajo es ${carpeta} (subcarpeta \`claude/\` para tus archivos). Puedes LEER cualquier carpeta del equipo (salvo credenciales y claves) y ESCRIBIR en: ${ctx.escribir.join(' · ')}. No borres ni sobrescribas originales de la persona: crea archivos nuevos.
 - ${red} Lo único bloqueado es la propia app (localhost) y los secretos.`;
 }
@@ -435,6 +438,7 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       python: py ? [py.cmd, ...py.args].join(' ') : null,
       domains: allowedDomains(),
       escribir: writableDirs(spec, dirs),
+      instalado: await toolboxPromptLine().catch(() => ''),
     };
 
     const workDir = path.join(/*turbopackIgnore: true*/ spec.cwd, 'claude');
@@ -499,7 +503,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const ffmpegDir = path.isAbsolute(ffmpegBin) ? path.dirname(ffmpegBin) : '';
     const env = childEnv({
       PATH: [path.join(dirs.tools, 'bin'), ffmpegDir, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
-      PYTHONPATH: path.join(dirs.tools, 'py'),
+      // Todas las carpetas de paquetes que Claude ha ido creando (py, py2…), con py primero
+      PYTHONPATH: [...new Set([path.join(dirs.tools, 'py'), ...pythonPackageDirs(dirs.tools)])].join(path.delimiter),
       PIP_CACHE_DIR: path.join(dirs.tools, 'cache', 'pip'),
       HF_HOME: path.join(dirs.tools, 'cache', 'huggingface'),
       XDG_CACHE_HOME: path.join(dirs.tools, 'cache'),

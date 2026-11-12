@@ -5,6 +5,8 @@ import { AlertCircle, CheckCircle2, Circle, Cpu, Download, Loader2, RefreshCw } 
 import type { EnvStatus, InstallJob, InstallTarget } from '@/lib/editor/python-env';
 import { editorApi, type SystemStatus } from './editor-api';
 import { Segmented } from './ProfilesPanel';
+import { ClaudeToolsSection } from './ClaudeToolsSection';
+import type { ClaudeToolbox } from '@/lib/editor/claude-toolbox';
 
 /**
  * Herramientas avanzadas (opcionales): Python, PyTorch, modelo de recorte y Whisper.
@@ -23,6 +25,7 @@ interface Row {
 export function ToolsPanel({ system }: { system: SystemStatus | null }) {
   const [estado, setEstado] = useState<EnvStatus | null>(null);
   const [jobs, setJobs] = useState<InstallJob[]>([]);
+  const [claude, setClaude] = useState<ClaudeToolbox | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -32,6 +35,7 @@ export function ToolsPanel({ system }: { system: SystemStatus | null }) {
       const d = await editorApi.env(detectar);
       setEstado(d.estado);
       setJobs(d.instalaciones);
+      setClaude(d.claude);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo comprobar.');
@@ -48,6 +52,7 @@ export function ToolsPanel({ system }: { system: SystemStatus | null }) {
         if (!alive) return;
         setEstado(d.estado);
         setJobs(d.instalaciones);
+        setClaude(d.claude);
       })
       .catch((err) => alive && setError(err instanceof Error ? err.message : 'No se pudo comprobar.'));
     return () => {
@@ -236,6 +241,8 @@ export function ToolsPanel({ system }: { system: SystemStatus | null }) {
           />
         </div>
       </section>
+
+      {claude && <ClaudeToolsSection data={claude} />}
 
       {jobs.length > 0 && (
         <section className="space-y-2">
