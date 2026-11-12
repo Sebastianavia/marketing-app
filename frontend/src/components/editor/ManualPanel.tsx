@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, BookOpen, Check, Loader2, Pencil, Plus, RotateCcw, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, Download, Loader2, Pencil, Plus, RotateCcw, X } from 'lucide-react';
 
 /** Mismos datos que lib/editor/manual.ts (sin importar el módulo de servidor). */
 type Area = 'ritmo' | 'cortes' | 'gancho' | 'subtitulos' | 'camara' | 'graficos' | 'sonido' | 'musica' | 'color' | 'cierre' | 'general';
@@ -42,7 +42,7 @@ async function call(method: 'GET' | 'PUT', body?: unknown) {
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || 'No se pudo usar el manual.');
-  return d as { manual: Manual; compartido: boolean; aviso?: string };
+  return d as { manual: Manual; compartido: boolean; aviso?: string; skill: string };
 }
 
 /**
@@ -50,7 +50,8 @@ async function call(method: 'GET' | 'PUT', body?: unknown) {
  * equipo. Compartido por todos (R2). Aquí se ven, se editan, se retiran o se añaden a mano.
  */
 export function ManualPanel() {
-  const [data, setData] = useState<{ manual: Manual; compartido: boolean; aviso?: string } | null>(null);
+  const [data, setData] = useState<{ manual: Manual; compartido: boolean; aviso?: string; skill: string } | null>(null);
+  const [view, setView] = useState<'reglas' | 'skill'>('reglas');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string | null; area: Area; regla: string; porQue: string } | null>(null);
@@ -74,7 +75,7 @@ export function ManualPanel() {
     setError(null);
     try {
       const d = await call('PUT', body);
-      setData((cur) => ({ ...(cur ?? d), manual: d.manual }));
+      setData((cur) => ({ ...(cur ?? d), manual: d.manual, skill: d.skill }));
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar.');
@@ -182,10 +183,42 @@ export function ManualPanel() {
             Versión {data?.manual.version ?? '—'} · {activas.length} reglas activas
           </p>
         </div>
-        <button type="button" onClick={() => setEditing({ id: null, area: 'general', regla: '', porQue: '' })} className="btn-secondary h-9 px-3 text-[12px]">
-          <Plus className="h-3.5 w-3.5" /> Añadir regla
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex rounded-lg border border-line p-0.5 text-[12px]" role="tablist" aria-label="Vista del manual">
+            {(['reglas', 'skill'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`rounded-md px-3 py-1.5 ${view === v ? 'bg-surface-2 font-medium text-fg' : 'text-fg-muted hover:text-fg'}`}
+              >
+                {v === 'reglas' ? 'Reglas' : 'Ver como skill'}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => setEditing({ id: null, area: 'general', regla: '', porQue: '' })} className="btn-secondary h-9 px-3 text-[12px]">
+            <Plus className="h-3.5 w-3.5" /> Añadir regla
+          </button>
+        </div>
       </div>
+
+      {view === 'skill' && data && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[12px] text-fg-muted">Así lee Claude el manual en cada edición (las reglas activas, las más confirmadas primero).</p>
+            <a
+              href={`data:text/markdown;charset=utf-8,${encodeURIComponent(data.skill)}`}
+              download="SKILL.md"
+              className="btn-secondary h-8 px-3 text-[12px]"
+            >
+              <Download className="h-3.5 w-3.5" /> Descargar SKILL.md
+            </a>
+          </div>
+          <pre className="desktop-scroll max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-xl border border-line bg-surface p-4 font-mono text-[12px] leading-relaxed text-fg">{data.skill}</pre>
+        </div>
+      )}
 
       {(error || data?.aviso) && (
         <p className="flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-[12px] text-rose-600 dark:text-rose-400">
@@ -195,6 +228,7 @@ export function ManualPanel() {
 
       {editing && !editing.id && editor}
 
+      {view === 'reglas' && (<>
       <div className="grid gap-5 lg:grid-cols-2">
         {AREAS.map(([area, label]) => {
           const rs = activas.filter((r) => r.area === area).sort((a, b) => b.confirmaciones - a.confirmaciones);
@@ -216,6 +250,7 @@ export function ManualPanel() {
           {showRetired && <ul className="grid gap-2 lg:grid-cols-2">{retiradas.map((r) => (editing?.id === r.id ? <li key={r.id}>{editor}</li> : card(r)))}</ul>}
         </div>
       )}
+      </>)}
     </section>
   );
 }

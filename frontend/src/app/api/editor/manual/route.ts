@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { assertAppUiRequest, ForbiddenError } from '@/lib/director/local-guard';
 import { assertAppUiRead } from '@/lib/material/guard';
 import { errorMessage } from '@/lib/errors';
-import { learnLessons, loadManual, ManualError, MANUAL_AREAS, updateManual } from '@/lib/editor/manual';
+import { learnLessons, loadManual, manualSkillMarkdown, ManualError, MANUAL_AREAS, updateManual } from '@/lib/editor/manual';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,8 @@ function fail(err: unknown, fallback: string) {
 export async function GET(req: NextRequest) {
   try {
     assertAppUiRead(req);
-    return NextResponse.json(await loadManual());
+    const r = await loadManual();
+    return NextResponse.json({ ...r, skill: manualSkillMarkdown(r.manual) });
   } catch (err) {
     return fail(err, 'No se pudo leer el manual.');
   }
@@ -46,7 +47,7 @@ export async function PUT(req: NextRequest) {
     const a = parsed.data;
     if (a.accion === 'crear') {
       const r = await learnLessons([{ area: a.area, regla: a.regla, porQue: a.porQue }], 'Añadida a mano', 'Persona');
-      return NextResponse.json({ manual: r.manual, compartido: true });
+      return NextResponse.json({ manual: r.manual, compartido: true, skill: manualSkillMarkdown(r.manual) });
     }
     const { manual } = await updateManual((m) => {
       const rule = m.reglas.find((r) => r.id === a.id);
@@ -60,7 +61,7 @@ export async function PUT(req: NextRequest) {
         rule.area = a.area;
       }
     });
-    return NextResponse.json({ manual, compartido: true });
+    return NextResponse.json({ manual, compartido: true, skill: manualSkillMarkdown(manual) });
   } catch (err) {
     return fail(err, 'No se pudo cambiar el manual.');
   }

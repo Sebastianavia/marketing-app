@@ -243,6 +243,40 @@ export async function learnLessons(lecciones: Lesson[], video: string, quien = '
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
+/**
+ * El manual como documento de skill (SKILL.md): lo que se ve en «Ver como skill» y se puede descargar.
+ * Mismo contenido que recibe Claude, con cabecera de skill y la procedencia de cada regla.
+ */
+export function manualSkillMarkdown(m: EditingManual): string {
+  const activas = m.reglas.filter((r) => r.estado === 'activa');
+  const out: string[] = [
+    '---',
+    'name: formato-lulo-edicion',
+    'description: Manual de edición de videos cortos de Lulo Studio, aprendido del feedback del equipo. Úsalo al editar cualquier reel, TikTok o Short.',
+    `version: ${m.version}`,
+    `actualizado: ${m.actualizado.slice(0, 10)}`,
+    '---',
+    '',
+    '# Formato Lulo · Manual de edición',
+    '',
+    'Reglas que salen de lo que el equipo ha pedido en videos anteriores. Las más confirmadas pesan más. Si el pedido de un video concreto contradice una regla, manda el pedido.',
+    '',
+  ];
+  for (const area of MANUAL_AREAS) {
+    const rs = activas.filter((r) => r.area === area).sort((a, b) => b.confirmaciones - a.confirmaciones);
+    if (!rs.length) continue;
+    out.push(`## ${AREA_LABEL[area]}`, '');
+    for (const r of rs) {
+      out.push(`- **${r.regla}**${r.confirmaciones > 1 ? ` _(confirmada ${r.confirmaciones}×)_` : ''}`);
+      if (r.porQue) out.push(`  - Por qué: ${r.porQue}`);
+      const last = r.fuentes[r.fuentes.length - 1];
+      if (last) out.push(`  - Origen: ${last.video}${last.nota ? ` — «${last.nota}»` : ''} (${last.fecha.slice(0, 10)})`);
+    }
+    out.push('');
+  }
+  return out.join('\n');
+}
+
 /** Bloque para las instrucciones de Claude: las reglas activas, por área, las más confirmadas primero. */
 export async function manualPrompt(): Promise<string> {
   const { manual } = await loadManual();
