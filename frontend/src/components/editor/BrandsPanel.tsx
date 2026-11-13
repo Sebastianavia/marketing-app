@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { BrandFontPicker } from './BrandFontPicker';
 import { AlertCircle, Check, Loader2, Pencil, Plus, RotateCcw, Stamp, Upload, X } from 'lucide-react';
 
 /** Mismos datos que lib/editor/kit/brands.ts (sin importar el módulo de servidor). */
-const FONTS = ['Archivo Black', 'Montserrat', 'Oswald', 'League Gothic', 'Poppins', 'Inter', 'Outfit', 'Nunito', 'Playfair Display', 'EB Garamond', 'Space Mono', 'Roboto', 'Lato', 'Open Sans'];
 interface Brand {
   id: string;
   nombre: string;
@@ -175,21 +175,15 @@ export function BrandsPanel() {
 
       {draft && (
         <div className="space-y-3 rounded-xl border border-accent/40 bg-surface p-4">
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <div className="grid gap-2">
             <input value={draft.nombre} onChange={(e) => setDraft({ ...draft, nombre: e.target.value })} maxLength={60} placeholder="Nombre de la marca" className="input-clean h-9 px-3 text-[13px]" />
-            <select value={draft.fuente} onChange={(e) => setDraft({ ...draft, fuente: e.target.value })} className="input-clean h-9 px-2 text-[12px]" aria-label="Tipografía">
-              {FONTS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
           </div>
           <div className="flex flex-wrap gap-4">
             {color('primario', 'Primario')}
             {color('acento', 'Acento')}
             {color('texto', 'Texto')}
           </div>
+          <BrandFontPicker value={draft.fuente} onChange={(fuente) => setDraft({ ...draft, fuente })} colores={{ primario: /^#[0-9A-F]{6}$/i.test(draft.primario) ? draft.primario : '#000000', acento: /^#[0-9A-F]{6}$/i.test(draft.acento) ? draft.acento : '#FFFFFF', texto: /^#[0-9A-F]{6}$/i.test(draft.texto) ? draft.texto : '#FFFFFF' }} />
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-line px-3 py-2.5 text-[12px] text-fg-muted hover:border-accent/60">
             <Upload className="h-4 w-4" />
             <span className="min-w-0 flex-1 truncate">{draft.logo ? draft.logo.name : draft.id ? 'Cambiar logo (opcional; mejor PNG o SVG con fondo transparente)' : 'Logo (opcional; mejor PNG o SVG con fondo transparente)'}</span>
