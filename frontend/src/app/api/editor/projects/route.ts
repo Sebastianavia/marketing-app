@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const FIELD_NAMES: Record<string, string> = { perfilId: 'elige un estilo', pedido: 'el pedido es demasiado largo (máx. 8000 caracteres)', titulo: 'el nombre es demasiado largo (máx. 80)', carpetaMaterial: 'la ruta de la carpeta de material es demasiado larga', marcaId: 'la marca no es válida' };
+const FIELD_NAMES: Record<string, string> = { perfilId: 'elige un estilo', pedido: 'el pedido es demasiado largo (máx. 30 000 caracteres)', titulo: 'el nombre es demasiado largo (máx. 80)', carpetaMaterial: 'la ruta de la carpeta de material es demasiado larga', marcaId: 'la marca no es válida' };
 
 /** Mensaje claro de qué dato falló (antes decía siempre «elige un perfil»). */
 function metaProblem(issues: Array<{ path: PropertyKey[] }>): string {

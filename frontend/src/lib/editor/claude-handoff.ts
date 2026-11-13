@@ -20,7 +20,7 @@ export async function sendToClaudeEditor(o: {
     const perfil = (await listProfiles())[0];
     if (!perfil) return { error: 'No hay perfiles de edición.' };
     const edit = await createEdit(
-      { titulo: o.titulo.slice(0, 80), pedido: o.pedido.slice(0, 8000), perfilId: perfil.id, revisarAntes: false, rutaLocal: o.videoPath },
+      { titulo: o.titulo.slice(0, 80), pedido: o.pedido.slice(0, 30000), perfilId: perfil.id, revisarAntes: false, rutaLocal: o.videoPath },
       null
     );
     return { id: edit.id, titulo: edit.titulo };
