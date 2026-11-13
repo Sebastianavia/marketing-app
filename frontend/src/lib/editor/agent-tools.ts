@@ -23,6 +23,7 @@ import { MUSIC_CATALOG } from './music';
 import { LOUDNESS_BY_NETWORK, listMusic, musicDir } from './audio';
 import { AMBIENT_INFO, VOICE_FX_INFO } from './voice';
 import { beatAlignment, detectBeats, generatedBeats, nearestBeat, type BeatGrid } from './beats';
+import { NETWORKS, NETWORK_LABEL, OutputError, PostInputSchema, VariantInputSchema, exportForNetwork, outputBusy, renderVariant } from './outputs';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
 import { KIT_FONTS, loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
@@ -137,6 +138,7 @@ function beatReport(plan: ReturnType<typeof directionInFinal>, grid: BeatGrid) {
 }
 
 function assertIdle(p: EditProject) {
+  if (outputBusy(p.id)) throw new AgentToolError('Se está renderizando una variante o exportación de esta edición: espera a que termine.', 409);
   if (ACTIVE_STATUSES.includes(p.estado) || p.tarea) {
     throw new AgentToolError('La edición se está procesando (análisis o render). Usa esperar_render o espera un momento.', 409);
   }
@@ -802,6 +804,69 @@ const analizarImagen = tool({
   },
 });
 
+const crearVariante = tool({
+  name: 'crear_variante',
+  description:
+    'Renderiza una VARIANTE del borrador actual sin tocarlo (queda junto al borrador en la app): ganchos A/B (otro texto de gancho, otro avance al inicio o sin avance, un primer plano al empezar con zoomInicio) o versión corta/larga (conservarFrases = ids de las frases que se quedan; quitarFrases = las que se quitan). Tiempos del avance en la línea principal ACTUAL. Usa nombres cortos: «A», «B», «corta». Tarda como un render. $0.',
+  schema: VariantInputSchema,
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    assertIdle(p);
+    let v;
+    try {
+      v = await renderVariant(p, input);
+    } catch (err) {
+      if (err instanceof OutputError) throw new AgentToolError(err.message, err.status);
+      throw err;
+    }
+    await updateEdit(editId, (q) => {
+      q.variantes = [...(q.variantes ?? []).filter((x) => x.id !== v.id), v];
+      logActivity(q, `Claude creó la variante «${v.nombre}» (${Math.round(v.duracion)} s).`);
+    });
+    return { ok: true, variante: v, siguiente: `Mírala con fotogramas (${v.archivo}) y dile a la persona qué cambia entre las variantes y cuál subiría primero.` };
+  },
+});
+
+const exportarRedes = tool({
+  name: 'exportar_redes',
+  description:
+    'Exporta el borrador actual para cada red (tiktok, instagram = Reels, shorts): su zona segura, su volumen y un .srt de subtítulos al lado. La persona también puede hacerlo con un botón; úsalo cuando te lo pidan o al aprobar. Tarda un render por red. $0.',
+  schema: z.object({ redes: z.array(z.enum(NETWORKS)).min(1).max(3) }),
+  run: async (editId, input) => {
+    const out = [];
+    for (const red of input.redes) {
+      const p = await getEdit(editId);
+      assertIdle(p);
+      try {
+        const e = await exportForNetwork(p, red);
+        await updateEdit(editId, (q) => {
+          q.exportaciones = [...(q.exportaciones ?? []).filter((x) => x.red !== red), e];
+          logActivity(q, `Exportado para ${NETWORK_LABEL[red]}.`);
+        });
+        out.push(e);
+      } catch (err) {
+        if (err instanceof OutputError) throw new AgentToolError(err.message, err.status);
+        throw err;
+      }
+    }
+    return { ok: true, exportaciones: out };
+  },
+});
+
+const textoPost = tool({
+  name: 'texto_post',
+  description:
+    'Guarda el texto para publicar el video: descripción (primera línea = gancho, frases cortas, una llamada a comentar), hashtags (3–8 relevantes, mezcla de amplios y de nicho; sin relleno) y un primer comentario para fijar (pregunta o recurso). porRed si alguna red pide otro tono o largo. La persona lo copia desde la app. Escríbelo con el contenido REAL del video y el manual. $0.',
+  schema: PostInputSchema,
+  run: async (editId, input) => {
+    await updateEdit(editId, (q) => {
+      q.post = { descripcion: input.descripcion, hashtags: input.hashtags.map((h) => (h.startsWith('#') ? h : `#${h}`)), comentario: input.comentario, porRed: input.porRed, actualizado: new Date().toISOString() };
+      logActivity(q, 'Claude escribió el texto del post.');
+    });
+    return { ok: true };
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -876,7 +941,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

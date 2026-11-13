@@ -29,6 +29,7 @@ import { downloadUrl, editorApi, mediaUrl } from './editor-api';
 import { StatusBadge } from './EditsList';
 import { LookDots } from './LookPreview';
 import { ClaudeEditChat } from './ClaudeEditChat';
+import { PublishPanel } from './PublishPanel';
 
 /**
  * Una edición de principio a fin: avance en vivo → revisar guion (cortes en rojo, textos,
@@ -449,6 +450,8 @@ function DraftCard({
       </div>
 
       <FeedbackButton key={b.version} fuente={{ tipo: 'edicion', id: edit.id }} />
+
+      <PublishPanel edit={edit} busy={busy} run={run} disabled={claudeWorking} />
 
       <details className="text-[12px]">
         <summary className="cursor-pointer text-fg-muted hover:text-fg">

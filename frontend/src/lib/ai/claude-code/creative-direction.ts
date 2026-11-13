@@ -85,4 +85,5 @@ export const EDITOR_FIRST_PASS = `PRIMERA VERSIÓN: DIRÍGELA Y DISÉÑALA ENTER
 6. dirigir_edicion con el plan COMPLETO: concepto, paleta, camara (tramos seguidos que cubran todo), transiciones, color, subtitulos, palabrasClave, gancho, graficos, elementos, sonidos y musica (mira antes biblioteca_audio y, con la música elegida, beats_musica para cortar en el beat), voz y ambientes si aportan, más la ESTRUCTURA que elijas (arranque, pausas, progreso, bucle). Corrige los avisos de RITMO (equilibrio y variedad) hasta que no quede ninguno.
 7. renderizar → hoja de fotogramas cada 1–2 s + escuchar_audio → crítica exigente → corrige y re-renderiza. Repite hasta que se vea profesional.
 8. Solo si el concepto exige algo que el plan no puede (p. ej. la persona dentro de una composición compleja), compón ese tramo o el video en HyperFrames y publícalo con publicar_borrador, respetando igual el PRESUPUESTO DE FORMATOS.
-9. Responde corto: el concepto, las ideas visuales principales, la música y qué podría ajustar la persona.`;
+9. Al final: diseña la portada (disenar_portada) y escribe el texto del post (texto_post) con el contenido real del video. Si la persona pide pruebas A/B o versiones de otra duración, crear_variante; para entregar por red, exportar_redes.
+10. Responde corto: el concepto, las ideas visuales principales, la música y qué podría ajustar la persona.`;

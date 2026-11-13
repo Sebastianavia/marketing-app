@@ -13,6 +13,7 @@ import { keptIntervals, totalDuration } from './timeline';
 import { probeVideo } from './media';
 import { keptScript } from './analyze';
 import { kickEditRunner } from './edit-runner';
+import { NETWORKS, NETWORK_LABEL, OutputError, exportForNetwork } from './outputs';
 import {
   EditError,
   createWorkFolder,
@@ -182,6 +183,8 @@ export const ActionSchema = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('proponer_graficos') }),
   z.object({ accion: z.literal('renombrar'), titulo: z.string().trim().min(1).max(80) }),
   z.object({ accion: z.literal('quitar_direccion') }),
+  z.object({ accion: z.literal('exportar'), red: z.enum(NETWORKS) }),
+  z.object({ accion: z.literal('borrar_variante'), variante: z.string().max(40) }),
 ]);
 
 export type EditAction = z.infer<typeof ActionSchema>;
@@ -246,6 +249,31 @@ export async function runAction(id: string, raw: unknown): Promise<EditProject> 
       case 'renombrar':
         p.titulo = a.titulo;
         return;
+      case 'exportar': {
+        const cur = await getEdit(id);
+        if (!cur.borrador) throw new EditError('Primero hace falta un borrador.');
+        if (ACTIVE_STATUSES.includes(cur.estado) || cur.tarea) throw new EditError('La edición se está procesando: espera a que termine.', 409);
+        try {
+          const e = await exportForNetwork(cur, a.red);
+          return (
+            await updateEdit(id, (q) => {
+              q.exportaciones = [...(q.exportaciones ?? []).filter((x) => x.red !== a.red), e];
+              logActivity(q, `Exportado para ${NETWORK_LABEL[a.red]}.`);
+            })
+          ).edit;
+        } catch (err) {
+          if (err instanceof OutputError) throw new EditError(err.message, err.status);
+          throw err;
+        }
+      }
+      case 'borrar_variante':
+        return (
+          await updateEdit(id, (q) => {
+            const v = (q.variantes ?? []).find((x) => x.id === a.variante);
+            q.variantes = (q.variantes ?? []).filter((x) => x.id !== a.variante);
+            if (v) for (const f of [v.archivo, v.portada].filter(Boolean) as string[]) void fs.rm(editFile(q, f), { force: true }).catch(() => undefined);
+          })
+        ).edit;
       case 'quitar_direccion':
         assertIdle(p);
         p.direccion = undefined;

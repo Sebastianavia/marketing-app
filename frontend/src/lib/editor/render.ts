@@ -131,7 +131,9 @@ export type RenderStage = 'base' | 'recorte' | 'composicion' | 'sonido';
 export async function renderEdit(
   p: EditProject,
   version: number,
-  onProgress?: (pct: number, etapa?: RenderStage, detalle?: string) => void
+  onProgress?: (pct: number, etapa?: RenderStage, detalle?: string) => void,
+  /** conservarBases: no borra las bases de otros cortes (variantes que comparten carpeta). */
+  opts: { conservarBases?: boolean } = {}
 ): Promise<RenderResult> {
   // Con plan de dirección de Claude, el perfil efectivo es el del plan y no hay reglas mecánicas
   const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
@@ -533,7 +535,7 @@ export async function renderEdit(
   // Limpieza: intermedios de esta versión y bases de cortes anteriores (la actual se guarda para volver a renderizar rápido)
   for (const tmp of [videoOnly, 'mezcla.wav', 'master.wav']) await fs.rm(f(tmp), { force: true }).catch(() => undefined);
   try {
-    for (const name of await fs.readdir(p.carpeta)) {
+    for (const name of opts.conservarBases ? [] : await fs.readdir(p.carpeta)) {
       // Se guardan la base actual (y su versión estabilizada) y la pista de persona de la base en uso
       if (/^(plate|voz|matte|caras|persona|persona-mask)-[0-9a-f]{10}e?\.(mp4|wav|json)$/.test(name) && !name.includes(baseKey)) await fs.rm(f(name), { force: true });
     }

@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 
 const TYPES: Record<string, string> = {
   '.mp4': 'video/mp4',
+  '.srt': 'application/x-subrip; charset=utf-8',
   '.m4v': 'video/mp4',
   '.mov': 'video/quicktime',
   '.webm': 'video/webm',
@@ -28,6 +29,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const which = req.nextUrl.searchParams.get('f');
     const p = await getEdit(id);
+    const sp = req.nextUrl.searchParams;
+    const variant = (p.variantes ?? []).find((v) => v.id === sp.get('v'));
+    const exp = (p.exportaciones ?? []).find((x) => x.red === sp.get('red'));
     const name =
       which === 'borrador'
         ? p.borrador?.archivo
@@ -35,7 +39,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           ? p.borrador?.portada
           : which === 'original'
             ? p.original.archivo
-            : undefined;
+            : which === 'variante'
+              ? variant?.archivo
+              : which === 'export'
+                ? exp?.archivo
+                : which === 'srt'
+                  ? exp?.srt
+                  : undefined;
     if (!name) return new NextResponse('Archivo no disponible', { status: 404 });
     const file = editFile(p, name);
     if (!fs.existsSync(file)) return new NextResponse('El archivo ya no está en la carpeta de la edición', { status: 404 });
@@ -48,7 +58,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     };
     if (req.nextUrl.searchParams.get('descargar') === '1') {
       const safe = p.titulo.replace(/[^\p{L}\p{N} _-]/gu, '').trim().replace(/\s+/g, '-') || 'reel';
-      const fname = which === 'portada' ? `${safe}-portada.jpg` : `${safe}.mp4`;
+      const suffix = which === 'variante' ? `-${variant?.id}` : which === 'export' || which === 'srt' ? `-${exp?.red}` : '';
+      const fname = which === 'portada' ? `${safe}-portada.jpg` : which === 'srt' ? `${safe}${suffix}.srt` : `${safe}${suffix}.mp4`;
       headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(fname)}"; filename*=UTF-8''${encodeURIComponent(fname)}`;
     }
 

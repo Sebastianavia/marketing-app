@@ -319,6 +319,14 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Versiones y publicación',
+    items: [
+      'Variantes del borrador sin tocarlo (crear_variante): ganchos A/B (texto, avance, primer plano) y versión corta o larga eligiendo frases.',
+      'Exportación por red (exportar_redes): zona segura y volumen de TikTok, Reels o Shorts, con .srt.',
+      'Texto del post (texto_post): descripción, hashtags y primer comentario, para copiar en la app.',
+    ],
+  },
+  {
     titulo: 'HyperFrames (diseño y animación)',
     items: [
       'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',

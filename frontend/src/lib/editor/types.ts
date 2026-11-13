@@ -1,3 +1,4 @@
+import type { EditExport, EditVariant, PostText } from './outputs';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditDirection } from './direction';
 
@@ -120,6 +121,10 @@ export interface EditProject {
     notas?: string[];
   };
   aprobado?: { videoPath: string; fecha: string };
+  /** Fase 5: variantes del borrador, exportaciones por red y texto del post. */
+  variantes?: EditVariant[];
+  exportaciones?: EditExport[];
+  post?: PostText;
   actividad: EditActivity[];
   costoUSD: number;
   /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */
