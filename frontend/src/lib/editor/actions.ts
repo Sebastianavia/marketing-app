@@ -45,7 +45,7 @@ export interface NewEditMeta {
 
 export const NewEditMetaSchema = z.object({
   titulo: z.string().trim().max(80).default(''),
-  pedido: z.string().trim().max(2000).default(''),
+  pedido: z.string().trim().max(8000).default(''),
   perfilId: z.string().min(6),
   revisarAntes: z.boolean().default(true),
   archivo: z.string().max(260).optional(),

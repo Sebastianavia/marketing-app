@@ -10,7 +10,7 @@ import { materialApi } from '@/components/material/material-api';
 import { LookDots, LookPreview } from './LookPreview';
 
 /**
- * 1. Tu pedido (texto + video)  2. Elige tu perfil  → "Editar video".
+ * 1. Tu pedido (texto + video)  2. Elige tu estilo  → "Editar video".
  * El video se sube a la carpeta de la edición y el análisis arranca solo.
  */
 
@@ -131,7 +131,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
           </h2>
           <label className="block space-y-1 text-[12px] text-fg-muted">
             <span className="block">Describe lo que quieres, como se lo dirías a un editor</span>
-            <textarea value={pedido} onChange={(e) => setPedido(e.target.value)} rows={8} className="input-clean w-full resize-y px-3 py-2 text-[13px]" />
+            <textarea value={pedido} onChange={(e) => setPedido(e.target.value)} maxLength={8000} rows={8} className="input-clean w-full resize-y px-3 py-2 text-[13px]" />
           </label>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-subtle">
             <MaterialFolderField value={material} onChange={setMaterial} />

@@ -88,7 +88,10 @@ export function uploadEdit(file: File, meta: NewEditPayload, onProgress: (pct: n
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/editor/projects');
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-    xhr.setRequestHeader('X-Edit-Meta', encodeURIComponent(JSON.stringify({ ...meta, archivo: file.name })));
+    // Los datos van al principio del cuerpo (8 dígitos con su largo en bytes + JSON) y luego el
+    // video: en una cabecera no caben pedidos largos (Node corta las cabeceras a ~16 KB)
+    const json = new TextEncoder().encode(JSON.stringify({ ...meta, archivo: file.name }));
+    xhr.setRequestHeader('X-Edit-Meta-En-Cuerpo', '1');
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
@@ -103,7 +106,7 @@ export function uploadEdit(file: File, meta: NewEditPayload, onProgress: (pct: n
       else reject(new ApiError(d.error || 'No se pudo subir el video.', xhr.status, d.code));
     };
     xhr.onerror = () => reject(new ApiError('Se cortó la conexión con la app mientras subía el video.', 0));
-    xhr.send(file);
+    xhr.send(new Blob([String(json.length).padStart(8, '0'), json, file]));
   });
 }
 
