@@ -28,6 +28,7 @@ import { scoreEdit } from './score';
 import { MetricInputSchema, analyzeRetention, bestTime, measureReference, metricsDoc, newMetric, referencesDoc, saveReference, shareMetric } from './learning';
 import { DUB_LANGS, PaidError, correctionCost, dubDraft, dubEstimate, generateCorrection, requestApproval, spendApproval } from './paid';
 import { getStoredVoices } from '@/lib/storage/voice-storage';
+import { applyBackgroundReport, detectBackgroundVoices } from './voices';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
 import { KIT_FONTS, loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
@@ -78,6 +79,8 @@ function snapshot(p: EditProject) {
       texto: f.textoEditado ?? phraseText(f),
       cortar: f.cortar,
       motivo: f.motivo,
+      ...(f.voz === 'fondo' ? { vozDeFondo: true } : {}),
+      ...(f.huecos?.length ? { vozAjenaCerca: f.huecos } : {}),
     })),
     graficos: p.graficos ?? [],
     direccion: p.direccion ? planInFinal(p) : null,
@@ -1069,6 +1072,33 @@ const doblarVideo = tool({
   },
 });
 
+const vocesDeFondo = tool({
+  name: 'voces_de_fondo',
+  description:
+    'Voces que NO son de la persona del video (alguien que le dicta detrás de cámara, gente de fondo): frases transcritas de otra voz (separación de hablantes, labios quietos) y zonas de voz ajena sin transcribir en pausas y márgenes. Se analiza sola al crear la edición; con revisar: true vuelve a analizar (gratis, local) y lo aplica: corta las frases de fondo (si te dictan y la persona repite, se queda su repetición) y quita o silencia las zonas. Úsala si la persona dice que se oye a alguien de fondo. Después renderiza.',
+  schema: z.object({ revisar: z.boolean().default(false) }),
+  run: async (editId, input) => {
+    let p = await getEdit(editId);
+    if (input.revisar || !p.vocesFondo) {
+      assertIdle(p);
+      const report = await detectBackgroundVoices(p);
+      ({ edit: p } = await updateEdit(editId, (q) => {
+        applyBackgroundReport(q, report);
+        logActivity(q, `Claude revisó las voces de fondo. ${report.resumen}`);
+      }));
+    }
+    const r = p.vocesFondo!;
+    return {
+      resumen: r.resumen,
+      hablantesDetectados: r.hablantes,
+      conAnalisisDeLabios: r.conLabios,
+      frasesDeFondo: r.frasesDeFondo,
+      zonasDeVozAjena: r.zonas.filter((z) => z.fuente === 'sin_transcribir'),
+      comoSeAplica: `Las frases de fondo quedan cortadas. Las zonas de ${'≥'} 0,35 s se cortan; las más cortas se silencian en el render. Si una frase marcada SÍ es de la persona, vuelve a ponerla con cambiar_guion (cortar: false).`,
+    };
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -1143,7 +1173,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, vocesDeFondo, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

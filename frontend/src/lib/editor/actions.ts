@@ -185,6 +185,7 @@ export const ActionSchema = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('quitar_direccion') }),
   z.object({ accion: z.literal('exportar'), red: z.enum(NETWORKS) }),
   z.object({ accion: z.literal('borrar_variante'), variante: z.string().max(40) }),
+  z.object({ accion: z.literal('detectar_voces') }),
   z.object({ accion: z.literal('decidir_gasto'), aprobacion: z.string().max(20), decision: z.enum(['aprobar', 'rechazar']), montoUSD: z.number() }),
 ]);
 
@@ -263,6 +264,18 @@ async function runOutsideLock(id: string, a: EditAction): Promise<EditProject | 
         const v = (q.variantes ?? []).find((x) => x.id === a.variante);
         q.variantes = (q.variantes ?? []).filter((x) => x.id !== a.variante);
         if (v) for (const f of [v.archivo, v.portada].filter(Boolean) as string[]) void fs.rm(editFile(q, f), { force: true }).catch(() => undefined);
+      })
+    ).edit;
+  }
+  if (a.accion === 'detectar_voces') {
+    const cur = await getEdit(id);
+    if (ACTIVE_STATUSES.includes(cur.estado) || cur.tarea) throw new EditError('La edición se está procesando: espera a que termine.', 409);
+    const { applyBackgroundReport, detectBackgroundVoices } = await import('./voices');
+    const report = await detectBackgroundVoices(cur);
+    return (
+      await updateEdit(id, (q) => {
+        applyBackgroundReport(q, report);
+        logActivity(q, report.resumen);
       })
     ).edit;
   }

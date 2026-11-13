@@ -1,3 +1,4 @@
+import { applyBackgroundReport, detectBackgroundVoices } from './voices';
 import fs from 'fs/promises';
 import { z } from 'zod';
 import { orchestrateObject, FreeQuotaError, resolveMode } from '@/lib/ai/orchestrator';
@@ -54,7 +55,7 @@ Responde solo con el formato pedido.`;
 function userPrompt(p: EditProject, phrases: EditPhrase[]): string {
   const perfil = p.perfil;
   const total = phrases.length ? phrases[phrases.length - 1].e : p.original.duracion;
-  const lines = phrases.map((f) => `${f.id} [${f.s.toFixed(1)}–${f.e.toFixed(1)} s] ${f.palabras.map((w) => w.t).join(' ')}`);
+  const lines = phrases.map((f) => `${f.id} [${f.s.toFixed(1)}–${f.e.toFixed(1)} s] ${f.palabras.map((w) => w.t).join(' ')}${f.voz === 'fondo' ? '  ← VOZ DE FONDO (no es la persona; ya se corta)' : ''}`);
   const parts = [
     perfil.sobreTi ? `SOBRE QUIEN HABLA:\n${perfil.sobreTi}` : '',
     perfil.instrucciones ? `REGLAS PROPIAS DE EDICIÓN (síguelas siempre):\n${perfil.instrucciones}` : '',
@@ -77,7 +78,8 @@ function applyCuts(phrases: EditPhrase[], cortes: Array<{ id: string; motivo: st
     if (phrases.some((f) => f.id === id)) valid.set(id, c.motivo.trim().slice(0, 60) || 'propuesta de la IA');
   }
   if (valid.size >= phrases.length) valid.clear();
-  return phrases.map((f) => ({ ...f, cortar: valid.has(f.id), motivo: valid.get(f.id) }));
+  // Las voces de fondo (Fase 8) se cortan siempre, diga lo que diga la IA
+  return phrases.map((f) => (f.voz === 'fondo' ? f : { ...f, cortar: valid.has(f.id), motivo: valid.get(f.id) }));
 }
 
 /**
@@ -143,13 +145,13 @@ export async function runAnalysis(id: string): Promise<void> {
         let r: Awaited<ReturnType<typeof transcribeWithElevenLabs>>;
         try {
           await extractAudio(editFile(p, p.original.archivo), audio);
-          r = await transcribeWithElevenLabs(audio, { seconds: p.original.duracion, tool: 'video-editor', label: p.titulo });
+          r = await transcribeWithElevenLabs(audio, { seconds: p.original.duracion, tool: 'video-editor', label: p.titulo, diarize: true });
         } finally {
           await fs.rm(audio, { force: true }).catch(() => undefined);
         }
         palabras = r.words
           .filter((w) => (w.type ?? 'word') === 'word' && w.text.trim())
-          .map((w) => ({ t: w.text.trim(), s: Number(w.start), e: Number(w.end) }));
+          .map((w) => ({ t: w.text.trim(), s: Number(w.start), e: Number(w.end), ...(w.speaker_id ? { h: String(w.speaker_id) } : {}) }));
         costo = r.costUSD;
         modelo = r.model;
       }
@@ -167,6 +169,23 @@ export async function runAnalysis(id: string): Promise<void> {
       ({ edit: p } = await updateEdit(id, (x) => {
         x.frases = buildPhrases(x.transcripcion!.palabras);
       }));
+    }
+
+    // Fase 8 · Cortes limpios: voces de fondo (hablantes, labios y voz sin transcribir). Gratis y local.
+    if (!p.vocesFondo) {
+      try {
+        ({ edit: p } = await updateEdit(id, (x) => {
+          x.estado = 'analizando';
+          logActivity(x, 'Buscando voces de fondo (quién habla y si se mueven tus labios)…');
+        }));
+        const report = await detectBackgroundVoices(p);
+        ({ edit: p } = await updateEdit(id, (x) => {
+          applyBackgroundReport(x, report);
+          logActivity(x, report.resumen);
+        }));
+      } catch (err) {
+        await updateEdit(id, (x) => logActivity(x, `No se pudieron revisar las voces de fondo (${errorMessage(err)}).`));
+      }
     }
 
     // Con Claude Code (suscripción o API Key), Claude (el que ve el video y usa herramientas) hace la edición
@@ -193,7 +212,7 @@ export async function runAnalysis(id: string): Promise<void> {
     // 2. Propuesta de la IA
     if (p.sinIA) {
       ({ edit: p } = await updateEdit(id, (x) => {
-        x.frases = x.frases.map((f) => ({ ...f, cortar: false, motivo: undefined }));
+        x.frases = x.frases.map((f) => (f.voz === 'fondo' ? f : { ...f, cortar: false, motivo: undefined }));
         x.resumenIA = 'Sin IA: solo se quitan las pausas largas.';
         logActivity(x, 'Sin IA: solo se quitarán las pausas.');
       }));

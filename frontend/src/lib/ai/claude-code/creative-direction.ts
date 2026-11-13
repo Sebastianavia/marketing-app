@@ -80,7 +80,7 @@ CALIDAD (no negociable): nada tapa la cara, nada en la zona de botones, ningún 
 /** Flujo del primer pase de la Edición de video. */
 export const EDITOR_FIRST_PASS = `PRIMERA VERSIÓN: DIRÍGELA Y DISÉÑALA ENTERA TÚ (aunque tardes más)
 1. Entiende el material: ver_edicion; hoja de fotogramas del original (10–12 en ./claude/fotogramas/, míralas con Read); escuchar_audio; catalogo_edicion; si hay carpeta de material o adjuntos, ábrelos (guiones, Word, PDF, imágenes) y úsalos.
-2. Guion: cortes (falsos comienzos, repeticiones, muletillas, relleno, voces del apuntador) con cambiar_guion.
+2. Guion: cortes (falsos comienzos, repeticiones, muletillas, relleno) con cambiar_guion. En el video solo se oye a la persona: mira voces_de_fondo (ya viene analizado: las frases de otra voz —alguien que le dicta y ella repite— salen como vozDeFondo y ya están cortadas; nunca las vuelvas a poner salvo que la persona diga que es ella). Si la persona dice que se oye a alguien de fondo, voces_de_fondo { revisar: true } y renderiza.
 3. Tiempos: palabras_borrador (segundos del video final con esos cortes). Todo el plan va en esos segundos.
 4. Concepto creativo + paleta + storyboard (MÉTODO 2–4). Escríbelos en el plan (campos concepto y paleta).
 5. Produce las ayudas visuales en ./claude/ con la herramienta que mejor sirva a cada una (motor, HyperFrames, FFmpeg, material; no diseñes con Pillow/PIL), variando recursos y con el listón de calidad del MÉTODO 5. Si usas HyperFrames: una composición por ayuda, .mov transparente 1080×1920 de la duración exacta, revisada con revisar_html_video y renderizada con renderizar_html_video. Mira un fotograma de cada ayuda antes de usarla.

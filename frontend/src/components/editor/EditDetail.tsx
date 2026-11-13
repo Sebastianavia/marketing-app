@@ -721,6 +721,17 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
             <p className="text-[11px] text-fg-subtle">No vuelve a transcribir: solo cuesta la llamada a la IA.</p>
           </div>
           </>)}
+
+          {/* Fase 8: voces de fondo */}
+          <div className="space-y-1.5 rounded-lg border border-line px-3 py-2.5">
+            <p className="text-[12px] text-fg">
+              <b>Voces de fondo.</b> {edit.vocesFondo?.resumen ?? 'Aún no se ha revisado si se oye a alguien más.'}
+            </p>
+            <button type="button" disabled={!!busy} onClick={() => void run('voces', { accion: 'detectar_voces' })} className="btn-secondary h-8 px-3 text-[12px]">
+              {busy === 'voces' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {edit.vocesFondo ? 'Volver a buscar' : 'Buscar voces de fondo'}
+            </button>
+            <p className="text-[11px] text-fg-subtle">Gratis: mira quién habla y si se mueven tus labios. Corta lo que te dictan detrás de cámara y silencia la voz ajena en las pausas.</p>
+          </div>
         </div>
 
         {/* Frases */}
@@ -763,6 +774,8 @@ function ScriptReview({ edit, perfiles, busy, run }: { edit: EditProject; perfil
                       cut ? 'text-rose-700 line-through decoration-rose-500/70 dark:text-rose-300' : 'text-fg'
                     }`}
                   />
+                  {f.voz === 'fondo' && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" title="No parece tu voz (otro hablante o tus labios no se mueven). Si sí eres tú, vuelve a marcarla para conservar.">Voz de fondo</span>}
+                  {f.huecos?.length ? <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-fg-muted" title="Se oye a otra persona en una pausa junto a esta frase: se corta o se silencia sola.">voz ajena cerca · se limpia</span> : null}
                   {cut && f.motivo && <span className="ml-1.5 rounded border border-rose-500/30 px-1.5 py-0.5 text-[10px] text-rose-700 dark:text-rose-300">{f.motivo}</span>}
                 </div>
                 <button

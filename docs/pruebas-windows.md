@@ -103,6 +103,11 @@ Se prueba igual en Mac y en Windows, pero hace falta un segundo PC para comproba
   - [ ] `corregir_palabra` con una voz clonada.
   - [ ] `doblar_video` a inglés con un video corto (unos $0,25 por 30 s).
 
+## 4c. Fase 8 (cortes limpios)
+
+- [ ] `python\lulo_lips.py` corre con el MediaPipe del kit de Claude (crea `labios.json` en la carpeta de la edición).
+- [ ] «Buscar voces de fondo» en la revisión termina y muestra el resumen.
+
 ## 5. Empaquetado
 
 - [ ] Rutas con espacios y tildes en la carpeta de proyectos (`D:\LuloStudio_Projects\Ediciones\Título con tildes …`).

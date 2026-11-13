@@ -14,7 +14,7 @@ const SENTENCE_END = /[.?!…]["»”)]?$/;
 export function buildPhrases(words: EditWord[]): EditPhrase[] {
   const clean = words
     .filter((w) => w.t.trim() && Number.isFinite(w.s) && Number.isFinite(w.e))
-    .map((w) => ({ t: w.t.trim(), s: Math.max(0, w.s), e: Math.max(w.s, w.e) }))
+    .map((w) => ({ t: w.t.trim(), s: Math.max(0, w.s), e: Math.max(w.s, w.e), ...(w.h ? { h: w.h } : {}) }))
     .sort((a, b) => a.s - b.s);
 
   const phrases: EditPhrase[] = [];
@@ -37,7 +37,9 @@ export function buildPhrases(words: EditWord[]): EditPhrase[] {
       const gap = w.s - last.e;
       const span = w.e - current[0].s;
       const endsSentence = SENTENCE_END.test(last.t) && current.length >= 3;
-      if (gap >= 0.7 || endsSentence || current.length >= 14 || span > 8) flush();
+      // Cambio de hablante = frase nueva (así la voz de fondo se puede cortar sola)
+      const otherSpeaker = !!w.h && !!last.h && w.h !== last.h;
+      if (gap >= 0.7 || endsSentence || current.length >= 14 || span > 8 || otherSpeaker) flush();
     }
     current.push(w);
   }
@@ -60,6 +62,9 @@ export interface KeptInterval {
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 
+/** Fase 8: una zona de voz ajena desde este largo se corta (con video); más corta, se silencia en el render. */
+export const CUT_ZONE_SEC = 0.35;
+
 /**
  * Tramos del original que entran al video, en orden.
  * Dentro de cada frase conservada, las pausas mayores que `pausaMaxSeg` se recortan.
@@ -75,18 +80,23 @@ export function keptIntervals(
   const index = new Map<EditWord, number>();
   all.forEach((w, i) => index.set(w, i));
 
+  // Fase 8: zonas de voz ajena. Los márgenes nunca entran en ellas y, si son largas, parten el tramo
+  const huecos = phrases.flatMap((p) => p.huecos ?? []).sort((a, b) => a.s - b.s);
   const startOf = (w: EditWord) => {
     const i = index.get(w) ?? 0;
     const prev = i > 0 ? all[i - 1] : null;
     const floor = prev ? (prev.e + w.s) / 2 : 0;
-    return Math.max(0, floor, w.s - ritmo.margenSeg);
+    const zone = Math.max(0, ...huecos.filter((h) => h.e <= w.s + 0.02 && h.e > w.s - ritmo.margenSeg - 0.05).map((h) => h.e));
+    return Math.max(0, floor, w.s - ritmo.margenSeg, Math.min(w.s, zone));
   };
   const endOf = (w: EditWord) => {
     const i = index.get(w) ?? 0;
     const next = i < all.length - 1 ? all[i + 1] : null;
     const ceil = next ? (w.e + next.s) / 2 : duracion;
-    return Math.min(duracion, ceil, w.e + ritmo.margenSeg);
+    const zone = Math.min(duracion, ...huecos.filter((h) => h.s >= w.e - 0.02 && h.s < w.e + ritmo.margenSeg + 0.05).map((h) => h.s));
+    return Math.min(duracion, ceil, w.e + ritmo.margenSeg, Math.max(w.e, zone));
   };
+  const splitsAt = (a: EditWord, b: EditWord) => huecos.some((h) => h.e - h.s >= CUT_ZONE_SEC && h.s >= a.e - 0.02 && h.e <= b.s + 0.02);
 
   const raw: Array<{ s: number; e: number }> = [];
   for (const p of phrases) {
@@ -95,7 +105,7 @@ export function keptIntervals(
     let start = startOf(ws[0]);
     for (let i = 0; i < ws.length - 1; i++) {
       const gap = ws[i + 1].s - ws[i].e;
-      if (gap > ritmo.pausaMaxSeg) {
+      if (gap > ritmo.pausaMaxSeg || splitsAt(ws[i], ws[i + 1])) {
         raw.push({ s: start, e: endOf(ws[i]) });
         start = startOf(ws[i + 1]);
       }

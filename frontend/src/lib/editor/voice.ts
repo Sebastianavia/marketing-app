@@ -73,7 +73,7 @@ export async function processVoice(o: { carpeta: string; voz: string; D: number;
     if (gaps.length) {
       // −12 dB en cada hueco con rampas de 30 ms (nunca silencio total: se notaría el corte de sala)
       const expr = gaps.map(([a, b]) => `-0.75*clip(min((t-${f3(a)})/0.03,(${f3(b)}-t)/0.03),0,1)`).join('');
-      base += `,volume='1${expr}':eval=frame`;
+      base += `,asetnsamples=n=480,volume='1${expr}':eval=frame`;
       notas.push(`Respiraciones y chasquidos atenuados en ${gaps.length} huecos.`);
     }
   }
@@ -84,13 +84,13 @@ export async function processVoice(o: { carpeta: string; voz: string; D: number;
     const n = efectos.length;
     g.push(`${base},asplit=${n + 1}[dry]${efectos.map((_, i) => `[w${i}]`).join('')}`);
     const gate = (a: number, b: number) => `clip(min((t-${f3(a)})/0.04,(${f3(b)}-t)/0.04),0,1)`;
-    g.push(`[dry]volume='1${efectos.map((e) => `-${gate(e.desde, e.hasta)}`).join('')}':eval=frame[d]`);
+    g.push(`[dry]asetnsamples=n=480,volume='1${efectos.map((e) => `-${gate(e.desde, e.hasta)}`).join('')}':eval=frame[d]`);
     efectos.forEach((e, i) => {
       // Las colas del eco siguen un poco tras el tramo (0,6 s) para que no se corten en seco
       const tail = ['eco', 'pensamiento', 'sala'].includes(e.efecto) ? 0.6 : 0;
       const gt = tail ? `clip(min((t-${f3(e.desde)})/0.04,(${f3(e.hasta + tail)}-t)/${tail}),0,1)` : gate(e.desde, e.hasta);
       // Al efecto solo le llega la voz de su tramo (si no, el eco repetiría lo anterior)
-      g.push(`[w${i}]volume='${gate(e.desde, e.hasta)}':eval=frame,${VOICE_FX_INFO[e.efecto].filtro},${STEREO},volume='${gt}':eval=frame,apad,atrim=0:${f3(D)}[e${i}]`);
+      g.push(`[w${i}]asetnsamples=n=480,volume='${gate(e.desde, e.hasta)}':eval=frame,${VOICE_FX_INFO[e.efecto].filtro},${STEREO},volume='${gt}':eval=frame,apad,atrim=0:${f3(D)}[e${i}]`);
     });
     g.push(`[d]${efectos.map((_, i) => `[e${i}]`).join('')}amix=inputs=${n + 1}:duration=first:dropout_transition=0,volume=${n + 1}[out]`);
     notas.push(`Efectos de voz: ${efectos.map((e) => `${e.efecto} ${e.desde.toFixed(1)}–${e.hasta.toFixed(1)} s`).join(', ')}.`);
@@ -310,7 +310,7 @@ export async function applyCorrections(carpeta: string, voz: string, D: number, 
   const g: string[] = [];
   const args: string[] = ['-y', '-hide_banner', '-i', voz];
   const gate = (a: number, b: number) => `clip(min((t-${f3(a)})/0.02,(${f3(b)}-t)/0.02),0,1)`;
-  g.push(`[0:a]${STEREO},volume='1${list.map((c) => `-${gate(c.desde, c.hasta)}`).join('')}':eval=frame[dry]`);
+  g.push(`[0:a]${STEREO},asetnsamples=n=480,volume='1${list.map((c) => `-${gate(c.desde, c.hasta)}`).join('')}':eval=frame[dry]`);
   const mix = ['[dry]'];
   for (const [i, c] of list.entries()) {
     const len = Math.max(0.1, c.hasta - c.desde);

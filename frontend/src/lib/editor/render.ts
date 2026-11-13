@@ -12,7 +12,7 @@ import { cardStyle, faceWindow, graphicsEvents, placeGraphics } from './graphics
 import { ffmpeg, filterScriptArgs, hasSubtitlesFilter, stageFonts } from './media';
 import { envStatus } from './python-env';
 import { AdvancedUnavailable, runFaces, runMatte, type FaceTrack } from './advanced';
-import { keptIntervals, subtitleWords, totalDuration, type KeptInterval } from './timeline';
+import { CUT_ZONE_SEC, keptIntervals, subtitleWords, totalDuration, type KeptInterval } from './timeline';
 import { editFile } from './edit-store';
 import type { EditProject, QualityCheck } from './types';
 
@@ -482,7 +482,7 @@ export async function renderEdit(
 
   // ── D. Sonido ──
   onProgress?.(91, 'sonido', 'Efectos, música y volumen');
-  const audio = await buildFinalAudio({ carpeta: p.carpeta, voz: f(voz), duracion: total, perfil, eventos: dir ? [] : spaced, seed: seedFrom(p.id), direccion: dir, words });
+  const audio = await buildFinalAudio({ carpeta: p.carpeta, voz: f(voz), duracion: total, perfil, eventos: dir ? [] : spaced, seed: seedFrom(p.id), direccion: dir, words, silenciar: shortBackgroundZones(p, intervals) });
   notas.push(...audio.notas);
   const out = `borrador-v${version}.mp4`;
   await ffmpeg({
@@ -558,4 +558,18 @@ export async function renderEdit(
   }
 
   return { archivo: out, duracion: finalDur, portada: portadaOk ? portada : undefined, calidad, notas };
+}
+
+/** Fase 8: zonas de voz ajena cortas (no se cortan) que caen dentro de lo conservado, en tiempos del video. */
+function shortBackgroundZones(p: EditProject, intervals: KeptInterval[]): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  for (const h of p.frases.flatMap((f) => f.huecos ?? [])) {
+    if (h.e - h.s >= CUT_ZONE_SEC) continue;
+    for (const iv of intervals) {
+      const a = Math.max(h.s, iv.s);
+      const b = Math.min(h.e, iv.e);
+      if (b > a + 0.02) out.push([iv.out + (a - iv.s), iv.out + (b - iv.s)]);
+    }
+  }
+  return out;
 }

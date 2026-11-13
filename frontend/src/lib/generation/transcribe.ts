@@ -16,6 +16,7 @@ export interface SttWord {
   start: number;
   end: number;
   type?: string;
+  speaker_id?: string | null;
 }
 
 const MIME: Record<string, string> = {
@@ -51,7 +52,7 @@ async function postWithRetry(send: () => Promise<Response>): Promise<Response> {
 
 export async function transcribeWithElevenLabs(
   file: string,
-  o: { seconds: number; productionId?: string; tool?: string; label?: string }
+  o: { seconds: number; productionId?: string; tool?: string; label?: string; /** Separar hablantes (gratis en Scribe). */ diarize?: boolean }
 ): Promise<{ words: SttWord[]; text: string; costUSD: number; model: string }> {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) throw new Error('ELEVENLABS_API_KEY no está configurada en frontend/.env.local. Añádela y reinicia el servidor.');
@@ -66,6 +67,7 @@ export async function transcribeWithElevenLabs(
   form.append('model_id', model);
   form.append('timestamps_granularity', 'word');
   form.append('tag_audio_events', 'false');
+  if (o.diarize) form.append('diarize', 'true');
   form.append('file', new Blob([new Uint8Array(bytes)], { type: MIME[path.extname(name).toLowerCase()] ?? 'application/octet-stream' }), name);
 
   const res = await postWithRetry(() =>

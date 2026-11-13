@@ -344,6 +344,15 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Cortes limpios (voces de fondo)',
+    items: [
+      'Separación de hablantes en la transcripción + labios (MediaPipe) + voz con tono en el audio: lo que no dice la persona se corta solo.',
+      'Apuntes: si alguien le dicta y la persona repite, se corta lo dictado y queda su repetición.',
+      'Voz ajena en pausas o márgenes: se corta si dura 0,35 s o más; si es más corta, se silencia.',
+      'voces_de_fondo para ver o rehacer el análisis.',
+    ],
+  },
+  {
     titulo: 'HyperFrames (diseño y animación)',
     items: [
       'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',

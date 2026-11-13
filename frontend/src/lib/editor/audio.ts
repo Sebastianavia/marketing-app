@@ -81,6 +81,8 @@ export async function buildFinalAudio(o: {
   direccion?: ResolvedDirection | null;
   /** Palabras con tiempos del video (para atenuar respiraciones entre ellas). */
   words?: SubWord[];
+  /** Fase 8: zonas cortas de voz ajena (tiempos del video) que se silencian. */
+  silenciar?: Array<[number, number]>;
 }): Promise<FinalAudio> {
   const { carpeta, duracion: D, perfil } = o;
   const sonido = perfil.sonido;
@@ -89,6 +91,14 @@ export async function buildFinalAudio(o: {
 
   // Voz: palabras corregidas con la voz clonada, mejora, respiraciones y efectos por tramo (solo con plan)
   let voz = o.voz;
+  if (o.silenciar?.length) {
+    // Voz de fondo corta que quedó dentro de lo conservado: silencio total con rampas de 30 ms
+    const expr = o.silenciar.map(([a, b]) => `-clip(min((t-${(a - 0.03).toFixed(3)})/0.03,(${(b + 0.03).toFixed(3)}-t)/0.03),0,1)`).join('');
+    const out = f('voz-sin-fondo.wav');
+    await ffmpeg({ cwd: carpeta, args: ['-y', '-hide_banner', '-i', voz, '-af', `asetnsamples=n=480,volume='max(0,1${expr})':eval=frame`, '-c:a', 'pcm_s16le', '-ar', '48000', out] });
+    voz = out;
+    notas.push(`Voz de fondo silenciada en ${o.silenciar.length} momento(s).`);
+  }
   if (o.direccion?.correcciones.length) {
     voz = await applyCorrections(carpeta, voz, D, o.direccion.correcciones);
     notas.push(`${o.direccion.correcciones.length} palabra(s) corregida(s) con la voz clonada.`);
@@ -197,7 +207,7 @@ export async function buildFinalAudio(o: {
       const fadeOut = Math.max(0, D - (loop ? 0.08 : 1.5));
       // Secciones sobre un archivo: silencio = 0, suave = −9 dB (rampas de 0,15 s)
       const sectionVol = musicSections.length
-        ? `,volume='${musicSections
+        ? `,asetnsamples=n=480,volume='${musicSections
             .filter((x) => x.energia !== 'completa')
             .map((x) => {
               const depth = x.energia === 'silencio' ? 1 : 0.65;

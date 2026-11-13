@@ -22,6 +22,15 @@ Funcionan con la aprobación de gasto del editor (tarjeta amarilla en la tarjeta
 - [ ] **Director:** generación y montaje (proyecto de las zapatillas, ≈ $0,61 pendiente de aprobar).
 - [ ] **Estudio Claude:** render, montaje y edición, y video de avatar (`avatar_video`).
 
+## 1b. Cortes limpios (Fase 8): probar con un video real con apuntador
+
+- [ ] **Edición nueva con un video donde alguien dicte detrás de cámara.** Comprobar:
+  - [ ] En la revisión salen «Voz de fondo» y el motivo «te dictan… y lo repites en…».
+  - [ ] En el borrador no se oye al apuntador.
+  - [ ] La separación de hablantes llegó de verdad desde Scribe (`palabras[].h` en el JSON de la edición).
+- [ ] **Escuchar las dos zonas sospechosas del video de Santi**, guardadas en `~/LuloStudio_Projects/Pruebas editor viral/Fase 8 - posible voz de fondo…mp3`. Si son voz de Santi (un «mm»), hay que afinar el detector; si es otra persona, está bien cortado.
+- [ ] **Ajustar si hace falta:** el umbral de labios (12 % de movimiento) y el de tono (35 %), en `lib/editor/voices.ts`.
+
 ## 2. Datos compartidos del equipo (R2): sin estrenar en modo compartido
 
 Se activan desde la app. Si no aparece el aviso «solo en este PC», ya está compartido. Después, un compañero comprueba que lo ve.

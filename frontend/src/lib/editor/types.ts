@@ -2,6 +2,7 @@ import type { EditExport, EditVariant, PostText } from './outputs';
 import type { EditScore } from './score';
 import type { EditMetric } from './learning';
 import type { EditApproval } from './paid';
+import type { BackgroundReport } from './voices';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditDirection } from './direction';
 
@@ -28,6 +29,8 @@ export interface EditWord {
   t: string;
   s: number;
   e: number;
+  /** Hablante (separación de hablantes de la transcripción). */
+  h?: string;
 }
 
 export interface EditPhrase {
@@ -41,6 +44,10 @@ export interface EditPhrase {
   motivo?: string;
   /** Texto corregido a mano para los subtítulos (no cambia el audio). */
   textoEditado?: string;
+  /** Fase 8: «fondo» = no es la voz de la persona (se corta). */
+  voz?: 'fondo';
+  /** Fase 8: zonas de voz ajena dentro o junto a la frase (tiempos del original): se cortan o se silencian. */
+  huecos?: Array<{ s: number; e: number }>;
 }
 
 /** Una línea del control de calidad: ok = true (✓), false (✗) o null (para revisar tú). */
@@ -134,6 +141,8 @@ export interface EditProject {
   metricas?: EditMetric[];
   /** Fase 6: gastos que Claude pidió aprobar (doblaje, correcciones de voz). */
   aprobaciones?: EditApproval[];
+  /** Fase 8: informe de voces de fondo (lib/editor/voices.ts). */
+  vocesFondo?: BackgroundReport;
   actividad: EditActivity[];
   costoUSD: number;
   /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */
