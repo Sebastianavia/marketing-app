@@ -34,7 +34,8 @@ Funcionan con la aprobación de gasto del editor (tarjeta amarilla en la tarjeta
 ## 1c. Estándar ETM (marca «Santiago Ruiz»)
 
 - [x] **Marca «Santiago Ruiz» creada en la pestaña «Marcas»** con el estándar ETM v1 pegado (13 nov 2026).
-- [ ] **Corregir sus colores y su fuente:** primario #0A0A0B, acento #F4581C, texto #F6EFE6, fuente Sora SemiBold. Hoy tiene los de Lulo por defecto (lima y blanco), que el estándar prohíbe y que usan la intro, el cierre y la caja de Instagram.
+- [x] **Colores y fuente corregidos (13 nov 2026):** acento #F4581C y texto #F6EFE6, tipografía elegida con vista previa; Sora, Anton y Prata instaladas desde Google Fonts.
+- [x] **Estilo «Santiago Ruiz · estándar» (13 nov 2026)** creado desde el estándar y asignado a la marca: en Nueva edición se elige solo al escoger la marca.
 - [x] **Cerrar lo que el motor no cumplía del estándar (Fase 9, 13 nov 2026).** Hecho:
   - corte por palabra;
   - subtítulos bajo el mentón;
