@@ -149,6 +149,10 @@ export interface AgentSpec {
   material?: { comoUsar: string };
   /** Añade el manual de edición vivo (lib/editor/manual.ts) a las instrucciones. */
   manual?: boolean;
+  /** Instrucciones extra que se calculan al empezar cada turno (p. ej. el estándar de la marca). */
+  extraPrompt?: () => Promise<string>;
+  /** Línea al inicio de cada mensaje (con --resume el prompt de sistema no cambia). */
+  messagePrefix?: () => Promise<string>;
 }
 
 type AgentDirs = {
@@ -448,7 +452,8 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       spec.systemPrompt(ctx) +
       (plugin && spec.videoSkills ? '\n' + videoSkillsPrompt(spec.videoSkills) : '') +
       (material && spec.material ? '\n' + (await materialPrompt(material, { puedeCopiar: mode !== 'sin_bash', comoUsar: spec.material.comoUsar })) : '') +
-      (spec.manual ? '\n' + (await manualPrompt().catch(() => '')) : '');
+      (spec.manual ? '\n' + (await manualPrompt().catch(() => '')) : '') +
+      (spec.extraPrompt ? '\n' + (await spec.extraPrompt().catch(() => '')) : '');
     await fsp.writeFile(systemFile, systemPrompt, 'utf8');
     // Configuración en archivos y no en la línea de comandos: con claude.cmd (npm) Windows corta la
     // orden a 8191 caracteres
@@ -555,9 +560,9 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
 
     // Con --resume Claude Code conserva el prompt de sistema del primer mensaje: si la carpeta de
     // material se eligió o cambió después, esta línea es lo que le avisa
-    const prefix = material
-      ? `[Carpeta de material de este proyecto (no toques los originales): ${material}. Si el pedido usa material, revísala con Glob/Read antes de decidir.]\n\n`
-      : '';
+    const prefix =
+      (material ? `[Carpeta de material de este proyecto (no toques los originales): ${material}. Si el pedido usa material, revísala con Glob/Read antes de decidir.]\n\n` : '') +
+      (spec.messagePrefix ? await spec.messagePrefix().catch(() => '') : '');
     let r;
     try {
       r = await exec(prefix + texto);

@@ -40,6 +40,8 @@ PRESUPUESTO DE FORMATOS (equilibrio: ni plano aburrido ni saturado)
 - Nunca el mismo formato tres veces seguidas; algo cambia en pantalla cada 1,5–3,5 s.
 - Cada ayuda visual vive lo que dura su idea (1,5–4 s; el split hasta ~7 s si construye una lista) y SE VA. Nada de paneles fijos de 10–20 s.
 
+CORTES LIMPIOS (lo primero y lo más importante, en cualquier video): en el video solo se oye a la persona. Quita la voz del apuntador o cualquier voz ajena (voces_de_fondo), los arranques falsos, las palabras sueltas, las tomas repetidas (queda la ÚLTIMA, salvo que una anterior sea claramente mejor), las muletillas y las respiraciones largas. Entre frase y frase, como mucho 0,25 s: nunca la persona quieta y callada (salvo una pausa dramática a propósito). Ninguna frase a medias ni palabra huérfana. Cuando unes dos tomas del mismo plano, cambia el encuadre (p. ej. 100 % ↔ 112 %) para que no se note el salto. Antes de entregar, escucha el borrador alrededor de cada corte (escuchar_audio y palabras_borrador) y di qué comprobaste y qué NO pudiste comprobar. Si la edición es de una marca con estándar de edición (estandar_marca), ese estándar manda sobre todo lo de aquí.
+
 GANCHO (0–2 s): el primer fotograma ya engancha: texto gancho grande que tensa o resume la primera frase, movimiento de cámara (punch o acercamiento), sonido de entrada (impacto, riser que remata o swish) y música que arranca con energía (o en suave para crecer). Nada de arranques planos.
 
 ESTRUCTURA DE RETENCIÓN (decide cuáles aplica este video; no todas en todos)

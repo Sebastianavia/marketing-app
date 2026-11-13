@@ -29,6 +29,7 @@ import { MetricInputSchema, analyzeRetention, bestTime, measureReference, metric
 import { DUB_LANGS, PaidError, correctionCost, dubDraft, dubEstimate, generateCorrection, requestApproval, spendApproval } from './paid';
 import { getStoredVoices } from '@/lib/storage/voice-storage';
 import { applyBackgroundReport, detectBackgroundVoices } from './voices';
+import { ENGINE_LIMITS, brandOf } from './brand-standard';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
 import { KIT_FONTS, loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
@@ -72,6 +73,7 @@ function snapshot(p: EditProject) {
     gancho: p.gancho,
     resaltar: p.resaltar,
     resumenIA: p.resumenIA,
+    ...(p.marcaId ? { marcaId: p.marcaId, nota_marca: 'Esta edición tiene marca: mira estandar_marca.' } : {}),
     frases: p.frases.map((f) => ({
       id: f.id,
       desde: Number(f.s.toFixed(2)),
@@ -1099,6 +1101,42 @@ const vocesDeFondo = tool({
   },
 });
 
+const estandarMarca = tool({
+  name: 'estandar_marca',
+  description:
+    'Estándar de edición de la marca de esta edición (el que entregó el cliente): manda sobre el manual y el criterio general. Devuelve el texto completo, la marca y lo que el motor aún no hace (para avisarlo antes de entregar). Si la edición no tiene marca, mira marcas y usar_marca. $0.',
+  schema: z.object({}),
+  run: async (editId) => {
+    const p = await getEdit(editId);
+    const b = await brandOf(p);
+    if (!b) return { marca: null, nota: 'Esta edición no tiene marca. Si el video es de una marca guardada, usar_marca.' };
+    return { marca: { id: b.id, nombre: b.nombre, colores: b.colores, fuente: b.fuente }, estandar: b.estandar ?? null, limitacionesDelMotor: ENGINE_LIMITS };
+  },
+});
+
+const usarMarca = tool({
+  name: 'usar_marca',
+  description: 'Asigna esta edición a una marca guardada (nombre o id de marcas); desde el siguiente mensaje su estándar de edición manda. marca: null la quita. $0.',
+  schema: z.object({ marca: z.string().max(60).nullable() }),
+  run: async (editId, input) => {
+    if (input.marca === null) {
+      await updateEdit(editId, (q) => {
+        q.marcaId = undefined;
+        logActivity(q, 'Claude quitó la marca de la edición.');
+      });
+      return { ok: true, marca: null };
+    }
+    const { findBrand } = await import('./kit/brands');
+    const b = await findBrand(input.marca).catch(() => null);
+    if (!b) throw new AgentToolError(`No hay ninguna marca «${input.marca}» (mira marcas).`, 404);
+    await updateEdit(editId, (q) => {
+      q.marcaId = b.id;
+      logActivity(q, `Edición asignada a la marca ${b.nombre}.`);
+    });
+    return { ok: true, marca: b.nombre, tieneEstandar: !!b.estandar?.trim(), siguiente: b.estandar ? 'Lee estandar_marca y síguelo.' : 'La marca no tiene estándar de edición: sigue el manual.' };
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -1108,7 +1146,7 @@ const marcasTool = tool({
     return {
       compartidas,
       ...(aviso ? { aviso } : {}),
-      marcas: marcas.filter((m) => m.estado === 'activa').map((m) => ({ id: m.id, nombre: m.nombre, colores: m.colores, fuente: m.fuente, lema: m.lema, usuario: m.usuario, cta: m.cta, nota: m.nota, conLogo: !!m.logoExt })),
+      marcas: marcas.filter((m) => m.estado === 'activa').map((m) => ({ id: m.id, nombre: m.nombre, colores: m.colores, fuente: m.fuente, lema: m.lema, usuario: m.usuario, cta: m.cta, nota: m.nota, conLogo: !!m.logoExt, tieneEstandarDeEdicion: !!m.estandar?.trim() })),
     };
   },
 });
@@ -1173,7 +1211,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, vocesDeFondo, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, vocesDeFondo, estandarMarca, usarMarca, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

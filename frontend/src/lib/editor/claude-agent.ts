@@ -1,3 +1,4 @@
+import { brandMessagePrefix, brandStandardPrompt } from './brand-standard';
 import {
   AgentBusyError,
   bashRules,
@@ -76,6 +77,9 @@ function specFor(p: EditProject): AgentSpec {
     usage: { tool: 'video-editor', description: `Claude editor · "${p.titulo}"` },
     lostSessionNote: '(La conversación anterior se perdió: empieza mirando la edición con ver_edicion.)',
     manual: true,
+    // Estándar de la marca del video (si tiene): manda sobre el manual
+    extraPrompt: async () => brandStandardPrompt(await getEdit(p.id)),
+    messagePrefix: async () => brandMessagePrefix(await getEdit(p.id)),
     videoSkills: {
       renderTool: 'renderizar_html_video',
       entregar: 'Para entregarlo, deja un MP4 H.264 + AAC en tu carpeta (si hiciste gráficos aparte, combínalos con el borrador con FFmpeg) y usa publicar_borrador.',

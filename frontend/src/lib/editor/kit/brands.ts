@@ -28,6 +28,8 @@ export const BrandInputSchema = z.object({
   /** Llamada a la acción del cierre, p. ej. «Síguenos para más». */
   cta: z.string().trim().max(60).optional(),
   nota: z.string().trim().max(300).optional(),
+  /** Estándar de edición del cliente (texto completo). Manda sobre el manual general en sus videos. */
+  estandar: z.string().trim().max(40000).optional(),
 });
 export type BrandInput = z.infer<typeof BrandInputSchema>;
 

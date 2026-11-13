@@ -31,6 +31,22 @@ Funcionan con la aprobación de gasto del editor (tarjeta amarilla en la tarjeta
 - [ ] **Escuchar las dos zonas sospechosas del video de Santi**, guardadas en `~/LuloStudio_Projects/Pruebas editor viral/Fase 8 - posible voz de fondo…mp3`. Si son voz de Santi (un «mm»), hay que afinar el detector; si es otra persona, está bien cortado.
 - [ ] **Ajustar si hace falta:** el umbral de labios (12 % de movimiento) y el de tono (35 %), en `lib/editor/voices.ts`.
 
+## 1c. Estándar ETM
+
+- [ ] **Crear la marca «ETM» en la pestaña «Marcas»:**
+  - [ ] Pegar `docs/marcas/etm-estandar-v1.md` en «Estándar de edición».
+  - [ ] Probar una edición con esa marca.
+- [ ] **Cerrar lo que el motor aún no cumple del estándar** (`ENGINE_LIMITS`; posible Fase 9):
+  - [ ] corte por palabra dentro de la frase;
+  - [ ] subtítulos anclados a la cara;
+  - [ ] fuentes Sora, Anton y Prata;
+  - [ ] caja de comentarios de Instagram;
+  - [ ] 0,8 s de aire al final;
+  - [ ] aire sobre la cabeza;
+  - [ ] transcribir el audio final;
+  - [ ] barrido con desenfoque;
+  - [ ] piezas del kit sin blanco puro.
+
 ## 2. Datos compartidos del equipo (R2): sin estrenar en modo compartido
 
 Se activan desde la app. Si no aparece el aviso «solo en este PC», ya está compartido. Después, un compañero comprueba que lo ve.

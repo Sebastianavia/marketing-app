@@ -141,6 +141,8 @@ export interface EditProject {
   metricas?: EditMetric[];
   /** Fase 6: gastos que Claude pidió aprobar (doblaje, correcciones de voz). */
   aprobaciones?: EditApproval[];
+  /** Marca de la edición (kit/brands.ts): si tiene estándar de edición, Claude lo sigue por encima del manual. */
+  marcaId?: string;
   /** Fase 8: informe de voces de fondo (lib/editor/voices.ts). */
   vocesFondo?: BackgroundReport;
   actividad: EditActivity[];

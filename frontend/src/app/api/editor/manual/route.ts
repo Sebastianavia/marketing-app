@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { assertAppUiRequest, ForbiddenError } from '@/lib/director/local-guard';
 import { assertAppUiRead } from '@/lib/material/guard';
 import { errorMessage } from '@/lib/errors';
+import { brandStandardsMarkdown } from '@/lib/editor/brand-standard';
 import { learnLessons, loadManual, manualSkillMarkdown, ManualError, MANUAL_AREAS, updateManual } from '@/lib/editor/manual';
 
 export const runtime = 'nodejs';
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   try {
     assertAppUiRead(req);
     const r = await loadManual();
-    return NextResponse.json({ ...r, skill: manualSkillMarkdown(r.manual) });
+    return NextResponse.json({ ...r, skill: manualSkillMarkdown(r.manual) + (await brandStandardsMarkdown()) });
   } catch (err) {
     return fail(err, 'No se pudo leer el manual.');
   }

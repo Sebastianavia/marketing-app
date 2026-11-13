@@ -14,6 +14,7 @@ interface Brand {
   usuario?: string;
   cta?: string;
   nota?: string;
+  estandar?: string;
   logoExt?: string;
   actualizada: string;
   quien: string;
@@ -40,9 +41,10 @@ interface Draft {
   usuario: string;
   cta: string;
   nota: string;
+  estandar: string;
   logo: File | null;
 }
-const emptyDraft = (): Draft => ({ nombre: '', primario: '#0B0B0B', acento: '#C6FF3D', texto: '#FFFFFF', fuente: 'Archivo Black', lema: '', usuario: '', cta: '', nota: '', logo: null });
+const emptyDraft = (): Draft => ({ nombre: '', primario: '#0B0B0B', acento: '#C6FF3D', texto: '#FFFFFF', fuente: 'Archivo Black', lema: '', usuario: '', cta: '', nota: '', estandar: '', logo: null });
 
 /**
  * Marcas del equipo: logo, colores, tipografía, lema y CTA. Claude las usa para la intro y el cierre
@@ -86,6 +88,7 @@ export function BrandsPanel() {
           usuario: draft.usuario.trim() || undefined,
           cta: draft.cta.trim() || undefined,
           nota: draft.nota.trim() || undefined,
+          estandar: draft.estandar.trim() || undefined,
         })
       );
       setData(await readJson(await fetch(API, { method: 'POST', body: fd })));
@@ -179,6 +182,11 @@ export function BrandsPanel() {
             <input value={draft.cta} onChange={(e) => setDraft({ ...draft, cta: e.target.value })} maxLength={60} placeholder="CTA del cierre: Síguenos" className="input-clean h-9 px-3 text-[12px]" />
           </div>
           <input value={draft.nota} onChange={(e) => setDraft({ ...draft, nota: e.target.value })} maxLength={300} placeholder="Nota para Claude (tono, cuándo usar intro o cierre…)" className="input-clean h-9 w-full px-3 text-[12px]" />
+          <label className="block space-y-1">
+            <span className="text-[12px] font-medium text-fg">Estándar de edición del cliente (opcional)</span>
+            <span className="block text-[11px] text-fg-muted">Pega aquí las reglas de edición que entrega el cliente. En los videos de esta marca, Claude las sigue por encima del manual general y avisa de lo que el motor no pueda cumplir.</span>
+            <textarea value={draft.estandar} onChange={(e) => setDraft({ ...draft, estandar: e.target.value })} maxLength={40000} rows={8} placeholder="ESTÁNDAR DE EDICIÓN … (formato, corte, subtítulos, colores, efectos, cierre…)" className="input-clean w-full resize-y px-3 py-2 font-mono text-[11px]" />
+          </label>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setDraft(null)} className="btn-secondary h-8 px-3 text-[12px]">
               Cancelar
@@ -221,13 +229,14 @@ export function BrandsPanel() {
                   <span className="ml-1">{m.fuente}</span>
                 </p>
                 {(m.lema || m.usuario || m.cta) && <p className="truncate text-[11px] text-fg-muted">{[m.lema, m.cta, m.usuario].filter(Boolean).join(' · ')}</p>}
+                {m.estandar?.trim() && <p className="text-[11px] font-medium text-accent">Con estándar de edición ({m.estandar.trim().split('\n').length} líneas)</p>}
               </div>
               {m.estado === 'activa' ? (
                 <div className="flex gap-0.5">
                   <button
                     type="button"
                     onClick={() =>
-                      setDraft({ id: m.id, nombre: m.nombre, primario: m.colores.primario, acento: m.colores.acento, texto: m.colores.texto, fuente: m.fuente, lema: m.lema ?? '', usuario: m.usuario ?? '', cta: m.cta ?? '', nota: m.nota ?? '', logo: null })
+                      setDraft({ id: m.id, nombre: m.nombre, primario: m.colores.primario, acento: m.colores.acento, texto: m.colores.texto, fuente: m.fuente, lema: m.lema ?? '', usuario: m.usuario ?? '', cta: m.cta ?? '', nota: m.nota ?? '', estandar: m.estandar ?? '', logo: null })
                     }
                     className="rounded p-1 text-fg-subtle hover:bg-surface-2 hover:text-fg"
                     aria-label={`Editar ${m.nombre}`}

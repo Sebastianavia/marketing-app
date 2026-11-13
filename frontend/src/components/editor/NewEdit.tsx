@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Clapperboard, FileVideo, FolderOpen, Loader2, Send, UploadCloud, X } from 'lucide-react';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditProject } from '@/lib/editor/types';
@@ -53,6 +53,19 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
   const [perfilId, setPerfilId] = useState<string>(perfiles[0]?.id ?? '');
   const [revisarAntes, setRevisarAntes] = useState(true);
   const [material, setMaterial] = useState<string | null>(null);
+  // Marca del video: si tiene estándar de edición del cliente, Claude lo sigue por encima del manual
+  const [marcas, setMarcas] = useState<Array<{ id: string; nombre: string; estandar?: string; estado: string }>>([]);
+  const [marcaId, setMarcaId] = useState('');
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/editor/brands', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { marcas: [] }))
+      .then((d) => alive && setMarcas((d.marcas ?? []).filter((m: { estado: string }) => m.estado === 'activa')))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +97,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
     if (!perfil || !hasVideo) return;
     setBusy(true);
     setError(null);
-    const meta = { titulo: titulo.trim(), pedido: pedido.trim(), perfilId: perfil.id, revisarAntes, ...(material ? { carpetaMaterial: material } : {}) };
+    const meta = { titulo: titulo.trim(), pedido: pedido.trim(), perfilId: perfil.id, revisarAntes, ...(material ? { carpetaMaterial: material } : {}), ...(marcaId ? { marcaId } : {}) };
     try {
       // Antes de subir el video: si la carpeta ya no vale, el error llega claro y sin esperar la subida
       if (material) {
@@ -124,6 +137,21 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
             <MaterialFolderField value={material} onChange={setMaterial} />
             <span>Opcional: tomas de apoyo, logos, música o el guion. Claude las verá (solo con «Claude · mi suscripción»).</span>
           </div>
+          {marcas.length > 0 && (
+            <label className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
+              <span className="font-medium text-fg">Marca</span>
+              <select value={marcaId} onChange={(e) => setMarcaId(e.target.value)} className="input-clean h-8 px-2 text-[12px]" aria-label="Marca del video">
+                <option value="">Sin marca (manual general)</option>
+                {marcas.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nombre}
+                    {m.estandar?.trim() ? ' · con estándar de edición' : ''}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11px] text-fg-subtle">Si la marca tiene estándar de edición, Claude lo sigue por encima del manual.</span>
+            </label>
+          )}
 
           {!hasVideo ? (
             <div

@@ -400,6 +400,11 @@ export function manualSkillMarkdown(m: EditingManual): string {
     '',
     'Reglas que salen de lo que el equipo ha pedido en videos anteriores. Las más confirmadas pesan más. Si el pedido de un video concreto contradice una regla, manda el pedido.',
     '',
+    '## Criterio base de Lulo',
+    '',
+    '_Para cualquier video. Si la edición es de una marca con estándar de edición (abajo), su estándar manda._',
+    '',
+    ...LULO_BASE_RULES.flatMap((g) => [`### ${g.area}`, '', ...g.reglas.map((r) => `- ${r}`), '']),
   ];
   for (const area of MANUAL_AREAS) {
     const rs = activas.filter((r) => r.area === area).sort((a, b) => b.confirmaciones - a.confirmaciones);
@@ -421,6 +426,69 @@ export function manualSkillMarkdown(m: EditingManual): string {
 }
 
 /** Bloque para las instrucciones de Claude: las reglas activas, por área, las más confirmadas primero. */
+/**
+ * Criterio base de Lulo: reglas GENERALES de calidad para cualquier video, sacadas de los estándares
+ * que entregan los clientes (la parte que sirve a todos; lo propio de cada cliente —colores, fuentes,
+ * tamaños, efectos prohibidos— se queda en el estándar de su marca). Viven en el código: todo el
+ * equipo las recibe con el pull. Fuente: «Estándar de edición ETM v1» (docs/marcas/), nov 2026.
+ */
+export const LULO_BASE_RULES: Array<{ area: string; reglas: string[] }> = [
+  {
+    area: 'Corte',
+    reglas: [
+      'En el video solo se oye a la persona: fuera la voz del apuntador o cualquier voz ajena, aunque suene bajito entre frases.',
+      'Fuera arranques falsos, palabras sueltas, muletillas y respiraciones largas. De las tomas repetidas queda la última, salvo que una anterior sea claramente mejor.',
+      'Entre frase y frase, como mucho 0,25 s: nunca la persona quieta y callada (salvo una pausa dramática a propósito).',
+      'Ninguna frase a medias ni palabra huérfana. Fundido de audio de 10–20 ms en cada corte; la imagen va con corte seco.',
+      'Cuando se unen dos tomas del mismo plano, cambia el encuadre (p. ej. 100 % ↔ 112 %) para que no se note el salto.',
+    ],
+  },
+  {
+    area: 'Lo que se muestra',
+    reglas: [
+      'Lo que se dice se tiene que VER: un gráfico muestra lo que la voz no puede (una pantalla real, una prueba, una cifra, un objeto).',
+      'Prohibidas las tarjetas de texto que solo repiten la frase que se está diciendo: eso ya lo dicen la voz y el subtítulo.',
+      'Si se nombra una app, se ve la app real (grabación, captura o mockup fiel), con zoom a la parte que importa para que se lea.',
+      'Pruebas y cifras: capturas reales. Si falta la captura, cartel discreto «PENDIENTE: captura real» y se avisa. Nunca se inventa una.',
+      'Un solo elemento a la vez además del subtítulo: nunca dos textos peleando.',
+      'Ningún texto sobre la cara ni cortado por el borde: margen de 60 px a los bordes, letra mínima de 42 px (en 1920 de alto), máximo 12 palabras por gráfico.',
+      'La pantalla dividida existe solo mientras muestra algo: con el panel vacío se vuelve a pantalla completa.',
+      'Acabado profesional y moderno: nada que parezca hecho con Paint (figuras planas, robots de caricatura, emojis usados como iconos).',
+    ],
+  },
+  {
+    area: 'Encuadre',
+    reglas: [
+      'La cabeza completa siempre dentro del cuadro, con aire arriba (mínimo 4 % del alto) en todos los planos: nunca se corta la frente ni el pelo.',
+      'Por defecto, tres encuadres del mismo crudo (abierto 100 %, medio 112 %, cerrado 125 %) que cambian por frase con corte seco.',
+    ],
+  },
+  {
+    area: 'Sonido',
+    reglas: [
+      'Un efecto por evento y que nunca tape una palabra (su pico, al menos 8 dB bajo la voz).',
+      'Voz a −14 LUFS con pico de −1 dB o menos: nunca satura.',
+    ],
+  },
+  {
+    area: 'Cierre',
+    reglas: [
+      'La llamada a la acción dura al menos 4 s desde que se dice y el video termina ~0,8 s después de la última palabra: nunca corta en la última sílaba.',
+      'Si se regala un recurso, se ve su portada real y legible; si no existe, no se inventa y se avisa.',
+    ],
+  },
+  {
+    area: 'Entrega',
+    reglas: [
+      'Si el crudo trae dos ganchos (A y B), salen dos archivos (variantes): nunca los dos ganchos en el mismo video.',
+      'Antes de entregar: hoja de fotogramas de TODO el video (≈2 por segundo) y escucha alrededor de cada corte. En la respuesta, di qué comprobaste, cómo y qué NO pudiste comprobar (arriba, no al final).',
+      'Si una regla no se puede cumplir con el motor, dilo antes de entregar, con el segundo exacto.',
+    ],
+  },
+];
+
+const baseRulesText = () => LULO_BASE_RULES.map((g) => `${g.area}:\n${g.reglas.map((r) => `- ${r}`).join('\n')}`).join('\n');
+
 export async function manualPrompt(): Promise<string> {
   const { manual } = await loadManual();
   const activas = manual.reglas.filter((r) => r.estado === 'activa');
@@ -432,6 +500,9 @@ export async function manualPrompt(): Promise<string> {
     for (const r of rs.slice(0, 12)) lines.push(`- [${r.id}${r.confirmaciones > 1 ? ` · confirmada ${r.confirmaciones}×` : ''}] ${r.regla}${r.porQue ? ` (${r.porQue})` : ''}`);
   }
   return `
+## CRITERIO BASE DE LULO (para cualquier video; si la edición es de una marca con estándar, su estándar manda)
+${baseRulesText()}
+
 ## MANUAL DE EDICIÓN LULO (aprendido del feedback del equipo; versión ${manual.version})
 Estas reglas salen de lo que el equipo ha pedido en videos anteriores: síguelas por encima de tus preferencias generales (las más confirmadas pesan más). Si el pedido de la persona contradice una regla, manda el pedido.
 ${lines.join('\n')}

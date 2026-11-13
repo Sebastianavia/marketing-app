@@ -35,6 +35,7 @@ export interface NewEditMeta {
   titulo: string;
   pedido: string;
   perfilId: string;
+  marcaId?: string;
   revisarAntes: boolean;
   /** Nombre del archivo subido (para la extensión). */
   archivo?: string;
@@ -51,6 +52,8 @@ export const NewEditMetaSchema = z.object({
   rutaLocal: z.string().max(1024).optional(),
   /** Carpeta de material para Claude (lib/material); la guarda la ruta al crear. */
   carpetaMaterial: z.string().max(1000).optional(),
+  /** Marca del video (su estándar de edición manda). */
+  marcaId: z.string().max(20).optional(),
 });
 
 function titleFrom(meta: NewEditMeta): string {
@@ -127,6 +130,7 @@ export async function createEdit(meta: NewEditMeta, body: ReadableStream<Uint8Ar
       estado: 'en_cola',
       tarea: 'analizar',
       revisarAntes: meta.revisarAntes,
+      ...(meta.marcaId ? { marcaId: meta.marcaId } : {}),
       frases: [],
       gancho: '',
       resaltar: [],
