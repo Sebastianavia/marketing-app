@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Copy, FolderOpen, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import {
   EDIT_FORMATS,
@@ -34,6 +34,19 @@ interface Props {
 export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicRefresh }: Props) {
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(initialId ?? perfiles[0]?.id ?? null);
   const selected = selectedId && selectedId !== 'new' ? perfiles.find((p) => p.id === selectedId) : undefined;
+  // Marcas que usan cada estilo como estilo por defecto
+  const [marcas, setMarcas] = useState<Array<{ nombre: string; perfilId?: string; estado: string }>>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/editor/brands', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { marcas: [] }))
+      .then((d) => alive && setMarcas(d.marcas ?? []))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const brandsOf = (id: string) => marcas.filter((m) => m.estado === 'activa' && m.perfilId === id).map((m) => m.nombre);
 
   const [draftSeed, setDraftSeed] = useState<ProfileInput | null>(null);
   const [refNote, setRefNote] = useState<string | null>(null);
@@ -64,10 +77,14 @@ export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicR
   };
 
   return (
+    <div className="space-y-4">
+    <p className="max-w-[80ch] text-[12px] text-fg-muted">
+      <b className="text-fg">El estilo es el punto de partida de cada edición:</b> formato, red, cómo se corta, subtítulos, gancho y sonido. Si la edición es de una marca con estándar de edición, el estándar manda. Cada marca puede tener su estilo por defecto (pestaña Marcas), que se elige solo en «Nueva edición».
+    </p>
     <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-[12px] font-medium text-fg-muted">Tus perfiles</p>
+          <p className="text-[12px] font-medium text-fg-muted">Tus estilos</p>
           <button type="button" onClick={() => startNew()} className="btn-secondary h-8 px-2.5 text-[12px]">
             <Plus className="h-3.5 w-3.5" /> Nuevo
           </button>
@@ -85,10 +102,11 @@ export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicR
             <span className="min-w-0">
               <span className="block truncate text-[13px] font-medium text-fg">{p.nombre}</span>
               <span className="line-clamp-2 text-[11px] text-fg-subtle">{p.descripcion || 'Sin descripción'}</span>
+              {brandsOf(p.id).length > 0 && <span className="mt-0.5 block text-[10px] font-medium text-accent">Marca: {brandsOf(p.id).join(', ')}</span>}
             </span>
           </button>
         ))}
-        {perfiles.length === 0 && <p className="text-[12px] text-fg-subtle">Todavía no hay perfiles. Crea el primero.</p>}
+        {perfiles.length === 0 && <p className="text-[12px] text-fg-subtle">Todavía no hay estilos. Crea el primero.</p>}
 
         <div className="space-y-2 rounded-xl border border-dashed border-line p-3">
           <p className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
@@ -138,9 +156,10 @@ export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicR
         />
       ) : (
         <div className="flex items-center justify-center rounded-xl border border-dashed border-line p-12 text-[13px] text-fg-subtle">
-          Elige un perfil o crea uno nuevo.
+          Elige un estilo o crea uno nuevo.
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -208,7 +227,7 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
             <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" /> {note} Revísalo y dale a Guardar.
           </p>
         )}
-        <Section title="Perfil">
+        <Section title="Estilo">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Nombre *">
               <input value={p.nombre} onChange={(e) => set('nombre', e.target.value)} placeholder="Ej.: Mi marca" className="input-clean h-9 w-full px-3 text-[13px]" />
@@ -382,7 +401,7 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
           <div className="grid gap-3 sm:grid-cols-3">
             <Range label="Música bajo la voz" value={p.sonido.musicaBajoVozDb} min={6} max={30} step={1} unit=" dB" disabled={p.sonido.musica === 'ninguna'} onChange={(v) => son('musicaBajoVozDb', v)} />
             <Range label="Baja más mientras hablas" value={p.sonido.duckingDb} min={0} max={15} step={1} unit=" dB" disabled={p.sonido.musica === 'ninguna'} onChange={(v) => son('duckingDb', v)} />
-            <Range label="Efectos bajo la voz" value={p.sonido.efectosBajoVozDb} min={10} max={35} step={1} unit=" dB" disabled={!p.sonido.efectos} onChange={(v) => son('efectosBajoVozDb', v)} />
+            <Range label="Efectos bajo la voz" value={p.sonido.efectosBajoVozDb} min={6} max={35} step={1} unit=" dB" disabled={!p.sonido.efectos} onChange={(v) => son('efectosBajoVozDb', v)} />
           </div>
           <p className="text-[11px] text-fg-subtle">Recomendado: música 12 dB bajo la voz, que baje 7 dB más cuando hablas, y efectos 20–25 dB bajo la voz.</p>
         </Section>
@@ -417,7 +436,7 @@ function ProfileForm({ initial, note, musica, onMusicRefresh, onSave, onCancel, 
 
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={save} disabled={busy || p.nombre.trim().length < 2} className="btn-primary h-9 px-4 text-[13px]">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Guardar perfil
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Guardar estilo
           </button>
           {saved && <span className="text-[12px] text-fg-muted">Guardado</span>}
           {onCancel && (

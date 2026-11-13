@@ -54,7 +54,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
   const [revisarAntes, setRevisarAntes] = useState(true);
   const [material, setMaterial] = useState<string | null>(null);
   // Marca del video: si tiene estándar de edición del cliente, Claude lo sigue por encima del manual
-  const [marcas, setMarcas] = useState<Array<{ id: string; nombre: string; estandar?: string; estado: string }>>([]);
+  const [marcas, setMarcas] = useState<Array<{ id: string; nombre: string; estandar?: string; perfilId?: string; estado: string }>>([]);
   const [marcaId, setMarcaId] = useState('');
   useEffect(() => {
     let alive = true;
@@ -140,7 +140,17 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
           {marcas.length > 0 && (
             <label className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">
               <span className="font-medium text-fg">Marca</span>
-              <select value={marcaId} onChange={(e) => setMarcaId(e.target.value)} className="input-clean h-8 px-2 text-[12px]" aria-label="Marca del video">
+              <select
+                value={marcaId}
+                onChange={(e) => {
+                  setMarcaId(e.target.value);
+                  // El estilo por defecto de la marca se elige solo
+                  const m = marcas.find((x) => x.id === e.target.value);
+                  if (m?.perfilId && perfiles.some((x) => x.id === m.perfilId)) setPerfilId(m.perfilId);
+                }}
+                className="input-clean h-8 px-2 text-[12px]"
+                aria-label="Marca del video"
+              >
                 <option value="">Sin marca (manual general)</option>
                 {marcas.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -149,7 +159,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
                   </option>
                 ))}
               </select>
-              <span className="text-[11px] text-fg-subtle">Si la marca tiene estándar de edición, Claude lo sigue por encima del manual.</span>
+              <span className="text-[11px] text-fg-subtle">Elige también su estilo por defecto. Si la marca tiene estándar de edición, Claude lo sigue por encima del manual.</span>
             </label>
           )}
 
@@ -239,10 +249,10 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
         <section className="space-y-4 p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-baseline gap-2 text-[15px] font-semibold text-fg">
-              <span className="font-display text-[20px] text-fg-subtle">2</span> Elige tu perfil
+              <span className="font-display text-[20px] text-fg-subtle">2</span> Elige el estilo
             </h2>
             <button type="button" onClick={() => onEditProfiles(perfil?.id)} className="text-[12px] text-fg-muted underline-offset-2 hover:text-fg hover:underline cursor-pointer">
-              Editar perfiles →
+              Editar estilos →
             </button>
           </div>
           <div className="flex flex-col gap-4 sm:flex-row">
@@ -270,7 +280,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
               ))}
               {perfiles.length === 0 && (
                 <button type="button" onClick={() => onEditProfiles()} className="rounded-xl border border-dashed border-line p-4 text-[12px] text-fg-subtle hover:text-fg">
-                  Crea tu primer perfil
+                  Crea tu primer estilo
                 </button>
               )}
             </div>
@@ -282,7 +292,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
       <div className="flex flex-col gap-3 border-t border-line bg-surface-2/40 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-fg-muted">
           <span>
-            Perfil <b className="font-medium text-fg">{perfil?.nombre ?? '—'}</b>
+            Estilo <b className="font-medium text-fg">{perfil?.nombre ?? '—'}</b>
           </span>
           <span>
             Formato <b className="font-medium text-fg">{perfil?.formato ?? '—'}</b>

@@ -15,6 +15,7 @@ interface Brand {
   cta?: string;
   nota?: string;
   estandar?: string;
+  perfilId?: string;
   logoExt?: string;
   actualizada: string;
   quien: string;
@@ -42,9 +43,10 @@ interface Draft {
   cta: string;
   nota: string;
   estandar: string;
+  perfilId: string;
   logo: File | null;
 }
-const emptyDraft = (): Draft => ({ nombre: '', primario: '#0B0B0B', acento: '#C6FF3D', texto: '#FFFFFF', fuente: 'Archivo Black', lema: '', usuario: '', cta: '', nota: '', estandar: '', logo: null });
+const emptyDraft = (): Draft => ({ nombre: '', primario: '#0B0B0B', acento: '#C6FF3D', texto: '#FFFFFF', fuente: 'Archivo Black', lema: '', usuario: '', cta: '', nota: '', estandar: '', perfilId: '', logo: null });
 
 /**
  * Marcas del equipo: logo, colores, tipografía, lema y CTA. Claude las usa para la intro y el cierre
@@ -56,6 +58,36 @@ export function BrandsPanel() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [showRetired, setShowRetired] = useState(false);
+  const [estilos, setEstilos] = useState<Array<{ id: string; nombre: string }>>([]);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const loadStyles = useCallback(async () => {
+    const r = await fetch('/api/editor/profiles', { cache: 'no-store' }).catch(() => null);
+    const d = r?.ok ? await r.json() : { perfiles: [] };
+    setEstilos((d.perfiles ?? []).map((x: { id: string; nombre: string }) => ({ id: x.id, nombre: x.nombre })));
+  }, []);
+  useEffect(() => {
+    const t = setTimeout(() => void loadStyles(), 0);
+    return () => clearTimeout(t);
+  }, [loadStyles]);
+
+  // La IA convierte el estándar de la marca en un estilo y lo deja como estilo por defecto
+  const createStyle = async (id: string) => {
+    setBusy(`estilo-${id}`);
+    setError(null);
+    setAviso(null);
+    try {
+      const r = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'crear_estilo', id }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'No se pudo crear el estilo.');
+      setData(d);
+      await loadStyles();
+      setAviso(`Estilo «${d.estilo?.nombre}» creado y asignado a la marca. ${d.explicacion ?? ''}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo crear el estilo.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -89,6 +121,7 @@ export function BrandsPanel() {
           cta: draft.cta.trim() || undefined,
           nota: draft.nota.trim() || undefined,
           estandar: draft.estandar.trim() || undefined,
+          perfilId: draft.perfilId || undefined,
         })
       );
       setData(await readJson(await fetch(API, { method: 'POST', body: fd })));
@@ -167,6 +200,7 @@ export function BrandsPanel() {
       </div>
 
       {data?.aviso && <p className="rounded-lg border border-line bg-surface px-3 py-2 text-[12px] text-fg-muted">{data.aviso}</p>}
+      {aviso && <p className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-[12px] text-fg">{aviso}</p>}
       {error && (
         <p className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-600 dark:text-red-300">
           <AlertCircle className="h-4 w-4 shrink-0" /> {error}
@@ -183,6 +217,18 @@ export function BrandsPanel() {
             {color('acento', 'Acento')}
             {color('texto', 'Texto')}
           </div>
+          <label className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="font-medium text-fg">Estilo por defecto</span>
+            <select value={draft.perfilId} onChange={(e) => setDraft({ ...draft, perfilId: e.target.value })} className="input-clean h-8 px-2 text-[12px]" aria-label="Estilo por defecto de la marca">
+              <option value="">Ninguno (se elige en cada edición)</option>
+              {estilos.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.nombre}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-fg-subtle">Se elige solo en «Nueva edición» al escoger esta marca.</span>
+          </label>
           <BrandFontPicker value={draft.fuente} onChange={(fuente) => setDraft({ ...draft, fuente })} colores={{ primario: /^#[0-9A-F]{6}$/i.test(draft.primario) ? draft.primario : '#000000', acento: /^#[0-9A-F]{6}$/i.test(draft.acento) ? draft.acento : '#FFFFFF', texto: /^#[0-9A-F]{6}$/i.test(draft.texto) ? draft.texto : '#FFFFFF' }} />
           <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-line px-3 py-2.5 text-[12px] text-fg-muted hover:border-accent/60">
             <Upload className="h-4 w-4" />
@@ -243,13 +289,19 @@ export function BrandsPanel() {
                 </p>
                 {(m.lema || m.usuario || m.cta) && <p className="truncate text-[11px] text-fg-muted">{[m.lema, m.cta, m.usuario].filter(Boolean).join(' · ')}</p>}
                 {m.estandar?.trim() && <p className="text-[11px] font-medium text-accent">Con estándar de edición ({m.estandar.trim().split('\n').length} líneas)</p>}
+                <p className="text-[11px] text-fg-muted">Estilo: {estilos.find((x) => x.id === m.perfilId)?.nombre ?? 'ninguno'}</p>
+                {m.estandar?.trim() && m.estado === 'activa' && (
+                  <button type="button" disabled={!!busy} onClick={() => void createStyle(m.id)} className="btn-secondary mt-1 h-7 px-2.5 text-[11px]" title="La IA lee el estándar y crea un estilo que lo cumple (formato, subtítulos, gancho, ritmo, sonido)">
+                    {busy === `estilo-${m.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} {m.perfilId ? 'Rehacer estilo desde el estándar' : 'Crear estilo desde el estándar'}
+                  </button>
+                )}
               </div>
               {m.estado === 'activa' ? (
                 <div className="flex gap-0.5">
                   <button
                     type="button"
                     onClick={() =>
-                      setDraft({ id: m.id, nombre: m.nombre, primario: m.colores.primario, acento: m.colores.acento, texto: m.colores.texto, fuente: m.fuente, lema: m.lema ?? '', usuario: m.usuario ?? '', cta: m.cta ?? '', nota: m.nota ?? '', estandar: m.estandar ?? '', logo: null })
+                      setDraft({ id: m.id, nombre: m.nombre, primario: m.colores.primario, acento: m.colores.acento, texto: m.colores.texto, fuente: m.fuente, lema: m.lema ?? '', usuario: m.usuario ?? '', cta: m.cta ?? '', nota: m.nota ?? '', estandar: m.estandar ?? '', perfilId: m.perfilId ?? '', logo: null })
                     }
                     className="rounded p-1 text-fg-subtle hover:bg-surface-2 hover:text-fg"
                     aria-label={`Editar ${m.nombre}`}

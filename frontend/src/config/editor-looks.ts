@@ -326,7 +326,7 @@ export const ProfileInputSchema = z.object({
       efectosGancho: z.boolean().default(true),
       efectosCortes: z.boolean().default(true),
       efectosGraficos: z.boolean().default(true),
-      efectosBajoVozDb: z.number().min(10).max(35),
+      efectosBajoVozDb: z.number().min(6).max(35),
     })
     .default(() => ({ ...DEFAULT_SOUND })),
   graficos: z

@@ -105,7 +105,7 @@ export function VideoEditorView() {
   const tabs: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }>; count?: number }> = [
     { id: 'nueva', label: 'Nueva edición', icon: Plus },
     { id: 'ediciones', label: 'Mis ediciones', icon: Clapperboard, count: ediciones.length },
-    { id: 'perfiles', label: 'Perfiles', icon: Palette, count: perfiles.length },
+    { id: 'perfiles', label: 'Estilos', icon: Palette, count: perfiles.length },
     { id: 'manual', label: 'Manual', icon: BookOpen },
     { id: 'audio', label: 'Audio', icon: Music2 },
     { id: 'marcas', label: 'Marcas', icon: Stamp },

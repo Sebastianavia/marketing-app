@@ -30,6 +30,8 @@ export const BrandInputSchema = z.object({
   nota: z.string().trim().max(300).optional(),
   /** Estándar de edición del cliente (texto completo). Manda sobre el manual general en sus videos. */
   estandar: z.string().trim().max(40000).optional(),
+  /** Estilo (perfil del editor) por defecto de la marca: se elige solo en «Nueva edición». */
+  perfilId: z.string().max(80).optional(),
 });
 export type BrandInput = z.infer<typeof BrandInputSchema>;
 
