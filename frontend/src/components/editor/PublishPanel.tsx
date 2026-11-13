@@ -112,6 +112,12 @@ export function PublishPanel({ edit, busy, run, disabled }: { edit: EditProject;
         )}
       </div>
 
+      {/* Métricas */}
+      <p className="text-[11px] text-fg-muted">
+        <b className="text-fg">Después de publicar:</b> adjunta en el chat la captura (o el CSV) de retención y pídele a Claude que la analice. Cruza las caídas con lo que había en pantalla y guarda lo aprendido en el Manual.
+        {(edit.metricas ?? []).length ? ` · ${edit.metricas!.length} registro(s) de métricas.` : ''}
+      </p>
+
       {/* Texto del post */}
       <div className="space-y-1.5">
         <p className="flex items-center gap-1.5 text-[11px] text-fg-muted">

@@ -24,6 +24,8 @@ import { LOUDNESS_BY_NETWORK, listMusic, musicDir } from './audio';
 import { AMBIENT_INFO, VOICE_FX_INFO } from './voice';
 import { beatAlignment, detectBeats, generatedBeats, nearestBeat, type BeatGrid } from './beats';
 import { NETWORKS, NETWORK_LABEL, OutputError, PostInputSchema, VariantInputSchema, exportForNetwork, outputBusy, renderVariant } from './outputs';
+import { scoreEdit } from './score';
+import { MetricInputSchema, analyzeRetention, bestTime, measureReference, metricsDoc, newMetric, referencesDoc, saveReference, shareMetric } from './learning';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
 import { KIT_FONTS, loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
@@ -867,6 +869,93 @@ const textoPost = tool({
   },
 });
 
+const puntuarBorrador = tool({
+  name: 'puntuar_borrador',
+  description:
+    'Nota de retención 0–100 del borrador actual (gancho, ritmo y re-ganchos, variedad, sonido, cierre, legibilidad) con las 3 mejoras que más puntos suben. No predice vistas: mide si cumple lo que sabemos que retiene. Se calcula sola tras cada render; úsala antes de dar por bueno un borrador. $0.',
+  schema: z.object({}),
+  run: async (editId) => {
+    const p = await getEdit(editId);
+    const nota = await scoreEdit(p);
+    if (!nota) throw new AgentToolError('La nota necesita un plan de dirección (dirigir_edicion).');
+    if (p.borrador) await updateEdit(editId, (q) => {
+      if (q.borrador && q.borrador.version === p.borrador?.version) q.borrador.nota = nota;
+    });
+    return nota;
+  },
+});
+
+const registrarMetricas = tool({
+  name: 'registrar_metricas',
+  description:
+    'Registra las métricas reales de este video publicado (de una captura o CSV que la persona adjuntó: léelos tú con Read) y cruza la curva de retención con el plan: en cada caída fuerte te dice qué había en pantalla, cuántos segundos llevaba sin cambio visual y qué se decía. Con eso guarda lecciones con evidencia (aprender_del_feedback). retencion: [{t (segundo del video publicado), pct}] con todos los puntos que puedas leer de la gráfica. Se comparte con el equipo (para comparar y la mejor hora). $0.',
+  schema: MetricInputSchema,
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    const m = await newMetric(p, input);
+    await updateEdit(editId, (q) => {
+      q.metricas = [...(q.metricas ?? []), m];
+      logActivity(q, `Métricas de ${input.red} registradas${input.vistas !== undefined ? ` (${input.vistas} vistas)` : ''}.`);
+    });
+    await shareMetric(p, m).catch(() => undefined);
+    const { compartido } = await metricsDoc.load();
+    return { ok: true, compartido, ...analyzeRetention(p, input) };
+  },
+});
+
+const mejorHora = tool({
+  name: 'mejor_hora',
+  description: 'Mejor día y franja para publicar según las métricas reales del equipo (registrar_metricas con fecha y hora). Con pocos datos devuelve solo una orientación general por red (y lo dice). $0.',
+  schema: z.object({}),
+  run: async () => bestTime(),
+});
+
+const analizarReferencia = tool({
+  name: 'analizar_referencia',
+  description:
+    'Mide un video de referencia viral (url de YouTube/TikTok/Instagram que se baja con yt-dlp, o un archivo de la carpeta o del material): cortes por minuto, duración media y máxima de los planos, primer corte, volumen y BPM, y deja una HOJA de 12 fotogramas (Read) para que veas subtítulos, colores, gráficos y encuadres. Luego guarda tu ficha con guardar_referencia. El video es solo para medir: nunca lo uses dentro de una edición. $0.',
+  schema: z.object({ url: z.string().url().optional(), archivo: z.string().max(400).optional(), nombre: z.string().max(80).optional() }),
+  run: async (editId, input) => {
+    let archivo: string | undefined;
+    if (input.archivo) {
+      const p = await getEdit(editId);
+      archivo = path.isAbsolute(input.archivo) ? input.archivo : editAsset(p.carpeta, input.archivo);
+      if (!fsSync.existsSync(archivo)) throw new AgentToolError(`No existe «${input.archivo}».`);
+    }
+    if (!input.url && !archivo) throw new AgentToolError('Indica url o archivo.');
+    try {
+      const r = await measureReference({ url: input.url, archivo, nombre: input.nombre });
+      return { ...r, siguiente: r.hoja ? `Mira la hoja (Read ${r.hoja}) y guarda la ficha con guardar_referencia { id: "${r.ficha.id}", estilo, ideas, cuandoUsar }.` : 'Guarda la ficha con guardar_referencia.' };
+    } catch (err) {
+      throw new AgentToolError(errorMessage(err, 'No se pudo analizar la referencia.'), 400);
+    }
+  },
+});
+
+const guardarReferencia = tool({
+  name: 'guardar_referencia',
+  description:
+    'Guarda (compartida con el equipo) la ficha de una referencia medida con analizar_referencia, con lo que viste: estilo (subtítulos, colores, gráficos, encuadres, ritmo), ideas concretas para imitar y cuándo usarla. Después cualquier Claude puede imitarla (referencias). $0.',
+  schema: z.object({ id: z.string().max(20), nombre: z.string().max(80).optional(), estilo: z.string().trim().min(20).max(1200), ideas: z.array(z.string().max(200)).min(1).max(10), cuandoUsar: z.string().max(300).optional() }),
+  run: async (_editId, input) => {
+    try {
+      return { ok: true, ...(await saveReference(input.id, input)) };
+    } catch (err) {
+      throw new AgentToolError(errorMessage(err, 'No se pudo guardar.'), 400);
+    }
+  },
+});
+
+const referenciasTool = tool({
+  name: 'referencias',
+  description: 'Fichas de videos de referencia que el equipo analizó (ritmo medido + estilo e ideas): para imitar una en un video concreto cuando la persona lo pida o encaje. $0.',
+  schema: z.object({}),
+  run: async () => {
+    const { data, compartido, aviso } = await referencesDoc.load();
+    return { compartido, ...(aviso ? { aviso } : {}), fichas: data.fichas };
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -941,7 +1030,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

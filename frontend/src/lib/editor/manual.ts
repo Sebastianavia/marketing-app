@@ -327,6 +327,15 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Aprendizaje',
+    items: [
+      'Nota de retención 0–100 de cada borrador con las 3 mejoras que más suben (puntuar_borrador).',
+      'Métricas reales (registrar_metricas desde una captura o CSV): cada caída de retención cruzada con lo que había en pantalla → lecciones con evidencia en este manual.',
+      'Fichas de videos de referencia (analizar_referencia + guardar_referencia; referencias): cortes por minuto, planos, volumen, BPM y estilo, para imitar.',
+      'Mejor hora de publicación con los datos del equipo (mejor_hora).',
+    ],
+  },
+  {
     titulo: 'HyperFrames (diseño y animación)',
     items: [
       'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',

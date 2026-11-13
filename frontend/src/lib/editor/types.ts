@@ -1,4 +1,6 @@
 import type { EditExport, EditVariant, PostText } from './outputs';
+import type { EditScore } from './score';
+import type { EditMetric } from './learning';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditDirection } from './direction';
 
@@ -119,12 +121,16 @@ export interface EditProject {
     portada?: string;
     calidad?: QualityCheck[];
     notas?: string[];
+    /** Nota de retención 0–100 (lib/editor/score.ts). */
+    nota?: EditScore;
   };
   aprobado?: { videoPath: string; fecha: string };
   /** Fase 5: variantes del borrador, exportaciones por red y texto del post. */
   variantes?: EditVariant[];
   exportaciones?: EditExport[];
   post?: PostText;
+  /** Fase 7: métricas reales de lo publicado. */
+  metricas?: EditMetric[];
   actividad: EditActivity[];
   costoUSD: number;
   /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */

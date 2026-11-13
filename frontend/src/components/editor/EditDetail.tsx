@@ -429,6 +429,14 @@ function DraftCard({
             </p>
             <p className="text-[12px] text-fg-muted">
               Versión {b.version} · {formatClock(b.duracion)} (antes {formatClock(edit.original.duracion)})
+              {b.nota && (
+                <span
+                  className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold ${b.nota.total >= 80 ? 'bg-accent/15 text-accent' : b.nota.total >= 60 ? 'bg-surface-2 text-fg' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'}`}
+                  title="Nota de retención: si el video cumple lo que sabemos que retiene (no predice vistas). Detalle abajo."
+                >
+                  Nota {b.nota.total}/100
+                </span>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -473,6 +481,25 @@ function DraftCard({
               >
                 Volver al estilo del perfil
               </button>
+            </div>
+          )}
+          {b.nota && (
+            <div className="space-y-1.5 rounded-lg bg-surface-2 px-3 py-2">
+              <p className="font-semibold text-fg">Nota de retención: {b.nota.total}/100</p>
+              <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-fg-muted">
+                {b.nota.partes.map((x) => (
+                  <span key={x.id}>
+                    {x.nombre}: <b className="text-fg">{x.puntos}</b>/{x.maximo}
+                  </span>
+                ))}
+              </p>
+              {b.nota.mejoras.length > 0 && (
+                <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-fg-muted">
+                  {b.nota.mejoras.map((m, i) => (
+                    <li key={i}>{m}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           {b.calidad && b.calidad.length > 0 && (

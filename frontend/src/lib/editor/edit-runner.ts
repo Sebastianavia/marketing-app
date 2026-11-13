@@ -1,3 +1,4 @@
+import { scoreEdit } from './score';
 import { errorMessage } from '@/lib/errors';
 import { runAnalysis } from './analyze';
 import { renderEdit } from './render';
@@ -114,6 +115,15 @@ async function runRender(id: string) {
       const fallos = r.calidad.filter((c) => c.ok === false).length;
       logActivity(x, `Borrador listo: ${r.duracion.toFixed(1)} s. Control de calidad: ${fallos ? `${fallos} punto(s) a revisar` : 'todo bien'}.`);
     });
+    // Nota de retención (solo con plan de Claude); si falla, el borrador sigue igual
+    try {
+      const nota = await scoreEdit(await getEdit(id));
+      if (nota) await updateEdit(id, (x) => {
+        if (x.borrador?.version === version) x.borrador.nota = nota;
+      });
+    } catch (err) {
+      console.error('[edicion] nota de retención:', err);
+    }
   } catch (err) {
     console.error('[edicion] render falló:', err);
     const mensaje = errorMessage(err, 'No se pudo armar el video.');
