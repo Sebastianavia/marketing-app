@@ -210,9 +210,11 @@ Plan completo: https://claude.ai/code/artifact/5321e959-43c0-467d-8114-330e35a19
 
 ## Pendiente del plan (al 2026-10-12)
 
+> **Mapa completo y al día de pendientes:** `docs/pendientes.md` (pruebas con dinero de ElevenLabs —doblaje y corrección de palabras—, datos compartidos en R2 y funciones por terminar). Windows: `docs/pruebas-windows.md`.
+
 - **Login con Google (2026-10-26): solo fachada.** `components/auth/LoginScreen.tsx` se muestra antes de la app (`page.tsx` según `useAuthStore.status`). "Continuar con Google" espera 1,3 s y abre una sesión local (`localStorage` `lulo_session`); "Cerrar sesión" está al final de la barra lateral. Para conectarlo de verdad, reemplazar solo `authenticateWithGoogle` en `store/useAuthStore.ts`.
 - Clonación y reemplazo (Genjutsu): sigue simulado.
-- Probar con dinero: generación + montaje del Director (proyecto de las zapatillas, ≈ $0,61 pendiente de aprobar) y el editor con un video real hablando a cámara de 30–60 s.
+- Probar con dinero: doblaje y corrección de palabras con ElevenLabs (editor, fase 6), generación + montaje del Director (zapatillas, ≈ $0,61) — ver `docs/pendientes.md`.
 - Probar todo en Windows (Claude sin sandbox, `claude.exe`/`claude.cmd` vía cross-spawn).
 - Funciones avanzadas del editor sin probar: recorte de persona (PyTorch), Whisper local, caras (OpenCV).
 - Cliente MCP de Buzzy (falta URL y clave).
