@@ -5,7 +5,7 @@ import path from 'path';
 import spawn from 'cross-spawn';
 import { z } from 'zod';
 import { isInside } from '@/lib/fs/inside';
-import { probeVideo } from '@/lib/editor/media';
+import { ffmpeg, probeVideo } from '@/lib/editor/media';
 import { resolveFfmpegPath } from '@/lib/video/ffmpeg';
 import { childEnv } from './bridge';
 
@@ -41,6 +41,58 @@ export const CodeCheckSchema = z.object({
   en: z.array(z.number().min(0).max(3600)).max(20).optional().describe('Segundos concretos a revisar (además de las muestras).'),
 });
 export type CodeCheckInput = z.infer<typeof CodeCheckSchema>;
+
+/**
+ * Varios renders en UNA llamada (ahorro de tokens: cada llamada a una herramienta es otra vuelta
+ * del modelo que relee todo el contexto; en una edición real se hicieron 25 renders sueltos).
+ * Esquema plano (la API de Claude descarta oneOf): un render con proyecto+salida, o varios en `lote`.
+ */
+export const CodeVideoBatchSchema = CodeVideoSchema.partial({ proyecto: true, salida: true }).extend({
+  lote: z.array(CodeVideoSchema).max(12).optional().describe('Varios renders de una vez (hasta 12), en vez de proyecto/salida. Úsalo siempre que tengas más de una pieza lista: ahorra vueltas.'),
+  fotogramas: z
+    .boolean()
+    .default(true)
+    .describe('true (por defecto): junto a cada video deja <salida>.hoja.jpg con 3 fotogramas (15 %, 50 %, 85 %) sobre gris para mirarlos con UN Read, sin sacarlos con Bash.'),
+});
+export type CodeVideoBatchInput = z.input<typeof CodeVideoBatchSchema>;
+
+export const CODE_VIDEO_BATCH_DESCRIPTION = `${CODE_VIDEO_DESCRIPTION} Para varias piezas manda \`lote\` (una sola llamada). Con \`fotogramas\` (por defecto) cada video trae una hoja .jpg con 3 fotogramas: revísala con Read en vez de extraer fotogramas con FFmpeg.`;
+
+/** Hoja con 3 fotogramas sobre gris (así se ven también los .mov/.webm transparentes). */
+async function contactSheet(video: string): Promise<string | null> {
+  const info = await probeVideo(video).catch(() => null);
+  const dur = info?.duracion && info.duracion > 0 ? info.duracion : 1;
+  const sheet = `${video}.hoja.jpg`;
+  const ts = [0.15, 0.5, 0.85].map((f) => (dur * f).toFixed(3));
+  // Un fotograma de cada entrada (trim) → en fila → sobre gris (overlay por fotograma suelto dejaba paneles vacíos)
+  const parts = ts.map((_, i) => `[${i}:v]format=rgba,scale=360:640:force_original_aspect_ratio=decrease,pad=360:640:(ow-iw)/2:(oh-ih)/2:color=0x00000000,trim=end_frame=1,setpts=PTS-STARTPTS[f${i}]`);
+  const graph = `${parts.join(';')};[f0][f1][f2]hstack=inputs=3,format=rgba[h];color=c=0x808080:s=1080x640[bg];[bg][h]overlay=shortest=1,format=yuvj420p[out]`;
+  try {
+    await ffmpeg({ args: ['-y', '-hide_banner', ...ts.flatMap((t) => ['-ss', t, '-i', video]), '-filter_complex', graph, '-map', '[out]', '-frames:v', '1', '-q:v', '4', sheet], timeoutMs: 60_000 });
+    return sheet;
+  } catch {
+    return null;
+  }
+}
+
+export async function renderCodeVideos(base: string, raw: unknown) {
+  const input = CodeVideoBatchSchema.parse(raw);
+  const { lote, fotogramas, ...single } = input;
+  const items = lote?.length ? lote : single.proyecto && single.salida ? [CodeVideoSchema.parse(single)] : [];
+  if (!items.length) throw new CodeVideoError('Indica proyecto y salida, o una lista en lote.');
+  const resultados: Array<Record<string, unknown>> = [];
+  for (const it of items) {
+    try {
+      const r = await renderCodeVideo(base, it);
+      const hoja = fotogramas ? await contactSheet(path.join(/*turbopackIgnore: true*/ base, r.archivo)) : null;
+      resultados.push({ ...r, ...(hoja ? { hoja: path.relative(base, hoja) } : {}) });
+    } catch (err) {
+      resultados.push({ ok: false, salida: it.salida, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  if (items.length === 1 && resultados[0].ok === false) throw new CodeVideoError(String(resultados[0].error), 500);
+  return items.length === 1 ? resultados[0] : { ok: resultados.every((r) => r.ok !== false), resultados };
+}
 
 export const CODE_CHECK_DESCRIPTION =
   'Revisa un proyecto HyperFrames como `npx hyperframes check` (lint, maquetación, textos cortados o encimados, contraste, tramos muertos) con Chrome en este PC. $0. Úsala en vez del check de Bash (ahí no arranca Chrome) antes de renderizar.';

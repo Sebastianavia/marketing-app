@@ -31,7 +31,7 @@ import { generateImages, imageUnitPrice } from '@/lib/generation/image';
 import { DEFAULT_IMAGE_MODEL, IMAGE_MODELS, getImageModel, isValidImageModelId } from '@/config/image-models';
 
 import { isInside } from '@/lib/fs/inside';
-import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_DESCRIPTION, CodeCheckSchema, CodeVideoError, CodeVideoSchema, checkCodeVideo, renderCodeVideo } from '@/lib/ai/claude-code/code-video';
+import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_BATCH_DESCRIPTION, CodeCheckSchema, CodeVideoBatchSchema, CodeVideoError, checkCodeVideo, renderCodeVideos } from '@/lib/ai/claude-code/code-video';
 import { SEEDANCE_MODELS, transformVideoSeedance, validateAndBuildSeedancePayload } from '@/services/faceswap.service';
 import type { SeedanceModelId, SeedanceResolution, SeedanceSize, SeedanceTransformInput } from '@/types/faceswap.types';
 import { downloadToLibrary } from '@/lib/storage/generated-library';
@@ -952,11 +952,11 @@ const revisarHtmlVideo = tool({
 
 const renderizarHtmlVideo = tool({
   name: 'renderizar_html_video',
-  description: CODE_VIDEO_DESCRIPTION,
-  schema: CodeVideoSchema,
+  description: CODE_VIDEO_BATCH_DESCRIPTION,
+  schema: CodeVideoBatchSchema,
   run: async (id, input) => {
     const p = await getStudioProject(id);
-    return renderCodeVideo(p.carpeta, input).catch((err) => {
+    return renderCodeVideos(p.carpeta, input).catch((err) => {
       throw err instanceof CodeVideoError ? new StudioError(err.message, err.status) : err;
     });
   },

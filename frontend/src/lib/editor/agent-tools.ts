@@ -39,7 +39,7 @@ import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, mate
 import { fontsDir } from './media';
 import { totalDuration } from './timeline';
 import { FONT_SUGGESTIONS, SUBTITLE_STYLES } from '@/config/editor-looks';
-import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_DESCRIPTION, CodeCheckSchema, CodeVideoError, CodeVideoSchema, checkCodeVideo, renderCodeVideo } from '@/lib/ai/claude-code/code-video';
+import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_BATCH_DESCRIPTION, CodeCheckSchema, CodeVideoBatchSchema, CodeVideoError, checkCodeVideo, renderCodeVideos } from '@/lib/ai/claude-code/code-video';
 
 /**
  * Herramientas de Claude sobre UNA edición (chat "Claude" de la pantalla de Edición).
@@ -225,6 +225,12 @@ const cambiarPerfil = tool({
   },
 });
 
+/** ¿La frase pedida cambia algo respecto a la edición anterior? */
+function byIdChanged(prev: EditProject, f: { id: string; cortar: boolean; textoEditado?: string }) {
+  const x = prev.frases.find((y) => y.id === f.id);
+  return !!x && (x.cortar !== f.cortar || (x.textoEditado ?? '') !== (f.textoEditado ?? ''));
+}
+
 const cambiarGuion = tool({
   name: 'cambiar_guion',
   description:
@@ -252,9 +258,21 @@ const cambiarGuion = tool({
       throw new AgentToolError(errorMessage(err), err instanceof EditError ? err.status : 400);
     });
     await updateEdit(editId, (p) => logActivity(p, 'Claude ajustó el guion de la edición.'));
-    return { ok: true, edicion: snapshot(edit) };
+    // Resumen corto (antes devolvía la edición entera: ~25 000 caracteres por llamada)
+    const intervals = snapToFrames(keptIntervals(edit.frases, normalizeProfile(edit.perfil).ritmo, edit.original.duracion));
+    return {
+      ok: true,
+      frases: { total: edit.frases.length, conservadas: edit.frases.filter((f) => !f.cortar).length, cambiadasAhora: input.frases ? input.frases.filter((f) => byIdChanged(current, f)).length : 0 },
+      duracionBorradorSeg: Number(totalDuration(intervals).toFixed(2)),
+      gancho: edit.gancho,
+      graficosActivos: (edit.graficos ?? []).filter((g) => g.activo).length,
+      perfil: edit.perfil.nombre,
+      siguiente: 'Los tiempos del borrador cambiaron: si tienes un plan de dirección, vuelve a mirar palabras_borrador antes de ajustar tiempos. Después, renderizar.',
+    };
   },
 });
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const palabrasBorrador = tool({
   name: 'palabras_borrador',
@@ -269,13 +287,15 @@ const palabrasBorrador = tool({
     return {
       nota: 'Tiempos del borrador que hace el motor (renderizar). Si tu versión cambia la duración o el orden, recalcula a partir de estos.',
       ...structureNote(p),
-      frases: kept.map((f, i) => ({
-        frase: i,
-        texto: f.textoEditado ?? phraseText(f),
-        desde: palabras.find((w) => w.frase === i)?.s ?? null,
-        hasta: [...palabras].reverse().find((w) => w.frase === i)?.e ?? null,
-      })),
-      palabras,
+      formato: 'Cada frase: [n, desde, hasta, texto] y sus palabras como "palabra inicio-fin" (segundos del borrador, 2 decimales).',
+      // Compacto: antes cada palabra era un objeto con nombres de campo (~19 000 caracteres por llamada)
+      frases: kept.map((f, i) => {
+        const ws = palabras.filter((w) => w.frase === i);
+        return {
+          f: [i, ws[0] ? r2(ws[0].s) : null, ws.length ? r2(ws[ws.length - 1].e) : null, f.textoEditado ?? phraseText(f)],
+          p: ws.map((w) => `${w.t} ${r2(w.s)}-${r2(w.e)}`).join(' | '),
+        };
+      }),
     };
   },
 });
@@ -480,11 +500,11 @@ const revisarHtmlVideo = tool({
 
 const renderizarHtmlVideo = tool({
   name: 'renderizar_html_video',
-  description: CODE_VIDEO_DESCRIPTION,
-  schema: CodeVideoSchema,
+  description: CODE_VIDEO_BATCH_DESCRIPTION,
+  schema: CodeVideoBatchSchema,
   run: async (editId, input) => {
     const p = await getEdit(editId);
-    return renderCodeVideo(p.carpeta, input).catch((err) => {
+    return renderCodeVideos(p.carpeta, input).catch((err) => {
       throw err instanceof CodeVideoError ? new AgentToolError(err.message, err.status) : err;
     });
   },
@@ -1281,7 +1301,8 @@ const dirigirEdicion = tool({
       siguiente: ritmo.avisos.length
         ? 'Corrige los avisos de ritmo (vuelve a llamar a dirigir_edicion solo con las secciones que cambien) y después renderizar.'
         : 'El ritmo está equilibrado: renderizar y después revisa fotogramas en los momentos clave y escuchar_audio.',
-      direccion: finalPlan,
+      // Sin repetir el plan (lo acabas de escribir; ocupaba ~17 000 caracteres por llamada): ver_edicion lo muestra en tiempos finales
+      plan: `Guardado: ${Object.keys(plan).filter((k) => (plan as Record<string, unknown>)[k] !== undefined).join(', ') || 'sin cambios'}. Duración final ${total.toFixed(2)} s. El plan completo, si lo necesitas, en ver_edicion.`,
     };
   },
 });
