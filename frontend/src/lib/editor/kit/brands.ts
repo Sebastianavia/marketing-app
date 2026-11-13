@@ -21,7 +21,7 @@ const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color en formato #RRGGBB');
 export const BrandInputSchema = z.object({
   nombre: z.string().trim().min(2).max(60),
   colores: z.object({ primario: hex, acento: hex, texto: hex.default('#FFFFFF') }),
-  fuente: z.enum(KIT_FONTS).default('Archivo Black'),
+  fuente: z.string().trim().min(2).max(60).default('Archivo Black'),
   lema: z.string().trim().max(80).optional(),
   /** Usuario en redes, p. ej. «@lulostudio». */
   usuario: z.string().trim().max(40).optional(),

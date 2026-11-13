@@ -169,6 +169,17 @@ export function faceSeries(person: PersonTrack | null, faces: FaceTrack | null):
   return x.length && y.length ? { x, y } : null;
 }
 
+/** Barbilla (centro x, y del borde inferior de la cara) en cada momento, suavizada (subtítulos anclados a la cara). */
+export function chinSeries(person: PersonTrack | null, faces: FaceTrack | null): { x: Series; y: Series } | null {
+  let pts: Array<[number, number | null, number | null]> = [];
+  if (person?.frames.some((f) => f.cara)) pts = person.frames.map((f) => [f.t, f.cara ? f.cara[0] + f.cara[2] / 2 : null, f.cara ? f.cara[1] + f.cara[3] : null]);
+  else if (faces?.frames.some(Boolean)) pts = faces.frames.map((b, i) => [i / faces.fps, b ? b.x + b.w / 2 : null, b ? b.y + b.h : null]);
+  if (!pts.length) return null;
+  const x = clean(pts.map((p) => [p[0], p[1]]), 0.6);
+  const y = clean(pts.map((p) => [p[0], p[2]]), 0.6);
+  return x.length && y.length ? { x, y } : null;
+}
+
 export type FollowTarget = 'cara' | 'mano_izquierda' | 'mano_derecha';
 
 /** Serie de un objetivo a seguir (suavizado corto: sigue de cerca sin vibrar). */

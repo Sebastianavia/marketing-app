@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 export type EditFormat = '9:16' | '4:5' | '1:1';
 export type SubtitleStyle = 'karaoke' | 'frase' | 'palabra' | 'pop' | 'caja_activa';
-export type SubtitlePosition = 'arriba' | 'centro' | 'abajo';
+export type SubtitlePosition = 'arriba' | 'centro' | 'abajo' | 'cara';
 
 export const EDIT_FORMATS: Array<{ id: EditFormat; label: string; size: { width: number; height: number } }> = [
   { id: '9:16', label: 'Reel / Story / TikTok (9:16)', size: { width: 1080, height: 1920 } },
@@ -74,6 +74,7 @@ export const SUBTITLE_POSITIONS: Array<{ id: SubtitlePosition; label: string }> 
   { id: 'arriba', label: 'Arriba' },
   { id: 'centro', label: 'Centro' },
   { id: 'abajo', label: 'Abajo' },
+  { id: 'cara', label: 'Bajo el mentón' },
 ];
 
 /**
@@ -113,6 +114,7 @@ export interface SubtitleSettings {
   palabrasPorLinea: number;
   /** Tamaño de la palabra clave respecto al resto (%). */
   escalaClave: number;
+  sombraSuave?: boolean;
   /** Opacidad de la caja detrás del texto (%), p. ej. 85 = se ve un poco el video. */
   opacidadCaja: number;
 }
@@ -279,9 +281,11 @@ export const ProfileInputSchema = z.object({
     grosorBorde: z.number().min(0).max(12),
     caja: z.boolean(),
     colorCaja: hex,
-    posicion: z.enum(['arriba', 'centro', 'abajo']),
+    posicion: z.enum(['arriba', 'centro', 'abajo', 'cara']),
     palabrasPorLinea: z.number().int().min(1).max(8),
     escalaClave: z.number().min(100).max(250).default(130),
+    /** Sombra suave desenfocada (en vez de borde): la pide p. ej. el estándar ETM. */
+    sombraSuave: z.boolean().optional(),
     opacidadCaja: z.number().min(30).max(100).default(100),
   }),
   gancho: z.object({

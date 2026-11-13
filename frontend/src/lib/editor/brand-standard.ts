@@ -11,18 +11,11 @@ import type { EditProject } from './types';
  * prometer lo que el motor no hace; lo resuelve por otra vía (HyperFrames, FFmpeg) o lo avisa.
  */
 export const ENGINE_LIMITS: string[] = [
-  'Corte DENTRO de una frase: cambiar_guion corta frases enteras. Para quitar palabras sueltas dentro de una frase, avisa con el segundo exacto (lista para corte manual) o reconstruye ese tramo con FFmpeg y publicar_borrador.',
-  'Subtítulos ANCLADOS a la cara (que se muevan con el zoom o el plano): el motor los pone en una posición fija (abajo, centro o arriba, y baja si chocan con la barbilla). Elige la posición y el zoom para que caigan bajo el mentón o avisa de los planos donde no.',
-  'Subtítulos en la mitad de la persona en pantalla dividida: el motor los centra en la unión. Avísalo o evita la pantalla dividida con subtítulos.',
-  'Subtítulos al 68 % del alto cuando la persona no está en cuadro: no es automático.',
-  'Sombra suave desenfocada (8 px) en subtítulos: el motor hace sombra dura (campo sombra); es una aproximación.',
-  'Fuentes que no estén en la carpeta de fuentes (p. ej. Sora, Anton, Prata): instálalas en <datos>/fuentes (.ttf de Google Fonts, licencia OFL) o usa las alternativas que da el propio estándar.',
-  'Caja de comentarios de Instagram que se escribe sola: no hay pieza del kit; hazla en HyperFrames (mockup fiel de la app) o avísalo.',
-  'Aire de 0,8 s después de la última palabra: el render termina con un margen corto; alárgalo con FFmpeg (congelar o mantener el último plano) o avísalo.',
-  'Aire mínimo sobre la cabeza con zoom: la cámara sigue la cara, pero no garantiza el 4 % de aire arriba; revísalo en los planos cerrados.',
-  'Transcribir el audio FINAL para comprobar el guion: no es automático (palabras_borrador viene de la transcripción del original). Revisa escuchando (escuchar_audio) y mirando, y di que no se re-transcribió.',
-  'Barrido con desenfoque de movimiento: no está entre las transiciones del motor (flash, negro, glitch, desenfoque); hazlo con FFmpeg o usa corte seco.',
-  'Piezas del kit con blanco puro (bordes de sticker, antes/después): si la marca prohíbe el blanco, no las uses o pásales paleta sin blanco.',
+  'Los gráficos y piezas del kit van en coordenadas de PANTALLA: con un zoom fuerte la cabeza sube y crece. Las piezas «arriba» y «pecho» se colocan según la cara en el plano normal: mira un fotograma de cada pieza en su plano real y corrige si toca la cara.',
+  'Subtítulos anclados a la cara: la posición se calcula al empezar cada línea (no se desliza dentro de la línea).',
+  'Transcribir el audio final (verificar_audio_final): gratis solo con Whisper local; si no, ElevenLabs con aprobación (céntimos).',
+  'Mockups de apps que no sean Instagram (WhatsApp, ChatGPT, Canva…): no hay pieza fija; usa capturas o grabaciones reales con kit «pantalla», o un mockup fiel en HyperFrames.',
+  'Fuentes: solo las de Google Fonts se instalan solas (instalar_fuente); una fuente de pago hay que ponerla a mano en la carpeta de fuentes.',
 ];
 
 export async function brandOf(p: EditProject): Promise<Brand | null> {
@@ -39,7 +32,9 @@ export async function brandStandardPrompt(p: EditProject): Promise<string> {
 Esta edición es de ${b.nombre}. Su estándar MANDA sobre el manual de edición y sobre tu criterio creativo general: si chocan, gana el estándar (colores, fuentes, subtítulos, efectos permitidos, transiciones, cierre…). Lo que el estándar no diga, lo decides tú con el criterio general.
 ${b.estandar.trim()}
 
-LO QUE EL MOTOR DE LULO AÚN NO HACE (no lo prometas; resuélvelo por otra vía o avísalo ANTES de entregar, con el segundo exacto y la regla):
+LO QUE YA TIENES PARA CUMPLIRLO: cortar_palabras (corte por palabra; los arranques repetidos ya vienen quitados), subtítulos con posicion «cara» (bajo el mentón, siguen el zoom; en pantalla dividida en la mitad de la persona; sin persona en cuadro al 68 %) y sombraSuave, instalar_fuente (Sora, Anton, Prata…), kit «comentario_instagram» y posicion «pecho» para la palabra grande, transición «barrido», colaFinal (aire tras la última palabra), aire automático sobre la cabeza con zoom, verificar_audio_final, voces_de_fondo, crear_variante (gancho A/B en dos archivos).
+
+LÍMITES QUE QUEDAN (no los prometas; resuélvelos por otra vía o avísalos ANTES de entregar, con el segundo exacto y la regla):
 ${ENGINE_LIMITS.map((x) => `- ${x}`).join('\n')}
 ════ FIN DEL ESTÁNDAR ════`;
 }

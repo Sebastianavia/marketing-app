@@ -15,6 +15,7 @@ import { pythonPackageDirs } from '../claude-toolbox';
 import type { EditProject } from '../types';
 import { KIT_FONTS, ensureLogo, findBrand } from './brands';
 import * as T from './templates';
+import { findFontFile } from '../fonts';
 
 /**
  * Kit de gráficos de Lulo (Fase 3): piezas animadas con la paleta del video, hechas con plantillas
@@ -24,7 +25,7 @@ import * as T from './templates';
  * vez y la calidad es constante; para algo único sigue teniendo HyperFrames a mano.
  */
 
-export const KIT_TYPES = ['sticker', 'trazo', 'grafica', 'antes_despues', 'capitulo', 'texto_kinetico', 'marca', 'pantalla'] as const;
+export const KIT_TYPES = ['sticker', 'trazo', 'grafica', 'antes_despues', 'capitulo', 'texto_kinetico', 'marca', 'pantalla', 'comentario_instagram'] as const;
 export type KitType = (typeof KIT_TYPES)[number];
 
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -39,7 +40,8 @@ export const KitInputSchema = z.object({
   colocarEn: sec.optional(),
   agregar: z.boolean().default(false),
   paleta: z.object({ primario: hex, acento: hex, secundario: hex.optional(), texto: hex.default('#FFFFFF'), fondo: hex.default('#0B0B0F') }).optional(),
-  fuente: z.enum(KIT_FONTS).optional(),
+  /** Fuente de títulos: una de HyperFrames (KIT_FONTS) o una instalada con instalar_fuente (su nombre). */
+  fuente: z.string().max(60).optional(),
   // sticker
   emoji: z.string().max(16).optional(),
   texto: z.string().max(120).optional(),
@@ -60,7 +62,8 @@ export const KitInputSchema = z.object({
   datos: z.array(z.object({ etiqueta: z.string().max(24), valor: z.number().min(0).max(1e9) })).min(1).max(7).optional(),
   titulo: z.string().max(60).optional(),
   unidad: z.string().max(6).optional(),
-  posicion: z.enum(['arriba', 'centro', 'abajo']).optional(),
+  /** arriba = sobre la cabeza (sin tocarla); pecho = bajo el mentón (palabra grande); centro; abajo. */
+  posicion: z.enum(['arriba', 'centro', 'abajo', 'pecho']).optional(),
   // antes / después
   antes: z.string().max(300).optional(),
   despues: z.string().max(300).optional(),
@@ -80,6 +83,9 @@ export const KitInputSchema = z.object({
   // marca
   marca: z.string().max(60).optional(),
   modo: z.enum(['intro', 'cierre']).optional(),
+  // comentario_instagram
+  tema: z.enum(['oscuro', 'claro']).optional(),
+  escribirEn: z.number().min(0).max(5).optional(),
   // pantalla
   archivo: z.string().max(300).optional(),
   dispositivo: z.enum(['telefono', 'portatil', 'ninguno']).optional(),
@@ -105,6 +111,7 @@ export const KIT_CATALOG: Record<KitType, string> = {
   capitulo: 'Tarjeta de capítulo 0,8–1,2 s entre ideas: numero («PASO 2»), titulo, fondo solido (pantalla completa) | banda.',
   texto_kinetico: 'La frase clave palabra a palabra a pantalla grande (1–2 por video): desdeVideo/hastaVideo para tomar las palabras con sus tiempos exactos, o frase/palabras; destacar, oscurecer 0–0,8, posicion.',
   marca: 'Intro o cierre de una marca guardada (mira marcas): marca (nombre o id), modo intro|cierre, fondo solido|tarjeta. Logo, colores, lema y CTA de la marca.',
+  comentario_instagram: 'Caja de comentarios de Instagram como en la app (cierre/CTA): emojis rápidos, avatar (logo de la marca si hay), «Añade un comentario…» y la palabra clave (texto) que se escribe sola en escribirEn s; tema oscuro|claro, posicion (por defecto arriba, sobre la cabeza), duracion ≥ 4 s.',
   pantalla: 'Captura o grabación de pantalla dentro de un teléfono o portátil, con zoom y cursor que va y hace clic: archivo, dispositivo, enfoques [{t, x, y, zoom, clic}] (usa zonas_de_cambio para saber dónde pasa algo), inclinacion, inicioVideo.',
 };
 
@@ -143,6 +150,31 @@ export interface KitResult {
   duracion: number;
   reutilizado: boolean;
   segundosDeRender?: number;
+  avisos?: string[];
+}
+
+/**
+ * Cara de la persona (px, plano normal, mediana) a partir de la detección que ya hay en la carpeta
+ * de la edición (pista de persona o caras): coronilla ≈ caja − 45 % de su alto; barbilla = borde inferior.
+ */
+async function faceForKit(carpeta: string, H: number): Promise<{ top: number; chin: number } | null> {
+  const files = (await fs.readdir(carpeta).catch(() => [] as string[])).filter((f) => /^(persona|caras)-[0-9a-f]+e?\.json$/.test(f));
+  const boxes: Array<[number, number, number, number]> = [];
+  for (const f of files) {
+    try {
+      const j = JSON.parse(await fs.readFile(path.join(/*turbopackIgnore: true*/ carpeta, f), 'utf-8'));
+      for (const fr of j.frames ?? []) {
+        if (Array.isArray(fr?.cara)) boxes.push(fr.cara);
+        else if (fr && typeof fr.y === 'number') boxes.push([fr.x, fr.y, fr.w, fr.h]);
+      }
+    } catch {
+      // archivo a medias: se ignora
+    }
+    if (boxes.length > 30) break;
+  }
+  if (!boxes.length) return null;
+  const med = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  return { top: Math.max(0, med(boxes.map((b) => b[1] - b[3] * 0.45))) * H, chin: med(boxes.map((b) => b[1] + b[3])) * H };
 }
 
 /**
@@ -154,7 +186,10 @@ export async function buildKitPiece(p: EditProject, input: KitInput, words: Arra
   const safe = safeZone(perfil.red, perfil.formato);
   const pal = palette(p, perfil, input.paleta);
   let titulo = input.fuente ?? 'Archivo Black';
-  const fr = (): T.KitFrame => ({ W, H, safe: { top: safe.top, bottom: safe.bottom, right: safe.right }, pal, titulo, cuerpo: 'Montserrat' });
+  let fontCss: string | undefined;
+  const cara = await faceForKit(p.carpeta, H);
+  const avisos: string[] = [];
+  const fr = (): T.KitFrame => ({ W, H, safe: { top: safe.top, bottom: safe.bottom, right: safe.right }, pal, titulo, cuerpo: 'Montserrat', fontCss, cara: cara ?? undefined, avisos });
   const assets: Array<{ src: string; name: string }> = [];
   let built: (assetRel: Record<string, string>) => T.KitBuilt;
   const i = input;
@@ -223,6 +258,20 @@ export async function buildKitPiece(p: EditProject, input: KitInput, words: Arra
         });
       break;
     }
+    case 'comentario_instagram': {
+      if (!i.texto) throw new KitError('comentario_instagram: falta texto (la palabra clave que se escribe).');
+      let inicial = 'L';
+      if (i.marca) {
+        const b = await findBrand(i.marca).catch(() => null);
+        if (b) {
+          inicial = b.nombre;
+          const logo = await ensureLogo(b).catch(() => null);
+          if (logo) assets.push({ src: logo, name: 'avatar' });
+        }
+      }
+      built = (r) => T.comentarioInstagram(fr(), { palabra: i.texto!, avatar: r.avatar, inicial, tema: i.tema ?? 'oscuro', posicion: i.posicion ?? 'arriba', duracion: i.duracion ?? 4.5, escribirEn: i.escribirEn ?? 0.6 });
+      break;
+    }
     case 'pantalla': {
       const m = mediaOf(p, i.archivo, 'archivo');
       assets.push({ src: m.abs, name: 'pantalla' });
@@ -238,6 +287,13 @@ export async function buildKitPiece(p: EditProject, input: KitInput, words: Arra
 
   // Huella: plantilla + archivos de entrada (ruta, tamaño y fecha)
   const rels: Record<string, string> = {};
+  // Fuente propia (no incluida en HyperFrames): se copia a la pieza y se carga con @font-face
+  if (!(KIT_FONTS as readonly string[]).includes(titulo)) {
+    const file = await findFontFile(titulo);
+    if (!file) throw new KitError(`La fuente «${titulo}» no está instalada: instálala con instalar_fuente o usa una de ${KIT_FONTS.join(', ')}.`);
+    assets.push({ src: file, name: 'fuente' });
+    fontCss = `@font-face{font-family:'${titulo.replace(/'/g, '')}';src:url('assets/fuente${path.extname(file).toLowerCase()}')}`;
+  }
   for (const a of assets) rels[a.name] = `assets/${a.name}${path.extname(a.src).toLowerCase()}`;
   const piece = built(rels);
   const stamp = assets.map((a) => {
@@ -247,7 +303,7 @@ export async function buildKitPiece(p: EditProject, input: KitInput, words: Arra
   const h = hashOf(piece.html, ...stamp, `${W}x${H}`);
   const outRel = `kit/${i.tipo}-${h}.mov`;
   const outAbs = path.join(/*turbopackIgnore: true*/ p.carpeta, outRel);
-  if (fsSync.existsSync(outAbs) && fsSync.statSync(outAbs).size > 0) return { archivo: outRel, duracion: piece.duracion, reutilizado: true };
+  if (fsSync.existsSync(outAbs) && fsSync.statSync(outAbs).size > 0) return { archivo: outRel, duracion: piece.duracion, reutilizado: true, ...(avisos.length ? { avisos } : {}) };
 
   const projRel = `kit/_src/${h}`;
   const projDir = path.join(/*turbopackIgnore: true*/ p.carpeta, projRel);
@@ -256,7 +312,7 @@ export async function buildKitPiece(p: EditProject, input: KitInput, words: Arra
   for (const a of assets) await addAsset(projDir, a.src, a.name);
   await fs.writeFile(path.join(/*turbopackIgnore: true*/ projDir, 'index.html'), piece.html, 'utf-8');
   const r = await renderCodeVideo(p.carpeta, { proyecto: projRel, salida: outRel, calidad: 'looks', formato: 'mov' });
-  return { archivo: outRel, duracion: piece.duracion, reutilizado: false, segundosDeRender: r.segundosDeRender };
+  return { archivo: outRel, duracion: piece.duracion, reutilizado: false, segundosDeRender: r.segundosDeRender, ...(avisos.length ? { avisos } : {}) };
 }
 
 // ── Zonas de cambio en una grabación de pantalla (18) ───────────────────────
@@ -333,7 +389,7 @@ export async function cutoutPerson(src: string, out: string): Promise<{ ok: bool
 
 export async function designCover(
   p: EditProject,
-  o: { t: number; texto: string; destacar: string[]; posicion: 'arriba' | 'abajo'; recorte: boolean; paleta?: KitInput['paleta']; fuente?: (typeof KIT_FONTS)[number]; /** Video del que sale el fotograma (por defecto el borrador). */ frame?: string }
+  o: { t: number; texto: string; destacar: string[]; posicion: 'arriba' | 'abajo'; recorte: boolean; paleta?: KitInput['paleta']; fuente?: string; /** Video del que sale el fotograma (por defecto el borrador). */ frame?: string }
 ): Promise<{ archivo: string; recorte: boolean; aviso?: string }> {
   if (!p.borrador) throw new KitError('Primero renderiza un borrador: la portada sale de un fotograma suyo.');
   const perfil = normalizeProfile(p.perfil);
@@ -363,7 +419,16 @@ export async function designCover(
     else aviso = `Sin recorte de persona (${r.motivo}): el texto va delante.`;
   }
   const pal = palette(p, perfil, o.paleta);
-  const piece = T.portada({ W, H, safe: { top: safe.top, bottom: safe.bottom, right: safe.right }, pal, titulo: o.fuente ?? 'Archivo Black', cuerpo: 'Montserrat' }, { fondo: 'assets/fondo.jpg', recorte, texto: o.texto, destacar: o.destacar, posicion: o.posicion, cabeza });
+  const coverFont = o.fuente ?? 'Archivo Black';
+  let coverCss: string | undefined;
+  if (!(KIT_FONTS as readonly string[]).includes(coverFont)) {
+    const file = await findFontFile(coverFont);
+    if (file) {
+      await fs.copyFile(file, path.join(/*turbopackIgnore: true*/ projDir, 'assets', `fuente${path.extname(file).toLowerCase()}`));
+      coverCss = `@font-face{font-family:'${coverFont.replace(/'/g, '')}';src:url('assets/fuente${path.extname(file).toLowerCase()}')}`;
+    }
+  }
+  const piece = T.portada({ W, H, safe: { top: safe.top, bottom: safe.bottom, right: safe.right }, pal, titulo: coverFont, cuerpo: 'Montserrat', fontCss: coverCss }, { fondo: 'assets/fondo.jpg', recorte, texto: o.texto, destacar: o.destacar, posicion: o.posicion, cabeza });
   await fs.writeFile(path.join(/*turbopackIgnore: true*/ projDir, 'index.html'), piece.html, 'utf-8');
   const tmpRel = `kit/portada-${h}.mp4`;
   await renderCodeVideo(p.carpeta, { proyecto: projRel, salida: tmpRel, calidad: 'delivery', formato: 'mp4' });

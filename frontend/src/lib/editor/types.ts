@@ -31,6 +31,8 @@ export interface EditWord {
   e: number;
   /** Hablante (separación de hablantes de la transcripción). */
   h?: string;
+  /** Fase 9: palabra quitada dentro de una frase que se conserva (arranque repetido, muletilla…). */
+  cortar?: boolean;
 }
 
 export interface EditPhrase {

@@ -23,6 +23,12 @@ export interface KitFrame {
   titulo: string;
   /** Fuente de texto. */
   cuerpo: string;
+  /** @font-face de una fuente propia (Fase 9: fuentes del estándar de la marca). */
+  fontCss?: string;
+  /** Cara de la persona en el plano normal (px): coronilla y barbilla. Las piezas «arriba» no la tapan. */
+  cara?: { top: number; chin: number };
+  /** Avisos de colocación (p. ej. no cabe sobre la cabeza). */
+  avisos?: string[];
 }
 
 export interface KitBuilt {
@@ -44,6 +50,7 @@ function page(fr: KitFrame, dur: number, css: string, body: string, script: stri
 <meta name="viewport" content="width=${W}, height=${H}" />
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
 <style>
+${fr.fontCss ?? ''}
 :root{--p:${pal.primario};--a:${pal.acento};--s:${pal.secundario ?? pal.acento};--t:${pal.texto};--f:${pal.fondo}}
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:${W}px;height:${H}px;overflow:hidden;background:transparent}
@@ -87,7 +94,7 @@ export function sticker(fr: KitFrame, o: { emoji?: string; texto?: string; x: nu
 #st{position:absolute;left:${n2(cx)}px;top:${n2(cy)}px;width:0;height:0}
 #sti{position:absolute;left:0;top:0;transform-origin:0 0}
 #em{position:absolute;font-size:${size}px;line-height:1;white-space:nowrap;filter:drop-shadow(0 14px 18px rgba(0,0,0,.45))}
-#pill{position:absolute;white-space:nowrap;padding:${n2(size * 0.18)}px ${n2(size * 0.32)}px;border-radius:${n2(size * 0.5)}px;background:var(--a);color:var(--f);border:${n2(size * 0.06)}px solid #fff;font-size:${n2(size * 0.42)}px;box-shadow:0 16px 30px rgba(0,0,0,.45)}
+#pill{position:absolute;white-space:nowrap;padding:${n2(size * 0.18)}px ${n2(size * 0.32)}px;border-radius:${n2(size * 0.5)}px;background:var(--a);color:var(--f);border:${n2(size * 0.06)}px solid var(--t);font-size:${n2(size * 0.42)}px;box-shadow:0 16px 30px rgba(0,0,0,.45)}
 #lb{position:absolute;white-space:nowrap;font-size:${n2(size * 0.26)}px}`;
   const inner = isText
     ? `<div id="pill" class="ti">${esc(o.texto!)}</div>`
@@ -141,7 +148,7 @@ export function trazo(
     const a1 = ang + Math.PI - 0.5;
     const a2 = ang + Math.PI + 0.5;
     head = `M${n2(ex + Math.cos(a1) * hl)},${n2(ey + Math.sin(a1) * hl)} L${n2(ex)},${n2(ey)} L${n2(ex + Math.cos(a2) * hl)},${n2(ey + Math.sin(a2) * hl)}`;
-    if (o.texto) label = `<div id="lab" class="ti stroke" style="position:absolute;left:${n2(Math.min(W - 80, Math.max(80, x1)))}px;top:${n2(y1 - 90)}px;transform:translateX(-50%);font-size:64px;white-space:nowrap;color:#fff">${esc(o.texto)}</div>`;
+    if (o.texto) label = `<div id="lab" class="ti stroke" style="position:absolute;left:${n2(Math.min(W - 80, Math.max(80, x1)))}px;top:${n2(y1 - 90)}px;transform:translateX(-50%);font-size:64px;white-space:nowrap;color:var(--t)">${esc(o.texto)}</div>`;
   } else if (o.forma === 'circulo') {
     const cx = o.x * W;
     const cy = o.y * H;
@@ -155,7 +162,7 @@ export function trazo(
       pts.push(`${n2(cx + Math.cos(a) * rx * wob)},${n2(cy + Math.sin(a) * ry * wob)}`);
     }
     path = `M${pts[0]} L${pts.slice(1).join(' L')}`;
-    if (o.texto) label = `<div id="lab" class="ti stroke" style="position:absolute;left:${n2(cx)}px;top:${n2(cy - ry - 100)}px;transform:translateX(-50%);font-size:64px;white-space:nowrap;color:#fff">${esc(o.texto)}</div>`;
+    if (o.texto) label = `<div id="lab" class="ti stroke" style="position:absolute;left:${n2(cx)}px;top:${n2(cy - ry - 100)}px;transform:translateX(-50%);font-size:64px;white-space:nowrap;color:var(--t)">${esc(o.texto)}</div>`;
   } else {
     const x1 = o.x * W;
     const x2 = (o.x2 ?? Math.min(0.95, o.x + 0.5)) * W;
@@ -185,15 +192,25 @@ tl.to('#k', { opacity: 0, duration: 0.18 }, ${n2(d - 0.2)});`;
 
 // ── Gráficas que crecen (23) ─────────────────────────────────────────────────
 
-function panelTop(fr: KitFrame, posicion: 'arriba' | 'centro' | 'abajo', h: number) {
-  if (posicion === 'arriba') return fr.safe.top + 40;
+function panelTop(fr: KitFrame, posicion: 'arriba' | 'centro' | 'abajo' | 'pecho' | 'pecho', h: number) {
+  if (posicion === 'arriba') {
+    if (!fr.cara) return fr.safe.top + 40;
+    // Sobre la cabeza, sin tocarla (24 px de aire); si no cabe, lo más arriba posible y se avisa
+    const top = fr.cara.top - h - 24;
+    if (top < fr.safe.top + 10) {
+      fr.avisos?.push(`La pieza (${Math.round(h)} px de alto) va muy justa sobre la cabeza en el plano normal: puede rozar el pelo. Míralo en un fotograma; si toca, usa otra posición, menos contenido o un plano con más aire arriba.`);
+      return fr.safe.top + 10;
+    }
+    return Math.min(fr.safe.top + 40, top);
+  }
+  if (posicion === 'pecho') return fr.cara ? Math.min(fr.H - fr.safe.bottom - h - 20, fr.cara.chin + fr.H * 0.06) : fr.H * 0.55;
   if (posicion === 'abajo') return fr.H - fr.safe.bottom - h - 40;
   return (fr.H - h) / 2;
 }
 
 export function grafica(
   fr: KitFrame,
-  o: { forma: 'barras' | 'circulo' | 'linea'; datos: Array<{ etiqueta: string; valor: number }>; titulo?: string; unidad?: string; posicion: 'arriba' | 'centro' | 'abajo'; duracion: number }
+  o: { forma: 'barras' | 'circulo' | 'linea'; datos: Array<{ etiqueta: string; valor: number }>; titulo?: string; unidad?: string; posicion: 'arriba' | 'centro' | 'abajo' | 'pecho'; duracion: number }
 ): KitBuilt {
   const { W } = fr;
   const d = o.duracion;
@@ -240,7 +257,7 @@ tl.fromTo('#v0', { innerText: 0 }, { innerText: ${v}, snap: { innerText: ${dec ?
     const top = o.titulo ? 130 : 60;
     const pts = o.datos.map((x, i) => [50 + (o.datos.length === 1 ? cw / 2 : (i / (o.datos.length - 1)) * cw), top + ch - (x.valor / max) * ch] as const);
     inner = `<svg style="position:absolute;left:0;top:0" width="${pw}" height="${ph}"><path id="ln" d="M${pts.map((p) => `${n2(p[0])},${n2(p[1])}`).join(' L')}" fill="none" stroke="var(--a)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-${pts.map((p, i) => `<circle id="d${i}" cx="${n2(p[0])}" cy="${n2(p[1])}" r="18" fill="var(--a)" stroke="#fff" stroke-width="6"/>`).join('')}</svg>
+${pts.map((p, i) => `<circle id="d${i}" cx="${n2(p[0])}" cy="${n2(p[1])}" r="18" fill="var(--a)" stroke="var(--t)" stroke-width="6"/>`).join('')}</svg>
 ${o.datos.map((x, i) => `<div class="pl" id="l${i}" style="left:${n2(pts[i][0])}px;top:${top + ch + 30}px">${esc(x.etiqueta)}</div><div class="pv ti" id="w${i}" style="left:${n2(pts[i][0])}px;top:${n2(pts[i][1] - 80)}px">${esc(String(x.valor))}${unit}</div>`).join('')}`;
     script = `const ln = document.getElementById('ln'); const L = ln.getTotalLength(); ln.style.strokeDasharray = L + ' ' + L;
 tl.fromTo(ln, { strokeDashoffset: L }, { strokeDashoffset: 0, duration: 0.9, ease: 'power2.inOut' }, 0.25);
@@ -271,7 +288,7 @@ tl.to('#pn', { y: 60, opacity: 0, duration: 0.22, ease: 'power2.in' }, ${n2(d - 
 
 export function antesDespues(
   fr: KitFrame,
-  o: { a: { src: string; video: boolean }; b: { src: string; video: boolean }; etiquetaA: string; etiquetaB: string; posicion: 'arriba' | 'centro' | 'abajo'; duracion: number }
+  o: { a: { src: string; video: boolean }; b: { src: string; video: boolean }; etiquetaA: string; etiquetaB: string; posicion: 'arriba' | 'centro' | 'abajo' | 'pecho'; duracion: number }
 ): KitBuilt {
   const { W } = fr;
   const d = o.duracion;
@@ -280,13 +297,13 @@ export function antesDespues(
   const top = panelTop(fr, o.posicion, ch);
   const media = (m: { src: string; video: boolean }, id: string) =>
     m.video ? `<video id="${id}" class="clip med" src="${esc(m.src)}" data-start="0" data-duration="${n2(d)}" muted playsinline></video>` : `<img id="${id}" class="med" src="${esc(m.src)}" />`;
-  const css = `#cd{position:absolute;left:60px;top:${n2(top)}px;width:${cw}px;height:${ch}px;border-radius:40px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);border:6px solid #fff}
+  const css = `#cd{position:absolute;left:60px;top:${n2(top)}px;width:${cw}px;height:${ch}px;border-radius:40px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);border:6px solid var(--t)}
 .med{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover}
 #lyB{position:absolute;inset:0}
-#hd{position:absolute;top:0;width:8px;height:100%;background:#fff;box-shadow:0 0 24px rgba(0,0,0,.5)}
-#kn{position:absolute;top:50%;left:-36px;width:80px;height:80px;margin-top:-40px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:40px;color:#111;font-weight:900}
+#hd{position:absolute;top:0;width:8px;height:100%;background:var(--t);box-shadow:0 0 24px rgba(0,0,0,.5)}
+#kn{position:absolute;top:50%;left:-36px;width:80px;height:80px;margin-top:-40px;border-radius:50%;background:var(--t);display:flex;align-items:center;justify-content:center;font-size:40px;color:var(--f);font-weight:900}
 .tag{position:absolute;top:28px;padding:10px 26px;border-radius:30px;font-size:40px}
-#ta{left:28px;background:rgba(0,0,0,.65);color:#fff}
+#ta{left:28px;background:rgba(0,0,0,.65);color:var(--t)}
 #tb{right:28px;background:var(--a);color:var(--f)}`;
   const body = `<div id="cd"><div id="lyA">${media(o.a, 'ma')}</div><div id="lyB">${media(o.b, 'mb')}</div><div id="hd"><div id="kn">⇆</div></div>
 <div id="ta" class="tag ti">${esc(o.etiquetaA)}</div><div id="tb" class="tag ti">${esc(o.etiquetaB)}</div></div>`;
@@ -332,17 +349,17 @@ tl.to('#bg', { xPercent: 100, duration: 0.22, ease: 'power3.in' }, ${out});`;
 
 // ── Texto kinético (26) ──────────────────────────────────────────────────────
 
-export function textoKinetico(fr: KitFrame, o: { palabras: Array<{ texto: string; t: number }>; destacar: string[]; oscurecer: number; duracion: number; posicion: 'arriba' | 'centro' | 'abajo' }): KitBuilt {
+export function textoKinetico(fr: KitFrame, o: { palabras: Array<{ texto: string; t: number }>; destacar: string[]; oscurecer: number; duracion: number; posicion: 'arriba' | 'centro' | 'abajo' | 'pecho' }): KitBuilt {
   const { W, H } = fr;
   const d = o.duracion;
   const chars = o.palabras.reduce((s, w) => s + w.texto.length + 1, 0);
   const fs = chars <= 18 ? 170 : chars <= 32 ? 136 : chars <= 50 ? 112 : 92;
   const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   const hi = new Set(o.destacar.map(norm));
-  const top = o.posicion === 'arriba' ? fr.safe.top + 60 : o.posicion === 'abajo' ? H * 0.55 : H * 0.3;
+  const top = o.posicion === 'arriba' ? fr.safe.top + 60 : o.posicion === 'abajo' ? H * 0.55 : o.posicion === 'pecho' ? (fr.cara ? fr.cara.chin + H * 0.08 : H * 0.55) : H * 0.3;
   const css = `#dim{position:absolute;inset:0;background:#000;opacity:0}
 #wr{position:absolute;left:60px;top:${n2(top)}px;width:${W - 120}px;display:flex;flex-wrap:wrap;justify-content:center;align-content:flex-start;gap:${n2(fs * 0.12)}px ${n2(fs * 0.24)}px}
-.w{display:inline-block;font-size:${fs}px;color:#fff;opacity:0}
+.w{display:inline-block;font-size:${fs}px;color:var(--t);opacity:0}
 .w.h{color:var(--a)}`;
   const body = `<div id="dim"></div><div id="wr">${o.palabras.map((w, i) => `<span id="w${i}" class="w ti stroke${hi.has(norm(w.texto)) ? ' h' : ''}">${esc(w.texto)}</span>`).join('')}</div>`;
   const script = `
@@ -415,7 +432,7 @@ export function pantalla(
     /** Puntos de interés dentro de la pantalla (0–1) con su zoom; el cursor va a cada uno y hace clic. */
     enfoques: Array<{ t: number; x: number; y: number; zoom: number; clic: boolean }>;
     inclinacion: number;
-    posicion: 'arriba' | 'centro' | 'abajo';
+    posicion: 'arriba' | 'centro' | 'abajo' | 'pecho';
     duracion: number;
     inicioVideo: number;
   }
@@ -486,11 +503,64 @@ export function portada(
   const limit = o.posicion === 'arriba' && o.recorte && o.cabeza ? Math.max(top + 260, o.cabeza * H + 0.045 * H) : o.posicion === 'arriba' ? H * 0.5 : H - fr.safe.bottom - 20;
   const css = `#bgi,#cut{position:absolute;left:0;top:0;width:${W}px;height:${H}px;object-fit:cover}
 #vg{position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 40%,transparent 40%,rgba(0,0,0,.55)),linear-gradient(${o.posicion === 'arriba' ? '180deg' : '0deg'},rgba(0,0,0,.6),transparent 45%)}
-#tx{position:absolute;left:40px;top:${n2(top)}px;width:${W - 80}px;text-align:center;font-size:${fs}px;line-height:.98;color:#fff}
+#tx{position:absolute;left:40px;top:${n2(top)}px;width:${W - 80}px;text-align:center;font-size:${fs}px;line-height:.98;color:var(--t)}
 #tx .h{color:var(--a)}
 #cut{filter:drop-shadow(0 0 30px rgba(0,0,0,.45))}`;
   const body = `<img id="bgi" src="${esc(o.fondo)}" /><div id="vg"></div><div id="tx" class="ti stroke">${words.map((w) => `<span${hi.has(norm(w)) ? ' class="h"' : ''}>${esc(w)}</span>`).join(' ')}</div>${o.recorte ? `<img id="cut" src="${esc(o.recorte)}" />` : ''}`;
   // Ajusta el tamaño hasta que el texto quepa entre «top» y «limit» (determinista, antes del timeline)
   const fit = `const tx = document.getElementById('tx'); let f = ${fs}; while (f > 60 && tx.offsetHeight > ${n2(limit - top)}) { f -= 6; tx.style.fontSize = f + 'px'; }`;
   return { html: page({ ...fr }, 0.5, css, body, fit), duracion: 0.5 };
+}
+
+// ── Caja de comentarios de Instagram (cierre / CTA; Fase 9) ──────────────────
+
+/**
+ * La caja de comentarios de Instagram como en la app (modo oscuro o claro): fila de emojis rápidos,
+ * avatar redondo, campo «Añade un comentario…» y la palabra clave que se escribe sola con su cursor;
+ * «Publicar» se enciende al terminar. Colores reales de la app (los estándares de marca lo permiten
+ * para pantallas reales).
+ */
+export function comentarioInstagram(
+  fr: KitFrame,
+  o: { palabra: string; avatar?: string; inicial?: string; tema: 'oscuro' | 'claro'; posicion: 'arriba' | 'centro' | 'abajo' | 'pecho'; duracion: number; escribirEn: number }
+): KitBuilt {
+  const { W } = fr;
+  const d = o.duracion;
+  const dark = o.tema === 'oscuro';
+  const bg = dark ? '#000000' : '#FFFFFF';
+  const fg = dark ? '#F5F5F5' : '#000000';
+  const muted = dark ? '#A8A8A8' : '#737373';
+  const line = dark ? '#262626' : '#DBDBDB';
+  const cw = W - 120;
+  // Si sobre la cabeza no cabe la caja completa, se usa la compacta (solo el campo, como al escribir en la app)
+  const room = fr.cara && o.posicion === 'arriba' ? fr.cara.top - 24 - (fr.safe.top + 10) : Infinity;
+  const compact = room < 330;
+  const ch = compact ? 168 : 330;
+  const off = compact ? -146 : 0;
+  const top = panelTop(fr, o.posicion, ch);
+  const emojis = ['❤️', '🙌', '🔥', '👏', '😢', '😍', '😮', '😂'];
+  const css = `#ig{position:absolute;left:60px;top:${n2(top)}px;width:${cw}px;height:${ch}px;border-radius:34px;background:${bg};box-shadow:0 26px 70px rgba(0,0,0,.5);font-family:-apple-system,'Inter',sans-serif;color:${fg};overflow:hidden}
+#em{position:absolute;left:0;top:34px;width:100%;display:${compact ? 'none' : 'flex'};justify-content:space-around;font-size:54px;line-height:1}
+#sep{position:absolute;left:0;top:124px;width:100%;height:2px;background:${line};display:${compact ? 'none' : 'block'}}
+#av{position:absolute;left:34px;top:${176 + off}px;width:110px;height:110px;border-radius:50%;overflow:hidden;background:linear-gradient(45deg,#F58529,#DD2A7B,#8134AF);display:flex;align-items:center;justify-content:center;font-size:52px;font-weight:700;color:#fff}
+#av img{width:100%;height:100%;object-fit:cover}
+#fld{position:absolute;left:170px;top:${174 + off}px;right:34px;height:114px;border-radius:57px;border:3px solid ${line};display:flex;align-items:center;padding:0 40px;font-size:44px}
+#ph{color:${muted};white-space:nowrap}
+#tx{white-space:nowrap}
+#cur{display:inline-block;width:4px;height:52px;background:#0095F6;margin-left:4px;vertical-align:middle}
+#pub{position:absolute;right:40px;top:0;height:100%;display:flex;align-items:center;font-size:42px;font-weight:700;color:#0095F6;opacity:.35}`;
+  const letters = [...o.palabra];
+  const body = `<div id="ig"><div id="em">${emojis.map((e) => `<span>${e}</span>`).join('')}</div><div id="sep"></div>
+<div id="av">${o.avatar ? `<img src="${esc(o.avatar)}" />` : esc((o.inicial ?? '').slice(0, 1).toUpperCase())}</div>
+<div id="fld"><span id="ph">Añade un comentario…</span><span id="tx">${letters.map((c, i) => `<span id="l${i}" style="opacity:0">${esc(c)}</span>`).join('')}</span><span id="cur"></span><span id="pub">Publicar</span></div></div>`;
+  const step = Math.min(0.12, 1.2 / Math.max(1, letters.length));
+  const t0 = o.escribirEn;
+  const script = `
+tl.fromTo('#ig', { y: -40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.2, ease: 'power2.out' }, 0);
+tl.set('#ph', { display: 'none' }, ${n2(t0)});
+${letters.map((_, i) => `tl.set('#l${i}', { opacity: 1 }, ${n2(t0 + i * step)});`).join('\n')}
+tl.to('#pub', { opacity: 1, duration: 0.15 }, ${n2(t0 + letters.length * step)});
+// Cursor que parpadea (determinista)
+${Array.from({ length: Math.floor(d / 0.5) }, (_, k) => `tl.set('#cur', { opacity: ${k % 2 ? 1 : 0} }, ${n2(k * 0.5 + 0.25)});`).join('\n')}`;
+  return { html: page(fr, d, css, body, script), duracion: d };
 }

@@ -22,7 +22,7 @@ import type { EditGraphic, EditProject } from './types';
  */
 
 export const CAMERA_TYPES = ['plano', 'punch', 'acercar', 'alejar', 'paneo', 'sacudida'] as const;
-export const TRANSITION_TYPES = ['flash', 'negro', 'glitch', 'desenfoque'] as const;
+export const TRANSITION_TYPES = ['flash', 'negro', 'glitch', 'desenfoque', 'barrido'] as const;
 export const ELEMENT_MODES = ['capa', 'pantalla_completa', 'flotante', 'pantalla_dividida'] as const;
 export const ELEMENT_POSITIONS = ['arriba', 'centro', 'abajo', 'arriba_izq', 'arriba_der', 'abajo_izq', 'abajo_der', 'centro_izq', 'centro_der'] as const;
 export const ELEMENT_ENTRIES = ['pop', 'deslizar', 'fundido', 'corte'] as const;
@@ -230,6 +230,8 @@ export const DirectionInputSchema = z.object({
     .optional(),
   /** Palabras corregidas con la voz clonada (las crea corregir_palabra; no las escribas a mano). */
   correcciones: z.array(z.object({ desde: sec, hasta: sec, archivo: z.string().max(300), texto: z.string().max(200) })).max(20).optional(),
+  /** Aire al final: segundos de plano real después de la última palabra (0–2; p. ej. 0,8). */
+  colaFinal: z.number().min(0).max(2).optional(),
   /** Volumen final del máster en LUFS (−14 por defecto; TikTok admite −12/−11 si el video es enérgico). */
   volumenFinal: z.number().min(-16).max(-9).optional(),
   // ── Estructura de retención (Fase 1) — tiempos de la línea PRINCIPAL (la de palabras_borrador) ──
@@ -534,7 +536,9 @@ export function cameraFilter(
   fps: number,
   face: { x: number; y: number },
   /** Centro de la cara en cada momento (expresiones con `(on/fps)`): la cámara la sigue. */
-  follow?: { x: string; y: string } | null
+  follow?: { x: string; y: string } | null,
+  /** Parte de arriba de la cabeza (0–1): con zoom nunca se corta (queda ≥ 4 % de aire). */
+  headTop?: number
 ): string | null {
   const list = cams.filter((c) => c.hasta > c.desde + 0.04);
   if (!list.length) return null;
@@ -577,7 +581,9 @@ export function cameraFilter(
   const FY = follow ? `clip(${follow.y}+${yTerms.join('+')},0.08,0.92)` : `(${f4(face.y)}+${yTerms.join('+')})`;
   const shake = sTerms.length ? `(${sTerms.join('+')})` : '0';
   const x = `clip(${FX}*iw-iw/zoom/2+${shake}*iw*0.012*sin(${T}*53),0,iw-iw/zoom)`;
-  const y = `clip(${FY}*ih-ih/zoom/2+${shake}*ih*0.008*cos(${T}*61),0,ih-ih/zoom)`;
+  // Aire sobre la cabeza: el borde de arriba del encuadre nunca baja de la coronilla − 4 % del cuadro
+  const yRaw = `${FY}*ih-ih/zoom/2+${shake}*ih*0.008*cos(${T}*61)`;
+  const y = headTop !== undefined ? `clip(min(${yRaw},(${f4(headTop)}-0.04/zoom)*ih),0,ih-ih/zoom)` : `clip(${yRaw},0,ih-ih/zoom)`;
   return `scale=${W * 2}:${H * 2}:flags=bicubic,zoompan=z='${Z}':x='${x}':y='${y}':d=1:s=${W}x${H}:fps=${fps},setsar=1`;
 }
 
@@ -613,6 +619,12 @@ export function colorFilter(color: EditDirection['color'], trans: NonNullable<Ed
   if (glitches.length) {
     const en = glitches.map((t) => `between(t,${f4(t.t - t.duracion / 2)},${f4(t.t + t.duracion / 2)})`).join('+');
     fx.push(`rgbashift=rh=22:bh=-22:gv=8:enable='${en}'`);
+  }
+  // Barrido con desenfoque de movimiento (horizontal) para cambiar de lugar o de escena
+  const swipes = trans.filter((t) => t.tipo === 'barrido');
+  if (swipes.length) {
+    const en = swipes.map((t) => `between(t,${f4(t.t - t.duracion / 2)},${f4(t.t + t.duracion / 2)})`).join('+');
+    fx.push(`avgblur=sizeX=48:sizeY=1:enable='${en}'`);
   }
   const blurs = trans.filter((t) => t.tipo === 'desenfoque');
   if (blurs.length) {
@@ -745,6 +757,7 @@ export interface ResolvedDirection {
   ambientes: Array<{ desde: number; hasta: number; tipo: AmbientType | 'archivo'; abs?: string; bajoVozDb: number }>;
   persona: ResolvedPersonFx[];
   correcciones: Array<{ desde: number; hasta: number; abs: string }>;
+  colaFinal: number;
   camaraSigueCara: boolean;
   estabilizar: boolean;
   igualarLuz: boolean;
@@ -857,6 +870,7 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     voz: f.voz ? { ...f.voz, efectos: clampR(f.voz.efectos) } : undefined,
     ambientes,
     volumenFinal: f.volumenFinal,
+    colaFinal: f.colaFinal ?? 0,
     persona,
     correcciones: clampR(f.correcciones).flatMap((c) => {
       try {
@@ -1047,4 +1061,42 @@ export function analyzeRhythm(
     presupuesto: B,
     avisos,
   };
+}
+
+// ── Fase 9: dónde cae un punto de la toma en la pantalla (con la cámara virtual) ──
+
+const smoothstep = (t: number, a: number, b: number) => {
+  const x = Math.min(1, Math.max(0, (t - a) / Math.max(0.05, b - a)));
+  return x * x * (3 - 2 * x);
+};
+
+/**
+ * Estado de la cámara en t (mismo cálculo que cameraFilter): zoom y centro (0–1) sobre la toma.
+ * `followAt` = centro de la cara en t si la cámara la sigue.
+ */
+export function cameraAt(cams: NonNullable<EditDirection['camara']>, t: number, face: { x: number; y: number }, followAt?: (t: number) => { x: number; y: number } | null, headTop?: number) {
+  const c = cams.find((k) => k.hasta > k.desde + 0.04 && t >= k.desde && t < k.hasta);
+  const base = followAt?.(t) ?? face;
+  if (!c) return { z: 1, cx: base.x, cy: base.y };
+  let z = c.zoom;
+  if (c.tipo === 'acercar') z = c.zoom + ((c.zoomFinal ?? Math.min(1.8, c.zoom + 0.15)) - c.zoom) * smoothstep(t, c.desde, c.hasta);
+  else if (c.tipo === 'alejar') z = c.zoom + ((c.zoomFinal ?? 1) - c.zoom) * smoothstep(t, c.desde, c.hasta);
+  else if (c.tipo === 'punch') z = 1 + (c.zoom - 1) * smoothstep(t, c.desde, Math.min(c.hasta, c.desde + 0.12));
+  const fx = (v: number | undefined) => (v === undefined ? face.x : Math.min(0.92, Math.max(0.08, face.x + v * 0.4)));
+  const fy = (v: number | undefined) => (v === undefined ? face.y : Math.min(0.9, Math.max(0.1, face.y + v * 0.4)));
+  const x0 = fx(c.x);
+  const x1 = c.tipo === 'paneo' ? fx(c.xFinal ?? -(c.x ?? 0.5)) : x0;
+  const xe = c.tipo === 'paneo' ? x0 + (x1 - x0) * smoothstep(t, c.desde, c.hasta) : x0;
+  const follow = !!followAt?.(t);
+  const cx = follow ? Math.min(0.94, Math.max(0.06, base.x + (xe - face.x))) : xe;
+  const cy = follow ? Math.min(0.92, Math.max(0.08, base.y + (fy(c.y) - face.y))) : fy(c.y);
+  return { z: Math.max(1, z), cx, cy, headTop };
+}
+
+/** Un punto de la toma (0–1) en la pantalla (0–1) con la cámara en ese estado. */
+export function toScreen(p: { x: number; y: number }, cam: { z: number; cx: number; cy: number; headTop?: number }) {
+  const ox = Math.min(1 - 1 / cam.z, Math.max(0, cam.cx - 1 / (2 * cam.z)));
+  const oyRaw = cam.headTop !== undefined ? Math.min(cam.cy - 1 / (2 * cam.z), cam.headTop - 0.04 / cam.z) : cam.cy - 1 / (2 * cam.z);
+  const oy = Math.min(1 - 1 / cam.z, Math.max(0, oyRaw));
+  return { x: (p.x - ox) * cam.z, y: (p.y - oy) * cam.z };
 }

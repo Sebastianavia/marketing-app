@@ -101,11 +101,15 @@ export function keptIntervals(
   const raw: Array<{ s: number; e: number }> = [];
   for (const p of phrases) {
     if (p.cortar || !p.palabras.length) continue;
-    const ws = [...p.palabras].sort((a, b) => a.s - b.s);
+    // Fase 9: las palabras quitadas dentro de la frase parten el tramo (corte por palabra)
+    const cutWords = p.palabras.filter((w) => w.cortar);
+    const ws = [...p.palabras].filter((w) => !w.cortar).sort((a, b) => a.s - b.s);
+    if (!ws.length) continue;
+    const cutBetween = (a: EditWord, b: EditWord) => cutWords.some((w) => w.s >= a.e - 0.01 && w.e <= b.s + 0.01);
     let start = startOf(ws[0]);
     for (let i = 0; i < ws.length - 1; i++) {
       const gap = ws[i + 1].s - ws[i].e;
-      if (gap > ritmo.pausaMaxSeg || splitsAt(ws[i], ws[i + 1])) {
+      if (gap > ritmo.pausaMaxSeg || splitsAt(ws[i], ws[i + 1]) || cutBetween(ws[i], ws[i + 1])) {
         raw.push({ s: start, e: endOf(ws[i]) });
         start = startOf(ws[i + 1]);
       }
@@ -175,6 +179,7 @@ export function subtitleWords(phrases: EditPhrase[], intervals: KeptInterval[]):
   for (const p of phrases) {
     if (p.cortar || !p.palabras.length) continue;
     const mapped = p.palabras
+      .filter((w) => !w.cortar)
       .map((w) => ({ w, s: mapClamped(w.s, intervals), e: mapClamped(w.e, intervals) }))
       .filter((m): m is { w: EditWord; s: number; e: number } => m.s !== null && m.e !== null);
     if (!mapped.length) continue;

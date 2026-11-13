@@ -1,4 +1,5 @@
 import { applyBackgroundReport, detectBackgroundVoices } from './voices';
+import { detectRestarts } from './restarts';
 import fs from 'fs/promises';
 import { z } from 'zod';
 import { orchestrateObject, FreeQuotaError, resolveMode } from '@/lib/ai/orchestrator';
@@ -182,6 +183,9 @@ export async function runAnalysis(id: string): Promise<void> {
         ({ edit: p } = await updateEdit(id, (x) => {
           applyBackgroundReport(x, report);
           logActivity(x, report.resumen);
+          // Fase 9: arranques y tomas repetidas (queda la última), cortando por palabra
+          const rs = detectRestarts(x.frases);
+          if (rs.length) logActivity(x, `Arranques repetidos quitados (queda la última toma): ${rs.map((r) => `«${r.quitado}» (${r.en})`).join(', ')}.`);
         }));
       } catch (err) {
         await updateEdit(id, (x) => logActivity(x, `No se pudieron revisar las voces de fondo (${errorMessage(err)}).`));

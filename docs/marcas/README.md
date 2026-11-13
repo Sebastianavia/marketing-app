@@ -13,3 +13,19 @@ Cada cliente puede entregar su estándar de edición. Funciona así:
 | Marca | Archivo | Estado |
 |---|---|---|
 | ETM | `etm-estandar-v1.md` | Falta pegarlo en la pestaña «Marcas» (marca «ETM»: primario #0A0A0B, acento #F4581C, texto #F6EFE6, fuente Inter). |
+
+## Lo que el motor ya cumple del estándar ETM (Fase 9)
+
+| Regla | Cómo |
+|---|---|
+| Corte por palabra, queda la última toma | `cortar_palabras` + detección automática de arranques repetidos |
+| Sin apuntador | Fase 8, `voces_de_fondo` |
+| Subtítulos bajo el mentón, anclados a la cara | posición «Bajo el mentón» (`cara`) + `sombraSuave` |
+| Fuentes Sora, Anton y Prata | `instalar_fuente` (Google Fonts, OFL) |
+| Palabra grande en el pecho | kit `texto_kinetico` con `posicion: 'pecho'` y `fuente: 'Anton'` |
+| Caja de comentarios de Instagram en el CTA | kit `comentario_instagram` |
+| 0,8 s de aire al final | `colaFinal: 0.8` |
+| Cabeza completa con zoom | automático (`headTop`) |
+| Barrido con desenfoque de movimiento | transición `barrido` |
+| Transcribir el audio final | `verificar_audio_final` |
+| Gancho A y B en dos archivos | `crear_variante` |

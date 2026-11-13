@@ -30,8 +30,11 @@ import { DUB_LANGS, PaidError, correctionCost, dubDraft, dubEstimate, generateCo
 import { getStoredVoices } from '@/lib/storage/voice-storage';
 import { applyBackgroundReport, detectBackgroundVoices } from './voices';
 import { ENGINE_LIMITS, brandOf } from './brand-standard';
+import { cutWordsByText, detectRestarts } from './restarts';
+import { canVerifyFree, verifyCost, verifyFinalAudio } from './verify-audio';
+import { installGoogleFont, listFonts } from './fonts';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
-import { KIT_FONTS, loadBrands } from './kit/brands';
+import { loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
 import { fontsDir } from './media';
 import { totalDuration } from './timeline';
@@ -82,6 +85,7 @@ function snapshot(p: EditProject) {
       cortar: f.cortar,
       motivo: f.motivo,
       ...(f.voz === 'fondo' ? { vozDeFondo: true } : {}),
+      ...(f.palabras.some((w) => w.cortar) ? { palabrasQuitadas: f.palabras.filter((w) => w.cortar).map((w) => w.t).join(' ') } : {}),
       ...(f.huecos?.length ? { vozAjenaCerca: f.huecos } : {}),
     })),
     graficos: p.graficos ?? [],
@@ -515,7 +519,7 @@ const catalogoEdicion = tool({
         explicacion:
           'plano = encuadre fijo con ese zoom (cambiar de plano entre tramos = corte de ángulo); punch = acercamiento brusco (0,12 s) para enfatizar; acercar/alejar = movimiento suave de zoom a zoomFinal; paneo = mueve el centro de x a xFinal; sacudida = temblor que se apaga (golpes, sorpresas). zoom 1 = normal, 1,15 medio, 1,3 primer plano, 1,5+ muy cerrado. x/y −1…1 mueven el centro respecto a la cara. Los tramos no se pueden pisar; fuera de ellos el encuadre es normal.',
       },
-      transiciones: { tipos: TRANSITION_TYPES, explicacion: 'flash = destello blanco; negro = fundido a negro breve; glitch = desfase RGB; desenfoque = blur. Centradas en t, con su duración (0,15–0,4 s suele ir bien).' },
+      transiciones: { tipos: TRANSITION_TYPES, explicacion: 'flash = destello blanco; negro = fundido a negro breve; glitch = desfase RGB; desenfoque = blur; barrido = desenfoque de movimiento horizontal (cambio de lugar o escena). Centradas en t, con su duración (0,15–0,4 s suele ir bien). Sin transición = corte seco.' },
       elementos: {
         modos: ELEMENT_MODES,
         posiciones: ELEMENT_POSITIONS,
@@ -529,7 +533,7 @@ const catalogoEdicion = tool({
         efectosPalabraClave: KEY_EFFECTS,
         fuentesSugeridas: FONT_SUGGESTIONS,
         fuentesPropias,
-        nota: 'Puedes cambiar cualquier campo de los subtítulos del perfil (fuente, tamano, colores, grosorBorde, caja, posicion, palabrasPorLinea, mayusculas, escalaClave) y además sombra/colorSombra.',
+        nota: 'Puedes cambiar cualquier campo de los subtítulos del perfil (fuente, tamano, colores, grosorBorde, caja, posicion, palabrasPorLinea, mayusculas, escalaClave) y además sombra/colorSombra. posicion «cara» = justo bajo el mentón, siguiendo el zoom y el encuadre (en pantalla dividida en la mitad de la persona; sin la persona en cuadro, al 68 % del alto). sombraSuave: true = sombra negra desenfocada en vez de borde. Fuentes que no estén: instalar_fuente.',
       },
       archivosEnLaCarpeta: { imagenes: of(IMAGE_EXT), videos: of(VIDEO_EXT), audios: of(AUDIO_EXT) },
       estructura: {
@@ -537,6 +541,7 @@ const catalogoEdicion = tool({
         arranque: 'Arranque en frío: {desde, hasta (≤ 4,5 s), transicion corte|flash} → ese tramo se repite al inicio como avance y luego empieza el video. Usa el momento más fuerte o intrigante.',
         bucle: 'bucle: true → el final enlaza con el inicio sin silencio ni cola de música. Escribe/corta el cierre para que la última frase lleve a la primera e iguala encuadre y zoom del final con los del inicio.',
         progreso: 'Listas: {tipo barra|contador|ambos, marcas: [segundo en que empieza cada ítem], etiqueta?, color?} → barra que crece arriba y «PASO 2/5» que cambia en cada ítem.',
+        colaFinal: 'colaFinal: segundos de aire después de la última palabra (p. ej. 0,8): sigue el plano real y, si el original acaba antes, el último fotograma se queda quieto.',
         tiempos: 'Todo en segundos de la línea PRINCIPAL (palabras_borrador); el borrador final dura más si hay avance o pausas.',
       },
       sonido: {
@@ -739,7 +744,7 @@ const disenarPortada = tool({
     destacar: z.array(z.string().max(30)).max(4).default([]),
     posicion: z.enum(['arriba', 'abajo']).default('arriba'),
     recorte: z.boolean().default(true),
-    fuente: z.enum(KIT_FONTS).optional(),
+    fuente: z.string().max(60).optional(),
   }),
   run: async (editId, input) => {
     const p = await getEdit(editId);
@@ -1137,6 +1142,76 @@ const usarMarca = tool({
   },
 });
 
+const cortarPalabras = tool({
+  name: 'cortar_palabras',
+  description:
+    'Corte POR PALABRA dentro de una frase que se conserva: quita (o restaura con restaurar: true) la secuencia exacta de palabras «quitar» de la frase (id de ver_edicion; sin importar mayúsculas, tildes ni signos; ocurrencia si aparece varias veces). Úsalo para arranques repetidos, muletillas, palabras sueltas o una toma repetida dentro de la frase (queda la última). Con detectar: true vuelve a buscar arranques repetidos en todo el guion. Después renderiza. $0.',
+  schema: z.object({
+    cortes: z.array(z.object({ frase: z.string(), quitar: z.string().min(1).max(200), ocurrencia: z.number().int().min(1).max(10).default(1), restaurar: z.boolean().default(false) })).max(40).default([]),
+    detectar: z.boolean().default(false),
+  }),
+  run: async (editId, input) => {
+    const resultados: unknown[] = [];
+    await updateEdit(editId, (q) => {
+      assertIdle(q);
+      for (const c of input.cortes) {
+        const f = q.frases.find((x) => x.id === c.frase);
+        if (!f) {
+          resultados.push({ frase: c.frase, ok: false, error: 'No existe esa frase (mira ver_edicion).' });
+          continue;
+        }
+        resultados.push({ frase: c.frase, ...cutWordsByText(f, c.quitar, !c.restaurar, c.ocurrencia) });
+      }
+      if (input.detectar) resultados.push({ detectados: detectRestarts(q.frases) });
+      logActivity(q, `Claude cortó por palabra (${input.cortes.length} cambio(s)${input.detectar ? ' + detección de arranques repetidos' : ''}).`);
+    });
+    return { resultados, siguiente: 'Comprueba con palabras_borrador que no quedan medias palabras ni repeticiones y renderiza.' };
+  },
+});
+
+const instalarFuente = tool({
+  name: 'instalar_fuente',
+  description:
+    'Instala una fuente de Google Fonts (licencia OFL, uso libre) en la carpeta de fuentes de Lulo, en los pesos pedidos (400 normal, 600 semibold, 700 bold…). Devuelve el NOMBRE a usar en subtitulos.fuente y en kit_grafico.fuente (p. ej. «Sora SemiBold»). Úsala cuando un estándar de marca pida una fuente que no está. Sin argumentos lista las instaladas. $0.',
+  schema: z.object({ familia: z.string().max(40).optional(), pesos: z.array(z.number().int().min(100).max(900)).max(6).default([400]) }),
+  run: async (_editId, input) => {
+    if (!input.familia) return { instaladas: await listFonts() };
+    try {
+      return { ok: true, instaladas: await installGoogleFont(input.familia, input.pesos) };
+    } catch (err) {
+      throw new AgentToolError(errorMessage(err, 'No se pudo instalar la fuente.'), 400);
+    }
+  },
+});
+
+const verificarAudioFinal = tool({
+  name: 'verificar_audio_final',
+  description:
+    'Transcribe el audio del BORRADOR y lo compara con el guion que debería sonar: palabras que faltan (un corte se comió algo), que sobran (voz ajena, restos de una toma) y repetidas, con su segundo en el borrador. Gratis con Whisper local si está instalado; si no, ElevenLabs (céntimos: necesita aprobacionId aprobado, mira el costo con aprobacionId vacío). Úsala antes de entregar cuando el estándar lo pida o el corte sea delicado.',
+  schema: z.object({ aprobacionId: z.string().optional() }),
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    assertIdle(p);
+    if (!p.borrador) throw new AgentToolError('Primero renderiza un borrador.');
+    const free = await canVerifyFree();
+    if (!free) {
+      const cost = verifyCost(p.borrador.duracion);
+      if (!input.aprobacionId) return { necesitaAprobacion: true, costoUSD: cost, nota: `Whisper local no está instalado: con ElevenLabs cuesta ~$${cost.toFixed(4)}. Pide aprobación (pedir_aprobacion) y vuelve a llamar con su aprobacionId.` };
+      try {
+        await spendApproval(editId, input.aprobacionId, cost);
+      } catch (err) {
+        if (err instanceof PaidError) throw new AgentToolError(err.message, err.status);
+        throw err;
+      }
+    }
+    try {
+      return await verifyFinalAudio(p, !free);
+    } catch (err) {
+      throw new AgentToolError(errorMessage(err, 'No se pudo verificar el audio.'), 500);
+    }
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -1211,7 +1286,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, vocesDeFondo, estandarMarca, usarMarca, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, vocesDeFondo, estandarMarca, usarMarca, cortarPalabras, instalarFuente, verificarAudioFinal, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

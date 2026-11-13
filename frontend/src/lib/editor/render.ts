@@ -5,8 +5,8 @@ import { formatSize, networkInfo, safeZone, type EditProfile } from '@/config/ed
 import { errorMessage } from '@/lib/errors';
 import { buildFinalAudio, measureLoudness, musicDir, type SfxEvent } from './audio';
 import { applyStructure, counterEvents, progressBarFilter } from './structure';
-import { cameraFilter, colorFilter, describeDirection, directedProfile, elementsFilter, faceCenter, resolveDirection } from './direction';
-import { PersonUnavailable, ensurePersonTrack, faceSeries, fitSeries, personFaces, lightStats, matchLightFilter, personEffectsGraph, seriesExpr, stabilizePlate, targetSeries, type PersonTrack } from './person';
+import { cameraAt, cameraFilter, colorFilter, describeDirection, directedProfile, elementsFilter, faceCenter, resolveDirection, toScreen, type ResolvedDirection } from './direction';
+import { PersonUnavailable, chinSeries, ensurePersonTrack, faceSeries, fitSeries, personFaces, valueAt, lightStats, matchLightFilter, personEffectsGraph, seriesExpr, stabilizePlate, targetSeries, type PersonTrack } from './person';
 import { buildAss, buildBehindAss, defaultSubMargin } from './ass';
 import { cardStyle, faceWindow, graphicsEvents, placeGraphics } from './graphics';
 import { ffmpeg, filterScriptArgs, hasSubtitlesFilter, stageFonts } from './media';
@@ -138,8 +138,23 @@ export async function renderEdit(
   // Con plan de dirección de Claude, el perfil efectivo es el del plan y no hay reglas mecánicas
   const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
   const raw = keptIntervals(p.frases, perfil.ritmo, p.original.duracion);
-  const intervals = snapToFrames(raw);
+  let intervals = snapToFrames(raw);
   if (!intervals.length) throw new Error('Con los cortes elegidos no queda nada del video. Vuelve a marcar alguna frase para conservar.');
+  // Fase 9 · aire al final: el último tramo sigue con el plano real hasta colaFinal s después de la última palabra
+  const cola = p.direccion?.colaFinal ?? 0;
+  let colaCorta = false;
+  let colaFalta = 0;
+  if (cola > 0) {
+    const lastWord = Math.max(...p.frases.filter((x) => !x.cortar).flatMap((x) => x.palabras.filter((w) => !w.cortar).map((w) => w.e)));
+    const last = intervals[intervals.length - 1];
+    const want = lastWord + cola;
+    if (want > last.e) {
+      const e = Math.min(p.original.duracion - 0.02, want);
+      colaCorta = e < want - 0.05;
+      colaFalta = colaCorta ? want - e : 0;
+      intervals = snapToFrames([...intervals.slice(0, -1), { ...last, e }]);
+    }
+  }
   const total = totalDuration(intervals);
   const { width: W, height: H } = formatSize(perfil.formato);
   const notas: string[] = [];
@@ -293,7 +308,11 @@ export async function renderEdit(
   const sz0 = safeZone(perfil.red, perfil.formato);
   const progressCounter = dir?.progreso ? counterEvents(dir.progreso, total, W, sz0.top, sz0.right, progressColor) : [];
   const words = subtitleWords(p.frases, intervals);
+  // Fase 9: subtítulos anclados a la cara (posición «Bajo el mentón»)
+  const posicionar = perfil.subtitulos.posicion === 'cara' ? subtitleAnchor({ perfil, dir, faces, person, W, H }) : undefined;
+  if (perfil.subtitulos.posicion === 'cara' && perfil.subtitulos.activo && !posicionar) calidad.push({ ok: false, texto: 'Subtítulos «bajo el mentón» sin detección de cara: van abajo. Instala el kit de herramientas de Claude (MediaPipe) en Edición → Herramientas.' });
   const subs = buildAss({
+    posicionar,
     perfil,
     words,
     gancho: ganchoTexto,
@@ -405,7 +424,7 @@ export async function renderEdit(
     const za = zoomed.length ? Math.min(...zoomed.map((c) => c.desde)) : 0;
     const zb = zoomed.length ? Math.max(...zoomed.map((c) => c.hasta)) : 0;
     const follow = fs1 && zoomed.length ? { x: seriesExpr(fitSeries(fs1.x, za, zb, 60), `(on/${FPS})`), y: seriesExpr(fitSeries(fs1.y, za, zb, 60), `(on/${FPS})`) } : null;
-    const cam = cameraFilter(dir.camara, W, H, FPS, faceCenter(faces), follow);
+    const cam = cameraFilter(dir.camara, W, H, FPS, faceCenter(faces), follow, headTopOf(faces));
     if (follow && cam) notas.push('La cámara sigue tu cara.');
     const col = colorFilter(dir.color, dir.transiciones);
     // El color es de la toma (las capturas y fotos quedan con su color); los destellos y glitch, de todo
@@ -506,6 +525,19 @@ export async function renderEdit(
     }
   }
 
+  // Fase 9 · si el original no tenía plano suficiente para el aire final, el último fotograma se queda quieto
+  if (colaFalta > 0.05) {
+    const tmp = f(`cola-${version}.mp4`);
+    await ffmpeg({
+      cwd: p.carpeta,
+      args: ['-y', '-hide_banner', '-i', out, '-vf', `tpad=stop_mode=clone:stop_duration=${colaFalta.toFixed(3)}`, '-af', `apad=pad_dur=${colaFalta.toFixed(3)}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '320k', '-movflags', '+faststart', tmp],
+      timeoutMs: 10 * 60 * 1000,
+    });
+    await fs.rename(tmp, f(out));
+    finalDur += colaFalta;
+    notas.push(`Aire final: el original acababa justo tras la última palabra; el último fotograma se queda quieto ${colaFalta.toFixed(1)} s.`);
+  }
+
   // Portada: un fotograma con el gancho en pantalla (o el primer segundo)
   const portada = `portada-v${version}.jpg`;
   const at = hookOn ? Math.min(perfil.gancho.duracionSeg * 0.6, Math.max(0.1, total - 0.1)) : Math.min(1, total / 2);
@@ -572,4 +604,53 @@ function shortBackgroundZones(p: EditProject, intervals: KeptInterval[]): Array<
     }
   }
   return out;
+}
+
+/**
+ * Fase 9 · subtítulos anclados a la cara: centro superior de la línea justo bajo el mentón en
+ * pantalla (con el zoom y el encuadre de la cámara en ese instante). En pantalla dividida, en la
+ * mitad de la persona; si la persona no está en cuadro (o tapada a pantalla completa), al 68 %.
+ */
+function subtitleAnchor(o: { perfil: EditProfile; dir: ResolvedDirection | null; faces: FaceTrack | null; person: PersonTrack | null; W: number; H: number }) {
+  const { perfil, dir, faces, person, W, H } = o;
+  const chin = chinSeries(person, faces);
+  if (!chin) return undefined;
+  const face = faceCenter(faces);
+  const zoomed = (dir?.camara ?? []).some((c) => c.zoom > 1.02 || (c.zoomFinal ?? 1) > 1.02);
+  const fs = dir?.camaraSigueCara && zoomed ? faceSeries(person, faces) : null;
+  const followAt = fs ? (t: number) => ({ x: valueAt(fs.x, t), y: valueAt(fs.y, t) }) : undefined;
+  const safe = safeZone(perfil.red, perfil.formato);
+  const lineH = perfil.subtitulos.tamano * 1.25;
+  // ¿Se ve la cara en t? (la detección más cercana, ±0,4 s)
+  const seen = person
+    ? (t: number) => person.frames.some((f) => f.cara && Math.abs(f.t - t) <= 0.4)
+    : faces
+      ? (t: number) => faces.frames.some((b, i) => b && Math.abs(i / faces.fps - t) <= 0.4)
+      : () => true;
+  return (t: number) => {
+    const els = dir?.elementos ?? [];
+    const away = { x: W / 2, y: Math.round(H * 0.68) };
+    if (els.some((e) => e.modo === 'pantalla_completa' && t >= e.desde && t < e.hasta) || !seen(t)) return away;
+    const cam = dir ? cameraAt(dir.camara, t, face, followAt, headTopOf(faces)) : { z: 1, cx: 0.5, cy: 0.5 };
+    const p = toScreen({ x: valueAt(chin.x, t), y: valueAt(chin.y, t) }, cam);
+    let x = p.x * W;
+    let y = p.y * H + H * 0.022;
+    const split = els.find((e) => e.modo === 'pantalla_dividida' && t >= e.desde && t < e.hasta);
+    if (split) {
+      // Misma cuenta que elementsFilter: la persona se recorta en una banda y va a su mitad
+      const hh = Math.round(H / 4) * 2;
+      const assetTop = split.posicion.startsWith('arriba');
+      const y0 = Math.round(Math.min(H - hh, Math.max(0, face.y * H - hh * 0.42)));
+      y = y - y0 + (assetTop ? H - hh : 0);
+    }
+    x = Math.min(W * 0.72, Math.max(W * 0.28, x));
+    y = Math.min(H - safe.bottom - lineH, Math.max(safe.top + 40, y));
+    return { x, y };
+  };
+}
+
+/** Parte de arriba de la cabeza (0–1, mediana): caja de la cara − 45 % de su alto (pelo). */
+function headTopOf(faces: FaceTrack | null): number | undefined {
+  const tops = (faces?.frames ?? []).filter((b): b is NonNullable<typeof b> => !!b).map((b) => b.y - b.h * 0.45).sort((a, b) => a - b);
+  return tops.length ? Math.max(0, tops[Math.floor(tops.length / 2)]) : undefined;
 }

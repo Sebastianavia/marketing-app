@@ -36,16 +36,18 @@ Funcionan con la aprobación de gasto del editor (tarjeta amarilla en la tarjeta
 - [ ] **Crear la marca «ETM» en la pestaña «Marcas»:**
   - [ ] Pegar `docs/marcas/etm-estandar-v1.md` en «Estándar de edición».
   - [ ] Probar una edición con esa marca.
-- [ ] **Cerrar lo que el motor aún no cumple del estándar** (`ENGINE_LIMITS`; posible Fase 9):
-  - [ ] corte por palabra dentro de la frase;
-  - [ ] subtítulos anclados a la cara;
-  - [ ] fuentes Sora, Anton y Prata;
-  - [ ] caja de comentarios de Instagram;
-  - [ ] 0,8 s de aire al final;
-  - [ ] aire sobre la cabeza;
-  - [ ] transcribir el audio final;
-  - [ ] barrido con desenfoque;
-  - [ ] piezas del kit sin blanco puro.
+- [x] **Cerrar lo que el motor no cumplía del estándar (Fase 9, 13 nov 2026).** Hecho:
+  - corte por palabra;
+  - subtítulos bajo el mentón;
+  - fuentes;
+  - caja de comentarios de Instagram;
+  - aire final y sobre la cabeza;
+  - barrido;
+  - sombra suave;
+  - verificar el audio final.
+
+  Lo que queda está en `ENGINE_LIMITS`, en `frontend/src/lib/editor/brand-standard.ts`.
+- [ ] Probar una edición real de ETM de principio a fin y revisar el checklist del punto 11 del estándar.
 
 ## 2. Datos compartidos del equipo (R2): sin estrenar en modo compartido
 

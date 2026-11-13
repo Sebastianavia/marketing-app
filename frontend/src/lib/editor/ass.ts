@@ -58,6 +58,8 @@ export interface AssInput {
   claves?: KeywordStyle[];
   /** Ventanas con pantalla dividida: los subtítulos van al centro (sobre la unión). */
   centrar?: Array<[number, number]>;
+  /** Fase 9 · subtítulos anclados a la cara: posición (centro superior de la línea, en px) para el instante t; null = la de siempre. */
+  posicionar?: (t: number) => { x: number; y: number } | null;
   /** Segundo idioma: una línea más pequeña bajo cada subtítulo, por frase (tiempos del video final). */
   traduccion?: { lineas: Array<{ s: number; e: number; texto: string }>; escala: number; color: string };
   /** Sombra de los subtítulos (px y color). */
@@ -84,7 +86,7 @@ export function defaultSubMargin(perfil: EditProfile): number {
   const { height } = formatSize(perfil.formato);
   const safe = safeZone(perfil.red, perfil.formato);
   const sub = perfil.subtitulos;
-  return sub.posicion === 'abajo'
+  return sub.posicion === 'abajo' || sub.posicion === 'cara'
     ? Math.max(Math.round(height * 0.2), safe.bottom + 40)
     : sub.posicion === 'arriba'
       ? Math.max(Math.round(height * 0.17), safe.top + 40)
@@ -124,7 +126,7 @@ function mergeShort(chunks: SubWord[][], max: number): SubWord[][] {
   return out;
 }
 
-export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFinal, graficos = [], ocultar = [], cardStyle, marginV: marginOverride, claves = [], centrar = [], sombra, traduccion }: AssInput): AssResult {
+export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFinal, graficos = [], ocultar = [], cardStyle, marginV: marginOverride, claves = [], centrar = [], sombra, traduccion, posicionar }: AssInput): AssResult {
   const words = ocultar.length ? allWords.filter((w) => !ocultar.some(([a, b]) => w.s >= a - 0.05 && w.s < b)) : allWords;
   const { width, height } = formatSize(perfil.formato);
   const sub = perfil.subtitulos;
@@ -135,7 +137,7 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
   const alignment = sub.posicion === 'arriba' ? 8 : sub.posicion === 'centro' ? 5 : 2;
   // Abajo: por encima de los botones de la red (y a la altura del pecho). Arriba: debajo de la barra de la red.
   const marginV = marginOverride ??
-    (sub.posicion === 'abajo'
+    (sub.posicion === 'abajo' || sub.posicion === 'cara'
       ? Math.max(Math.round(height * 0.2), safe.bottom + 40)
       : sub.posicion === 'arriba'
         ? Math.max(Math.round(height * 0.17), safe.top + 40)
@@ -216,10 +218,27 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
   const events: string[] = [];
   // Con pantalla dividida, los subtítulos van al centro (sobre la unión de las dos mitades)
   const center = `{\\an5\\pos(${Math.round(width / 2)},${Math.round(height / 2)})}`;
+  // Anclados a la cara: la posición se calcula al empezar cada línea y vale para toda la línea
+  let linePos: { x: number; y: number } | null = null;
+  // Sombra suave (desenfoque ~8 px, 60 %): una copia negra desenfocada en la capa de abajo; el texto va encima
+  const soft = !!sub.sombraSuave;
+  const SHADOW_TAGS = '\\1c&H000000&\\3c&H000000&\\alpha&H66&\\bord2\\shad0\\blur8';
+  // {\r} vuelve al estilo (marfil): en la copia de sombra se vuelve a poner negro desenfocado
+  const shadowOf = (text: string) =>
+    `{${SHADOW_TAGS}}${text
+      .replace(/\\[13]c&H[0-9A-Fa-f]+&/g, '')
+      .replace(/\\bord[\d.]+/g, '')
+      .replace(/\{\\r\}/g, `{\\r${SHADOW_TAGS}}`)}`;
   const add = (start: number, end: number, style: string, text: string) => {
     if (end - start < 0.03) return;
-    const centered = style === 'Sub' && centrar.some(([a, b]) => start >= a - 0.05 && start < b);
-    events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},${style},,0,0,0,,${centered ? center : ''}${text}`);
+    const centered = style === 'Sub' && !linePos && centrar.some(([a, b]) => start >= a - 0.05 && start < b);
+    const pos = style === 'Sub' && linePos ? `{\\an8\\pos(${Math.round(linePos.x)},${Math.round(linePos.y)})}` : centered ? center : '';
+    if (style === 'Sub' && soft) {
+      events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},${style},,0,0,0,,${pos}${shadowOf(text)}`);
+      events.push(`Dialogue: 1,${assTime(start)},${assTime(end)},${style},,0,0,0,,${pos}{\\shad0}${text}`);
+      return;
+    }
+    events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},${style},,0,0,0,,${pos}${text}`);
   };
   const lineSpans: number[] = [];
 
@@ -232,6 +251,7 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
       // Cola de 0,35 s y mínimo de 0,4 s, sin pisar la línea siguiente
       const chunkEnd = Math.min(nextStart, Math.max(chunk[chunk.length - 1].e + 0.35, chunk[0].s + MIN_CAPTION_SEC), duracionFinal);
       lineSpans.push(chunkEnd - chunk[0].s);
+      linePos = posicionar ? posicionar(chunk[0].s) : null;
 
       if (sub.estilo === 'karaoke' || sub.estilo === 'caja_activa') {
         chunk.forEach((w, j) => {
