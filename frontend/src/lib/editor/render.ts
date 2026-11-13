@@ -307,6 +307,20 @@ export async function renderEdit(
     ocultar: [...gfx.hide, ...(dir?.elementos.filter((e) => e.ocultarSubtitulos).map((e) => [e.desde, e.hasta] as [number, number]) ?? [])],
     cardStyle: style,
     marginV: subMargin,
+    traduccion: (() => {
+      const t = p.direccion?.segundoIdioma;
+      if (!t?.frases.length) return undefined;
+      // Índice de cada frase conservada (el mismo que usa subtitleWords) → su primera y última palabra
+      const kept = p.frases.filter((x) => !x.cortar && x.palabras.length);
+      const byId = new Map(t.frases.map((x) => [x.id, x.texto.trim()]));
+      const lineas: Array<{ s: number; e: number; texto: string }> = [];
+      kept.forEach((fr, i) => {
+        const texto = byId.get(fr.id);
+        const ws = words.filter((w) => w.frase === i);
+        if (texto && ws.length) lineas.push({ s: ws[0].s, e: ws[ws.length - 1].e, texto });
+      });
+      return { lineas, escala: t.escala, color: t.color };
+    })(),
   });
   await fs.writeFile(f('subtitulos.ass'), subs.ass, 'utf-8');
   const burn = (perfil.subtitulos.activo && words.length > 0) || hookOn || gfx.front.length > 0 || progressCounter.length > 0 || Boolean(perfil.firma?.activo && perfil.firma.texto.trim());

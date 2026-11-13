@@ -89,6 +89,20 @@ Se prueba igual en Mac y en Windows, pero hace falta un segundo PC para comproba
   - [ ] Sin vidstab, `estabilizar` usa `deshake` y el video sigue a 1080×1920.
   - [ ] `igualarLuz` funciona.
 
+## 4b. Fases 5, 6 y 7 (con un borrador real)
+
+- [ ] **Publicar → Exportar (TikTok, Reels, Shorts):** se descarga el MP4 y el `.srt` abre en un editor.
+- [ ] **Claude:**
+  - [ ] `crear_variante` (A/B y corta).
+  - [ ] `texto_post`: se ve y se copia.
+- [ ] **Nota de retención:** aparece sola tras renderizar.
+- [ ] **Métricas:** adjuntar una captura de retención en el chat y pedir «analiza estas métricas».
+- [ ] **Referencias:** `analizar_referencia` con un enlace. Necesita `yt-dlp` en Windows: `winget install yt-dlp`.
+- [ ] **Subtítulos en dos idiomas:** `segundoIdioma`.
+- [ ] **De pago (aprobar a propósito con poco dinero):**
+  - [ ] `corregir_palabra` con una voz clonada.
+  - [ ] `doblar_video` a inglés con un video corto (unos $0,25 por 30 s).
+
 ## 5. Empaquetado
 
 - [ ] Rutas con espacios y tildes en la carpeta de proyectos (`D:\LuloStudio_Projects\Ediciones\Título con tildes …`).

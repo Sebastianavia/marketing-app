@@ -9,7 +9,7 @@ import { generateStyledMusic, MUSIC_CATALOG } from './music';
 import { buildSfxTrack, decodeMono, sfxSamples, type SfxPlacement } from './sfx';
 import type { ResolvedDirection } from './direction';
 import type { SubWord } from './timeline';
-import { buildAmbientTrack, processVoice } from './voice';
+import { applyCorrections, buildAmbientTrack, processVoice } from './voice';
 
 /**
  * Pasada de sonido (después del video):
@@ -87,8 +87,12 @@ export async function buildFinalAudio(o: {
   const notas: string[] = [];
   const f = (name: string) => path.join(/*turbopackIgnore: true*/ carpeta, name);
 
-  // Voz: mejora, respiraciones y efectos por tramo (solo con plan de Claude)
+  // Voz: palabras corregidas con la voz clonada, mejora, respiraciones y efectos por tramo (solo con plan)
   let voz = o.voz;
+  if (o.direccion?.correcciones.length) {
+    voz = await applyCorrections(carpeta, voz, D, o.direccion.correcciones);
+    notas.push(`${o.direccion.correcciones.length} palabra(s) corregida(s) con la voz clonada.`);
+  }
   if (o.direccion?.voz) {
     const pv = await processVoice({ carpeta, voz, D, plan: o.direccion.voz, words: o.words ?? [] });
     voz = pv.file;

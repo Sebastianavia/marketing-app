@@ -26,6 +26,8 @@ import { beatAlignment, detectBeats, generatedBeats, nearestBeat, type BeatGrid 
 import { NETWORKS, NETWORK_LABEL, OutputError, PostInputSchema, VariantInputSchema, exportForNetwork, outputBusy, renderVariant } from './outputs';
 import { scoreEdit } from './score';
 import { MetricInputSchema, analyzeRetention, bestTime, measureReference, metricsDoc, newMetric, referencesDoc, saveReference, shareMetric } from './learning';
+import { DUB_LANGS, PaidError, correctionCost, dubDraft, dubEstimate, generateCorrection, requestApproval, spendApproval } from './paid';
+import { getStoredVoices } from '@/lib/storage/voice-storage';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
 import { KIT_FONTS, loadBrands } from './kit/brands';
 import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
@@ -560,6 +562,11 @@ const catalogoEdicion = tool({
         estabilizar: 'estabilizar: true si analizar_imagen dice que tiembla (vidstab, dos pasadas).',
         igualarLuz: 'igualarLuz: true si las tomas no casan de luz o tinte.',
       },
+      vozEIdioma: {
+        segundoIdioma: 'segundoIdioma: {idioma, frases: [{id (de ver_edicion), texto traducido}], escala 0,4–0,9, color}: línea más pequeña bajo cada subtítulo. Gratis: traduces tú.',
+        correcciones: 'corregir_palabra (de pago, con aprobación): la voz clonada dice el texto correcto en un tramo; tapa el labio con un cambio de plano o un elemento.',
+        doblaje: 'doblar_video (de pago, con aprobación): todo el video en otro idioma con su voz y subtítulos nuevos.',
+      },
       kitDeGraficos: { tipos: KIT_CATALOG, como: 'kit_grafico crea la pieza (.mov transparente en kit/) con la paleta del plan; colócala como elemento «capa». Una anotación (trazo) puede ir sobre un silencio dramático: pausas[].capa.' },
       paleta: 'Elige TÚ la paleta de este video (primario, acento, secundario, texto, fondo) en el campo paleta del plan: se aplica a subtítulos, gancho y gráficos. No estás atado a los colores del perfil.',
       presupuestoDeRitmo: RHYTHM_BUDGET,
@@ -956,6 +963,112 @@ const referenciasTool = tool({
   },
 });
 
+const pedirAprobacion = tool({
+  name: 'pedir_aprobacion',
+  description:
+    'Pide a la persona que apruebe un gasto (doblaje, palabras corregidas con su voz). Sale una tarjeta en la app con el concepto y el monto; nada se cobra sin su aprobación. Pide el total de una vez (mira costo_voz_e_idioma). Después TERMINA tu turno: cuando la persona decida te llegará un mensaje con el resultado.',
+  schema: z.object({ concepto: z.string().min(3).max(200), montoUSD: z.number().positive().max(20) }),
+  run: async (editId, input) => {
+    const ap = await requestApproval(editId, input.concepto, input.montoUSD);
+    return { aprobacionId: ap.id, nota: 'Tarjeta mostrada en la app. Termina tu turno y espera la decisión.' };
+  },
+});
+
+const costoVozIdioma = tool({
+  name: 'costo_voz_e_idioma',
+  description: 'Cuánto costaría doblar el borrador actual (ElevenLabs Dubbing $0,50/min + transcripción) y corregir textos con la voz clonada (por caracteres). Úsalo antes de pedir_aprobacion. $0.',
+  schema: z.object({ correcciones: z.array(z.string().max(200)).max(20).optional() }),
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    const d = p.borrador ? dubEstimate(p.borrador.duracion) : null;
+    const c = (input.correcciones ?? []).reduce((sum, t) => sum + correctionCost(t), 0);
+    return {
+      doblajePorIdioma: d ? { ...d, nota: `Borrador de ${Math.round(p.borrador!.duracion)} s.` } : 'Sin borrador todavía.',
+      correcciones: input.correcciones?.length ? { total: Number(c.toFixed(4)), textos: input.correcciones.length } : undefined,
+      idiomasDeDoblaje: DUB_LANGS,
+    };
+  },
+});
+
+const vocesTool = tool({
+  name: 'voces',
+  description: 'Voces de ElevenLabs guardadas en la app (las clonadas son las de las personas del equipo o sus clientes). Para corregir_palabra usa la voz clonada de la persona del video. $0.',
+  schema: z.object({}),
+  run: async () => ({ voces: (await getStoredVoices()).map((v) => ({ id: v.id, nombre: v.name, tipo: v.category === 'cloned' ? 'clonada' : 'de catálogo', descripcion: v.description })) }),
+});
+
+const corregirPalabra = tool({
+  name: 'corregir_palabra',
+  description:
+    'Corrige una palabra o frase mal dicha: genera el texto con la voz CLONADA de la persona (ElevenLabs, de pago: necesita aprobacionId aprobado) y lo pone en lugar del audio original en desde–hasta (segundos de la línea principal; ajusta el tempo al hueco y el volumen al de la voz). Para que no se note el labio, pon en ese tramo un cambio de plano, un punch o un elemento encima. Después renderiza.',
+  schema: z.object({ desde: z.number().min(0), hasta: z.number().min(0), texto: z.string().trim().min(1).max(200), vozId: z.string().min(5), aprobacionId: z.string().min(3), idioma: z.string().max(5).optional() }),
+  run: async (editId, input) => {
+    if (input.hasta <= input.desde + 0.05 || input.hasta - input.desde > 6) throw new AgentToolError('El tramo debe durar entre 0,05 y 6 s.');
+    const voz = (await getStoredVoices()).find((v) => v.id === input.vozId);
+    if (!voz) throw new AgentToolError('Esa voz no está guardada en la app (mira voces).');
+    const p0 = await getEdit(editId);
+    assertIdle(p0);
+    const cost = correctionCost(input.texto);
+    try {
+      await spendApproval(editId, input.aprobacionId, cost);
+    } catch (err) {
+      if (err instanceof PaidError) throw new AgentToolError(err.message, err.status);
+      throw err;
+    }
+    let gen;
+    try {
+      gen = await generateCorrection(p0, { texto: input.texto, vozId: voz.id, vozNombre: voz.name, idioma: input.idioma });
+    } catch (err) {
+      // No se cobró: se devuelve el saldo
+      await updateEdit(editId, (q) => {
+        const a = (q.aprobaciones ?? []).find((x) => x.id === input.aprobacionId);
+        if (a) a.usadoUSD = Math.max(0, Number((a.usadoUSD - cost).toFixed(4)));
+      });
+      throw new AgentToolError(errorMessage(err, 'No se pudo generar la voz.'), 502);
+    }
+    const intervals = snapToFrames(keptIntervals(p0.frases, normalizeProfile(p0.perfil).ritmo, p0.original.duracion));
+    const total = totalDuration(intervals);
+    const lib = await musicDir();
+    await updateEdit(editId, (q) => {
+      const prev = q.direccion ? directionInFinal(q.direccion, intervals, total).correcciones ?? [] : [];
+      try {
+        const r = prepareDirection(q, DirectionInputSchema.parse({ correcciones: [...prev, { desde: input.desde, hasta: input.hasta, archivo: gen.archivo, texto: input.texto }] }), intervals, total, q.direccion, lib);
+        q.direccion = r.direccion;
+      } catch (err) {
+        if (err instanceof DirectionError) throw new AgentToolError(err.message);
+        throw err;
+      }
+      logActivity(q, `Claude corrigió «${input.texto}» con la voz de ${voz.name}.`);
+    });
+    return { ok: true, archivo: gen.archivo, costoUSD: Number(gen.costUSD.toFixed(4)), siguiente: `Tapa el labio en ${input.desde}–${input.hasta} s (cambio de plano, punch o un elemento) y renderiza.` };
+  },
+});
+
+const doblarVideo = tool({
+  name: 'doblar_video',
+  description:
+    'Dobla el borrador actual a otro idioma con ElevenLabs (la voz de la persona en ese idioma, mantiene música y efectos) y le pone subtítulos en el idioma nuevo con el estilo del video. De pago: necesita aprobacionId aprobado (costo_voz_e_idioma → pedir_aprobacion). gancho = el texto del gancho ya traducido (si no, va sin gancho). Los textos del kit y gráficos siguen en español: avísalo. Queda como variante «doblaje-<idioma>». Tarda varios minutos.',
+  schema: z.object({ idioma: z.enum(Object.keys(DUB_LANGS) as [string, ...string[]]), gancho: z.string().max(120).optional(), aprobacionId: z.string().min(3) }),
+  run: async (editId, input) => {
+    const p = await getEdit(editId);
+    assertIdle(p);
+    if (!p.borrador) throw new AgentToolError('Primero hace falta un borrador.');
+    let r;
+    try {
+      r = await dubDraft(editId, input);
+    } catch (err) {
+      if (err instanceof PaidError) throw new AgentToolError(err.message, err.status);
+      throw err;
+    }
+    const v = { id: `doblaje-${input.idioma}`, nombre: `Doblaje ${DUB_LANGS[input.idioma]}`, descripcion: `Doblado con ElevenLabs y subtítulos en ${DUB_LANGS[input.idioma]}`, archivo: r.archivo, duracion: r.duracion, creado: new Date().toISOString(), deVersion: p.borrador.version };
+    await updateEdit(editId, (q) => {
+      q.variantes = [...(q.variantes ?? []).filter((x) => x.id !== v.id), v];
+      logActivity(q, `Doblaje a ${DUB_LANGS[input.idioma]} listo (~$${r.costoUSD.toFixed(2)}).`);
+    });
+    return { ok: true, variante: v, costoUSD: r.costoUSD, siguiente: 'Míralo con fotogramas y escucha un tramo; avisa de los textos en pantalla que siguen en español.' };
+  },
+});
+
 const marcasTool = tool({
   name: 'marcas',
   description: 'Marcas guardadas por el equipo (logo, colores, tipografía, lema, usuario y CTA) para hacer su intro o su cierre con kit_grafico tipo «marca». Úsalas cuando el video sea de esa marca. $0.',
@@ -1030,7 +1143,7 @@ const dirigirEdicion = tool({
   },
 });
 
-export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
+export const EDITOR_AGENT_TOOLS: AgentTool[] = [verManual, aprenderDelFeedback, catalogoEdicion, bibliotecaAudio, beatsMusica, kitGrafico, zonasDeCambio, marcasTool, disenarPortada, pistaPersona, analizarImagen, crearVariante, exportarRedes, textoPost, puntuarBorrador, registrarMetricas, mejorHora, analizarReferencia, guardarReferencia, referenciasTool, pedirAprobacion, costoVozIdioma, vocesTool, corregirPalabra, doblarVideo, dirigirEdicion, verFeedback, tomarFeedback, responderFeedback, verEdicion, palabrasBorrador, escucharAudio, cambiarPerfil, cambiarGuion, planearGraficos, renderizar, esperarRender, revisarHtmlVideo, renderizarHtmlVideo, publicarBorrador];
 
 export function editorAgentToolsManifest() {
   return EDITOR_AGENT_TOOLS.map((t) => ({

@@ -415,8 +415,23 @@ function DraftCard({
   const b = edit.borrador!;
   const approved = edit.estado === 'aprobado';
   const avisos = (b.calidad ?? []).filter((c) => c.ok === false).length;
+  const pendientes = (edit.aprobaciones ?? []).filter((x) => x.estado === 'pendiente');
   return (
     <section className="space-y-3 rounded-xl border border-line bg-surface p-4">
+      {pendientes.map((ap) => (
+        <div key={ap.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+          <p className="min-w-0 flex-1 text-[13px] text-fg">
+            <b>Claude pide aprobar ${ap.montoUSD.toFixed(2)}</b> · {ap.concepto}
+            <span className="block text-[11px] text-fg-muted">Nada se cobra sin tu aprobación. Se descuenta del límite diario y queda en Costos.</span>
+          </p>
+          <button type="button" disabled={!!busy} onClick={() => void run(`aprobar-${ap.id}`, { accion: 'decidir_gasto', aprobacion: ap.id, decision: 'aprobar', montoUSD: ap.montoUSD })} className="btn-primary h-8 px-3 text-[12px]">
+            {busy === `aprobar-${ap.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Aprobar ${ap.montoUSD.toFixed(2)}
+          </button>
+          <button type="button" disabled={!!busy} onClick={() => void run(`rechazar-${ap.id}`, { accion: 'decidir_gasto', aprobacion: ap.id, decision: 'rechazar', montoUSD: ap.montoUSD })} className="btn-secondary h-8 px-3 text-[12px]">
+            Rechazar
+          </button>
+        </div>
+      ))}
       <div className={showVideo ? 'grid gap-5 md:grid-cols-[auto_minmax(0,1fr)]' : ''}>
         {showVideo && (
           <video key={b.version} src={mediaUrl(edit.id, 'borrador', b.version)} controls playsInline className="mx-auto max-h-[560px] w-full max-w-[320px] rounded-xl bg-black" />

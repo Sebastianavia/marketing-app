@@ -102,7 +102,7 @@ const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const safeName = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'v';
 
 /** Renderiza una copia del proyecto y deja el resultado con el nombre pedido (sin tocar el borrador). */
-async function renderCopy(p: EditProject, q: EditProject, outBase: string, onProgress?: (pct: number) => void) {
+export async function renderCopy(p: EditProject, q: EditProject, outBase: string, onProgress?: (pct: number) => void) {
   // Versión alta y propia: renderEdit escribe borrador-v<N>.mp4 y portada-v<N>.jpg
   const tmpVersion = 900000 + Math.floor(Math.random() * 99999);
   const r = await renderEdit(q, tmpVersion, (pct) => onProgress?.(pct), { conservarBases: true });

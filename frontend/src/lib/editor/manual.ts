@@ -336,6 +336,14 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     ],
   },
   {
+    titulo: 'Voz e idioma',
+    items: [
+      'Subtítulos en dos idiomas (segundoIdioma): la traducción de cada frase en una línea más pequeña. Gratis.',
+      'Palabra corregida con la voz clonada (corregir_palabra, de pago con aprobación): ajustada al hueco y al volumen de la voz.',
+      'Doblaje completo a otro idioma con subtítulos nuevos (doblar_video, ElevenLabs $0,50/min, de pago con aprobación).',
+    ],
+  },
+  {
     titulo: 'HyperFrames (diseño y animación)',
     items: [
       'Motion design de calidad: tarjetas, listas que se construyen, cifras que cuentan, iconos, tipografía cinética, mapas, gráficos de datos, transiciones de diseño; ~450 bloques listos en hyperframes-registry.',

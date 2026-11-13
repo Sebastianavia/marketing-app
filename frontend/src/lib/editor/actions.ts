@@ -185,6 +185,7 @@ export const ActionSchema = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('quitar_direccion') }),
   z.object({ accion: z.literal('exportar'), red: z.enum(NETWORKS) }),
   z.object({ accion: z.literal('borrar_variante'), variante: z.string().max(40) }),
+  z.object({ accion: z.literal('decidir_gasto'), aprobacion: z.string().max(20), decision: z.enum(['aprobar', 'rechazar']), montoUSD: z.number() }),
 ]);
 
 export type EditAction = z.infer<typeof ActionSchema>;
@@ -236,6 +237,68 @@ async function applyRevision(p: EditProject, r: z.infer<typeof RevisionSchema>) 
   }
 }
 
+
+/** Acciones largas o que avisan a Claude: van FUERA del candado de la edición (dentro se bloquearían). */
+async function runOutsideLock(id: string, a: EditAction): Promise<EditProject | null> {
+  if (a.accion === 'exportar') {
+    const cur = await getEdit(id);
+    if (!cur.borrador) throw new EditError('Primero hace falta un borrador.');
+    if (ACTIVE_STATUSES.includes(cur.estado) || cur.tarea) throw new EditError('La edición se está procesando: espera a que termine.', 409);
+    try {
+      const e = await exportForNetwork(cur, a.red);
+      return (
+        await updateEdit(id, (q) => {
+          q.exportaciones = [...(q.exportaciones ?? []).filter((x) => x.red !== a.red), e];
+          logActivity(q, `Exportado para ${NETWORK_LABEL[a.red]}.`);
+        })
+      ).edit;
+    } catch (err) {
+      if (err instanceof OutputError) throw new EditError(err.message, err.status);
+      throw err;
+    }
+  }
+  if (a.accion === 'borrar_variante') {
+    return (
+      await updateEdit(id, (q) => {
+        const v = (q.variantes ?? []).find((x) => x.id === a.variante);
+        q.variantes = (q.variantes ?? []).filter((x) => x.id !== a.variante);
+        if (v) for (const f of [v.archivo, v.portada].filter(Boolean) as string[]) void fs.rm(editFile(q, f), { force: true }).catch(() => undefined);
+      })
+    ).edit;
+  }
+  if (a.accion === 'decidir_gasto') {
+    const { edit: e, result: ap } = await updateEdit(id, (q) => {
+      const x = (q.aprobaciones ?? []).find((y) => y.id === a.aprobacion);
+      if (!x) throw new EditError('Esa solicitud ya no existe.', 404);
+      if (x.estado !== 'pendiente') throw new EditError('Esa solicitud ya se resolvió.', 409);
+      // Se exige el monto que vio la persona: si Claude lo cambió, se vuelve a revisar
+      if (Math.abs(x.montoUSD - a.montoUSD) > 1e-4) throw new EditError('El monto cambió; vuelve a revisarlo.', 409);
+      x.estado = a.decision === 'aprobar' ? 'aprobada' : 'rechazada';
+      x.resuelta = new Date().toISOString();
+      logActivity(q, `${a.decision === 'aprobar' ? 'Aprobado' : 'Rechazado'} el gasto de $${x.montoUSD.toFixed(2)}: ${x.concepto}.`);
+      return { ...x };
+    });
+    // Claude sigue solo con la decisión (si no está trabajando en otra cosa)
+    try {
+      const ca = await import('./claude-agent');
+      if (!ca.isTurnActive(id)) {
+        await ca.sendToClaude(
+          id,
+          ap.estado === 'aprobada'
+            ? `La persona APROBÓ el gasto de $${ap.montoUSD.toFixed(2)} (${ap.concepto}). aprobacionId: ${ap.id}. Sigue con lo que ibas a hacer.`
+            : `La persona RECHAZÓ el gasto de $${ap.montoUSD.toFixed(2)} (${ap.concepto}). No lo hagas; dile en una línea qué alternativa gratis hay, si la hay.`,
+          ca.defaultAppUrl(),
+          { mostrar: ap.estado === 'aprobada' ? `Aprobé $${ap.montoUSD.toFixed(2)}` : 'Rechacé el gasto' }
+        );
+      }
+    } catch (err) {
+      console.error('[edicion] no se pudo avisar a Claude de la aprobación:', err);
+    }
+    return e;
+  }
+  return null;
+}
+
 export async function runAction(id: string, raw: unknown): Promise<EditProject> {
   const parsed = ActionSchema.safeParse(raw);
   if (!parsed.success) throw new EditError('Acción no válida.');
@@ -243,37 +306,14 @@ export async function runAction(id: string, raw: unknown): Promise<EditProject> 
 
   if (a.accion === 'aprobar') return approve(id);
   if (a.accion === 'proponer_graficos') return proposeGraphicsNow(id);
+  const outside = await runOutsideLock(id, a);
+  if (outside) return outside;
 
   const { edit } = await updateEdit(id, async (p) => {
     switch (a.accion) {
       case 'renombrar':
         p.titulo = a.titulo;
         return;
-      case 'exportar': {
-        const cur = await getEdit(id);
-        if (!cur.borrador) throw new EditError('Primero hace falta un borrador.');
-        if (ACTIVE_STATUSES.includes(cur.estado) || cur.tarea) throw new EditError('La edición se está procesando: espera a que termine.', 409);
-        try {
-          const e = await exportForNetwork(cur, a.red);
-          return (
-            await updateEdit(id, (q) => {
-              q.exportaciones = [...(q.exportaciones ?? []).filter((x) => x.red !== a.red), e];
-              logActivity(q, `Exportado para ${NETWORK_LABEL[a.red]}.`);
-            })
-          ).edit;
-        } catch (err) {
-          if (err instanceof OutputError) throw new EditError(err.message, err.status);
-          throw err;
-        }
-      }
-      case 'borrar_variante':
-        return (
-          await updateEdit(id, (q) => {
-            const v = (q.variantes ?? []).find((x) => x.id === a.variante);
-            q.variantes = (q.variantes ?? []).filter((x) => x.id !== a.variante);
-            if (v) for (const f of [v.archivo, v.portada].filter(Boolean) as string[]) void fs.rm(editFile(q, f), { force: true }).catch(() => undefined);
-          })
-        ).edit;
       case 'quitar_direccion':
         assertIdle(p);
         p.direccion = undefined;

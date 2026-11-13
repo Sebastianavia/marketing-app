@@ -298,3 +298,33 @@ export async function buildAmbientTrack(D: number, items: AmbientPlacement[], vo
   }
   return { left: L, right: R, usados };
 }
+
+/**
+ * Corrige palabras mal dichas: silencia la voz original en cada tramo (con rampas de 20 ms) y pone
+ * encima el audio generado con la voz clonada, ajustado al hueco (atempo 0,75–1,35×).
+ */
+export async function applyCorrections(carpeta: string, voz: string, D: number, list: Array<{ desde: number; hasta: number; abs: string }>): Promise<string> {
+  const { probeMedia } = await import('@/lib/video/ffmpeg');
+  const { measureLoudness } = await import('./audio');
+  const vozLufs = (await measureLoudness(voz).catch(() => ({ lufs: -20 }))).lufs;
+  const g: string[] = [];
+  const args: string[] = ['-y', '-hide_banner', '-i', voz];
+  const gate = (a: number, b: number) => `clip(min((t-${f3(a)})/0.02,(${f3(b)}-t)/0.02),0,1)`;
+  g.push(`[0:a]${STEREO},volume='1${list.map((c) => `-${gate(c.desde, c.hasta)}`).join('')}':eval=frame[dry]`);
+  const mix = ['[dry]'];
+  for (const [i, c] of list.entries()) {
+    const len = Math.max(0.1, c.hasta - c.desde);
+    const dur = (await probeMedia(c.abs).catch(() => ({ duration: null }))).duration ?? len;
+    const tempo = Math.max(0.75, Math.min(1.35, dur / len));
+    // Mismo volumen que la voz original
+    const gain = Math.max(-20, Math.min(20, vozLufs - (await measureLoudness(c.abs).catch(() => ({ lufs: vozLufs }))).lufs));
+    args.push('-i', c.abs);
+    const ms = Math.round(c.desde * 1000);
+    g.push(`[${i + 1}:a]${STEREO},atempo=${tempo.toFixed(4)},volume=${gain.toFixed(2)}dB,afade=t=in:d=0.02,adelay=${ms}|${ms},apad,atrim=0:${f3(D)}[c${i}]`);
+    mix.push(`[c${i}]`);
+  }
+  g.push(`${mix.join('')}amix=inputs=${mix.length}:duration=first:dropout_transition=0,volume=${mix.length}[out]`);
+  const out = path.join(/*turbopackIgnore: true*/ carpeta, 'voz-corregida.wav');
+  await ffmpeg({ cwd: carpeta, args: [...args, '-filter_complex', g.join(';'), '-map', '[out]', '-t', f3(D), '-c:a', 'pcm_s16le', '-ar', '48000', out], timeoutMs: 5 * 60_000 });
+  return out;
+}

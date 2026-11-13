@@ -58,6 +58,8 @@ export interface AssInput {
   claves?: KeywordStyle[];
   /** Ventanas con pantalla dividida: los subtítulos van al centro (sobre la unión). */
   centrar?: Array<[number, number]>;
+  /** Segundo idioma: una línea más pequeña bajo cada subtítulo, por frase (tiempos del video final). */
+  traduccion?: { lineas: Array<{ s: number; e: number; texto: string }>; escala: number; color: string };
   /** Sombra de los subtítulos (px y color). */
   sombra?: { px: number; color: string };
 }
@@ -122,7 +124,7 @@ function mergeShort(chunks: SubWord[][], max: number): SubWord[][] {
   return out;
 }
 
-export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFinal, graficos = [], ocultar = [], cardStyle, marginV: marginOverride, claves = [], centrar = [], sombra }: AssInput): AssResult {
+export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFinal, graficos = [], ocultar = [], cardStyle, marginV: marginOverride, claves = [], centrar = [], sombra, traduccion }: AssInput): AssResult {
   const words = ocultar.length ? allWords.filter((w) => !ocultar.some(([a, b]) => w.s >= a - 0.05 && w.s < b)) : allWords;
   const { width, height } = formatSize(perfil.formato);
   const sub = perfil.subtitulos;
@@ -310,6 +312,18 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
     events.push(`Dialogue: 1,${assTime(0)},${assTime(Math.max(0.5, duracionFinal))},Firma,,0,0,0,,${escapeText(sigText)}`);
   }
 
+  // Segundo idioma: línea pequeña justo debajo de la línea principal, con su propio color
+  let tradStyle: string | null = null;
+  if (traduccion?.lineas.length && sub.activo) {
+    const ts = Math.round(sub.tamano * traduccion.escala);
+    tradStyle = ['Trad', font, ts, assColor(traduccion.color), assColor(traduccion.color), assColor('#000000'), assColor('#000000', 120), -1, 0, 0, 0, 100, 100, 0, 0, 1, Math.max(2, Math.round(sub.grosorBorde * 0.7)), 1, 8, marginL, marginR, 0, 1].join(',');
+    const y = sub.posicion === 'abajo' ? height - marginV + 10 : sub.posicion === 'arriba' ? marginV + Math.round(sub.tamano * 1.3) : Math.round(height / 2 + sub.tamano * 0.75);
+    for (const l of traduccion.lineas) {
+      if (ocultar.some(([a, b]) => l.s >= a - 0.05 && l.s < b)) continue;
+      events.push(`Dialogue: 0,${assTime(l.s)},${assTime(Math.max(l.s + 0.3, l.e))},Trad,,0,0,0,,{\\an8\\pos(${Math.round(width / 2)},${y})\\fad(80,80)}${escapeText(l.texto)}`);
+    }
+  }
+
   const ass = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -325,6 +339,7 @@ export function buildAss({ perfil, words: allWords, gancho, resaltar, duracionFi
     `Style: ${hookStyle}`,
     ...(sigStyle ? [`Style: ${sigStyle}`] : []),
     ...(cardStyle ? [`Style: ${cardStyle}`] : []),
+    ...(tradStyle ? [`Style: ${tradStyle}`] : []),
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',

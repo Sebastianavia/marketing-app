@@ -67,3 +67,12 @@ export function ttsCost(modelId: string | undefined, characters: number): number
 export function scriptCost(model: string): number {
   return SCRIPT_COST_ESTIMATES[model] ?? SCRIPT_COST_ESTIMATES.default;
 }
+
+/**
+ * Doblaje de ElevenLabs (Dubbing v1, sin marca de agua): $0.50 por minuto de video.
+ * Fuente: elevenlabs.io/pricing/api (consultado el 13 nov 2026; con marca de agua $0.33/min, v2 $2.20/min).
+ */
+export const DUBBING_RATE_PER_MIN = 0.5;
+export function dubbingCost(seconds: number): number {
+  return (Math.max(0, seconds) / 60) * DUBBING_RATE_PER_MIN;
+}

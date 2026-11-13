@@ -218,6 +218,18 @@ export const DirectionInputSchema = z.object({
   estabilizar: z.boolean().optional(),
   /** Igualar brillo y tinte entre tramos (tomas grabadas en momentos distintos). */
   igualarLuz: z.boolean().optional(),
+  // ── Voz e idioma (Fase 6) ──
+  /** Subtítulos en dos idiomas: la traducción de cada frase (id de ver_edicion) en una línea más pequeña. */
+  segundoIdioma: z
+    .object({
+      idioma: z.string().min(2).max(12),
+      frases: z.array(z.object({ id: z.string(), texto: z.string().max(240) })).max(400),
+      escala: z.number().min(0.4).max(0.9).default(0.6),
+      color: hex.default('#FFE066'),
+    })
+    .optional(),
+  /** Palabras corregidas con la voz clonada (las crea corregir_palabra; no las escribas a mano). */
+  correcciones: z.array(z.object({ desde: sec, hasta: sec, archivo: z.string().max(300), texto: z.string().max(200) })).max(20).optional(),
   /** Volumen final del máster en LUFS (−14 por defecto; TikTok admite −12/−11 si el video es enérgico). */
   volumenFinal: z.number().min(-16).max(-9).optional(),
   // ── Estructura de retención (Fase 1) — tiempos de la línea PRINCIPAL (la de palabras_borrador) ──
@@ -302,6 +314,7 @@ function convert<T extends Omit<DirectionInput, 'graficos'>>(d: T, fn: (t: numbe
     pausas: m(d.pausas),
     ambientes: m(d.ambientes),
     persona: m(d.persona),
+    correcciones: m(d.correcciones),
     voz: d.voz ? { ...d.voz, efectos: m(d.voz.efectos) ?? [] } : undefined,
     arranque: d.arranque ? mapTimes(d.arranque, fn, TIME_KEYS) : undefined,
     progreso: d.progreso ? { ...d.progreso, marcas: d.progreso.marcas.map((t) => r2(fn(t))) } : undefined,
@@ -731,6 +744,7 @@ export interface ResolvedDirection {
   voz?: { mejorar: boolean; respiraciones: boolean; efectos: Array<{ desde: number; hasta: number; efecto: VoiceFx }> };
   ambientes: Array<{ desde: number; hasta: number; tipo: AmbientType | 'archivo'; abs?: string; bajoVozDb: number }>;
   persona: ResolvedPersonFx[];
+  correcciones: Array<{ desde: number; hasta: number; abs: string }>;
   camaraSigueCara: boolean;
   estabilizar: boolean;
   igualarLuz: boolean;
@@ -844,6 +858,14 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     ambientes,
     volumenFinal: f.volumenFinal,
     persona,
+    correcciones: clampR(f.correcciones).flatMap((c) => {
+      try {
+        const abs = editAsset(p.carpeta, c.archivo);
+        return fsSync.existsSync(abs) ? [{ desde: c.desde, hasta: c.hasta, abs }] : [];
+      } catch {
+        return [];
+      }
+    }),
     camaraSigueCara: f.camaraSigueCara !== false,
     estabilizar: !!f.estabilizar,
     igualarLuz: !!f.igualarLuz,

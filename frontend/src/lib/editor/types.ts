@@ -1,6 +1,7 @@
 import type { EditExport, EditVariant, PostText } from './outputs';
 import type { EditScore } from './score';
 import type { EditMetric } from './learning';
+import type { EditApproval } from './paid';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditDirection } from './direction';
 
@@ -131,6 +132,8 @@ export interface EditProject {
   post?: PostText;
   /** Fase 7: métricas reales de lo publicado. */
   metricas?: EditMetric[];
+  /** Fase 6: gastos que Claude pidió aprobar (doblaje, correcciones de voz). */
+  aprobaciones?: EditApproval[];
   actividad: EditActivity[];
   costoUSD: number;
   /** Chat con Claude (Claude Code con la suscripción): sesión para continuar y mensajes. */
