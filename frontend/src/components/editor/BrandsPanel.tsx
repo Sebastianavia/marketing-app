@@ -122,10 +122,29 @@ export function BrandsPanel() {
   const marcas = (data?.marcas ?? []).filter((m) => (showRetired ? m.estado === 'retirada' : m.estado === 'activa'));
   const color = (key: 'primario' | 'acento' | 'texto', label: string) =>
     draft && (
-      <label className="flex items-center gap-2 text-[12px] text-fg-muted">
-        <input type="color" value={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.value.toUpperCase() })} className="h-8 w-10 cursor-pointer rounded border border-line bg-transparent" aria-label={label} />
+      <div className="flex items-center gap-2 text-[12px] text-fg-muted">
+        <input
+          type="color"
+          value={/^#[0-9A-Fa-f]{6}$/.test(draft[key]) ? draft[key] : '#000000'}
+          onChange={(e) => setDraft({ ...draft, [key]: e.target.value.toUpperCase() })}
+          className="h-8 w-10 cursor-pointer rounded border border-line bg-transparent"
+          aria-label={`${label} (selector)`}
+        />
+        {/* Se puede escribir o pegar el código (#F4581C o F4581C) */}
+        <input
+          value={draft[key]}
+          onChange={(e) => {
+            const v = e.target.value.trim().toUpperCase().replace(/[^#0-9A-F]/g, '');
+            setDraft({ ...draft, [key]: v && !v.startsWith('#') ? `#${v}` : v });
+          }}
+          maxLength={7}
+          spellCheck={false}
+          placeholder="#000000"
+          className={`input-clean h-8 w-[88px] px-2 font-mono text-[12px] ${/^#[0-9A-F]{6}$/.test(draft[key]) ? '' : 'border-rose-500/60'}`}
+          aria-label={`${label} (código)`}
+        />
         {label}
-      </label>
+      </div>
     );
 
   return (
@@ -191,7 +210,7 @@ export function BrandsPanel() {
             <button type="button" onClick={() => setDraft(null)} className="btn-secondary h-8 px-3 text-[12px]">
               Cancelar
             </button>
-            <button type="button" onClick={() => void save()} disabled={draft.nombre.trim().length < 2 || busy === 'guardar'} className="btn-primary h-8 px-3 text-[12px]">
+            <button type="button" onClick={() => void save()} disabled={draft.nombre.trim().length < 2 || busy === 'guardar' || ![draft.primario, draft.acento, draft.texto].every((c) => /^#[0-9A-F]{6}$/i.test(c))} className="btn-primary h-8 px-3 text-[12px]">
               {busy === 'guardar' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Guardar
             </button>
           </div>
