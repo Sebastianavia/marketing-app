@@ -12,9 +12,9 @@ Cada cliente puede entregar su estándar de edición. Funciona así:
 
 | Marca | Archivo | Estado |
 |---|---|---|
-| ETM | `etm-estandar-v1.md` | Falta pegarlo en la pestaña «Marcas» (marca «ETM»: primario #0A0A0B, acento #F4581C, texto #F6EFE6, fuente Inter). |
+| Santiago Ruiz | `etm-estandar-v1.md` (ESTÁNDAR DE EDICIÓN ETM · v1) | Creada y con el estándar pegado (13 nov 2026). Falta poner sus colores (primario #0A0A0B, acento #F4581C, texto #F6EFE6) y su fuente (Sora SemiBold, con `instalar_fuente`): ahora tiene los de Lulo por defecto (lima y blanco, prohibidos por el estándar). |
 
-## Lo que el motor ya cumple del estándar ETM (Fase 9)
+## Lo que el motor ya cumple del estándar ETM (marca «Santiago Ruiz», Fase 9)
 
 | Regla | Cómo |
 |---|---|

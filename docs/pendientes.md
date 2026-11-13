@@ -31,11 +31,10 @@ Funcionan con la aprobación de gasto del editor (tarjeta amarilla en la tarjeta
 - [ ] **Escuchar las dos zonas sospechosas del video de Santi**, guardadas en `~/LuloStudio_Projects/Pruebas editor viral/Fase 8 - posible voz de fondo…mp3`. Si son voz de Santi (un «mm»), hay que afinar el detector; si es otra persona, está bien cortado.
 - [ ] **Ajustar si hace falta:** el umbral de labios (12 % de movimiento) y el de tono (35 %), en `lib/editor/voices.ts`.
 
-## 1c. Estándar ETM
+## 1c. Estándar ETM (marca «Santiago Ruiz»)
 
-- [ ] **Crear la marca «ETM» en la pestaña «Marcas»:**
-  - [ ] Pegar `docs/marcas/etm-estandar-v1.md` en «Estándar de edición».
-  - [ ] Probar una edición con esa marca.
+- [x] **Marca «Santiago Ruiz» creada en la pestaña «Marcas»** con el estándar ETM v1 pegado (13 nov 2026).
+- [ ] **Corregir sus colores y su fuente:** primario #0A0A0B, acento #F4581C, texto #F6EFE6, fuente Sora SemiBold. Hoy tiene los de Lulo por defecto (lima y blanco), que el estándar prohíbe y que usan la intro, el cierre y la caja de Instagram.
 - [x] **Cerrar lo que el motor no cumplía del estándar (Fase 9, 13 nov 2026).** Hecho:
   - corte por palabra;
   - subtítulos bajo el mentón;
