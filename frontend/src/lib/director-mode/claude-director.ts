@@ -109,7 +109,7 @@ export function stopDirectorTurn(id: string): boolean {
   return stopAgentTurn(key(id));
 }
 
-export async function sendToDirector(id: string, mensaje: string, appUrl: string, opts: { mostrar?: string } = {}) {
+export async function sendToDirector(id: string, mensaje: string, appUrl: string, opts: { mostrar?: string; reintento?: number } = {}) {
   const p = await getDirectorProduction(id);
   try {
     return await startAgentTurn(specFor(p), mensaje, appUrl, opts);

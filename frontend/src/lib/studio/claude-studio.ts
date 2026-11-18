@@ -99,7 +99,7 @@ export function stopStudioTurn(id: string): boolean {
   return stopAgentTurn(key(id));
 }
 
-export async function sendToStudio(id: string, mensaje: string, appUrl: string, opts: { mostrar?: string } = {}) {
+export async function sendToStudio(id: string, mensaje: string, appUrl: string, opts: { mostrar?: string; reintento?: number } = {}) {
   const p = await getStudioProject(id);
   try {
     return await startAgentTurn(specFor(p), mensaje, appUrl, opts);

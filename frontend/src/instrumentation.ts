@@ -9,9 +9,12 @@ export async function register() {
     const { startRunner } = await import('@/lib/jobs/runner');
     const { startSceneRunner } = await import('@/lib/scenes/scene-runner');
     const { startEditRunner } = await import('@/lib/editor/edit-runner');
+    const { startResumeWatcher } = await import('@/lib/ai/claude-code/quota-resume');
     await ensureDataDir();
     startRunner();
     startSceneRunner();
     startEditRunner();
+    // Retoma los chats con Claude que se cortaron por falta de cupo cuando este se libera
+    startResumeWatcher();
   }
 }

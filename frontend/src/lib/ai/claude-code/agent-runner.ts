@@ -17,6 +17,7 @@ import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
 import { manualPrompt } from '@/lib/editor/manual';
 import { pythonPackageDirs, toolboxPromptLine } from '@/lib/editor/claude-toolbox';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, claudeApiKeyEnv, execClaude, hasClaudeApiKey, type ToolUseEvent } from './bridge';
+import { cancelResume, getResume, MAX_AUTO_RESUMES, resumeLabel, scheduleResume } from './quota-resume';
 import type { AgentEvent, ClaudeChatMessage, ClaudeChatState, ClaudeChatStep, SandboxMode } from './agent-types';
 
 /**
@@ -189,6 +190,8 @@ interface Turn {
   done: boolean;
   abort: AbortController;
   listeners: Set<() => void>;
+  /** Reanudación automática n.º (tras cortes por cupo); 0 = lo pidió la persona. */
+  reintento: number;
 }
 
 const g = globalThis as unknown as { __luloAgentTurns?: Map<string, Turn> };
@@ -230,8 +233,11 @@ export async function* followAgentTurn(key: string, from = 0): AsyncGenerator<Ag
 }
 
 /** Respuesta HTTP del GET de una ruta …/claude: estado o NDJSON del turno en curso. */
-export function agentTurnResponse(key: string, from: number): Response {
-  if (!isAgentTurnActive(key)) return Response.json({ activo: false, modo: sandboxMode() });
+export async function agentTurnResponse(key: string, from: number): Promise<Response> {
+  if (!isAgentTurnActive(key)) {
+    const r = await getResume(key).catch(() => null);
+    return Response.json({ activo: false, modo: sandboxMode(), reanudar: r ? { clave: r.clave, en: r.en } : undefined });
+  }
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -250,6 +256,7 @@ export class AgentBusyError extends Error {}
 /** Empieza una conversación nueva (Claude olvida lo hablado; el historial visible se borra). */
 export async function resetAgentChat(spec: Pick<AgentSpec, 'key' | 'saveChat'>): Promise<void> {
   if (isAgentTurnActive(spec.key)) throw new AgentBusyError('Claude está trabajando. Detenlo primero.');
+  await cancelResume(spec.key);
   await spec.saveChat(() => ({ mensajes: [] }));
 }
 
@@ -393,12 +400,14 @@ export async function startAgentTurn(
   spec: AgentSpec,
   mensaje: string,
   appUrl: string,
-  opts: { mostrar?: string } = {}
+  opts: { mostrar?: string; reintento?: number } = {}
 ): Promise<{ turnoId: string }> {
   const texto = mensaje.trim();
   if (!texto) throw new Error('Escribe qué quieres que haga Claude.');
   if (isAgentTurnActive(spec.key)) throw new AgentBusyError('Claude ya está trabajando en esto. Espera o detenlo.');
   const chat = await spec.loadChat();
+  // Un turno nuevo (de la persona o la propia reanudación) sustituye a la reanudación pendiente
+  await cancelResume(spec.key);
 
   const userMsg: ClaudeChatMessage = {
     id: randomUUID(),
@@ -412,7 +421,7 @@ export async function startAgentTurn(
   const resume = Boolean(chat?.sessionId);
   await spec.saveChat((c) => ({ sessionId: c?.sessionId, mensajes: [...(c?.mensajes ?? []), userMsg].slice(-60) }));
 
-  const turn: Turn = { id: randomUUID(), key: spec.key, events: [], done: false, abort: new AbortController(), listeners: new Set() };
+  const turn: Turn = { id: randomUUID(), key: spec.key, events: [], done: false, abort: new AbortController(), listeners: new Set(), reintento: opts.reintento ?? 0 };
   turns.set(spec.key, turn);
   // runTurn nunca lanza: todo error termina el turno con un evento 'error'
   void runTurn(spec, turn, texto, { sessionId, resume, appUrl }).catch((err) => console.error('[claude-agente]', err));
@@ -602,8 +611,19 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     emit(turn, { tipo: 'fin', mensaje: msg });
   } catch (err) {
     const cancelled = turn.abort.signal.aborted;
-    const mensaje = cancelled ? 'Detuviste a Claude.' : errorMessage(err, 'Claude no pudo terminar.');
+    let mensaje = cancelled ? 'Detuviste a Claude.' : errorMessage(err, 'Claude no pudo terminar.');
     const codigo = err instanceof ClaudeCodeError ? err.reason : undefined;
+    // Sin cupo: se apunta para seguir solo cuando se libere
+    let reanudarEn: string | undefined;
+    if (!cancelled && err instanceof ClaudeCodeError && err.reason === 'limit') {
+      const r = await scheduleResume(turn.key, err.resetsAt, turn.reintento + 1).catch(() => null);
+      if (r) {
+        reanudarEn = r.en;
+        mensaje += ` Seguiré solo hacia las ${resumeLabel(r.en)} (con la app abierta en este PC).`;
+      } else if (turn.reintento >= MAX_AUTO_RESUMES) {
+        mensaje += ' Ya lo intenté varias veces seguidas: escríbeme cuando quieras que continúe.';
+      }
+    }
     const msg: ClaudeChatMessage = {
       id: randomUUID(),
       rol: 'claude',
@@ -618,7 +638,7 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     await spec
       .saveChat((c) => ({ sessionId: keep ? session.id : c?.sessionId, mensajes: [...(c?.mensajes ?? []), msg].slice(-60) }))
       .catch(() => undefined);
-    emit(turn, { tipo: 'error', mensaje, codigo });
+    emit(turn, { tipo: 'error', mensaje, codigo, reanudarEn });
   } finally {
     release();
     turn.done = true;

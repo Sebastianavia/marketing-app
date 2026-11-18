@@ -103,7 +103,7 @@ export function turnKey(editId: string): string {
   return key(editId);
 }
 
-export async function sendToClaude(editId: string, mensaje: string, appUrl: string, opts: { mostrar?: string } = {}) {
+export async function sendToClaude(editId: string, mensaje: string, appUrl: string, opts: { mostrar?: string; reintento?: number } = {}) {
   const p = await getEdit(editId);
   try {
     return await startAgentTurn(specFor(p), mensaje, appUrl, opts);

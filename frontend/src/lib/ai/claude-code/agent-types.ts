@@ -35,7 +35,7 @@ export type AgentEvent =
   | { tipo: 'paso'; id: string; herramienta: string; detalle: string }
   | { tipo: 'resultado_paso'; id: string; error: boolean; resumen: string }
   | { tipo: 'fin'; mensaje: ClaudeChatMessage }
-  | { tipo: 'error'; mensaje: string; codigo?: string };
+  | { tipo: 'error'; mensaje: string; codigo?: string; reanudarEn?: string };
 
 /**
  * aislado = sandbox de Claude Code (macOS/Linux); sin_aislamiento = Windows con todos los permisos;

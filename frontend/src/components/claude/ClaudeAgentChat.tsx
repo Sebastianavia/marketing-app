@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Clock,
   Loader2,
   RotateCcw,
   Send,
@@ -120,6 +121,8 @@ export function ClaudeAgentChat({
   const [attaching, setAttaching] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [modo, setModo] = useState<SandboxMode | null>(null);
+  // Reanudación automática pendiente (se cortó por cupo y Claude sigue solo cuando se libere)
+  const [reanudar, setReanudar] = useState<{ clave: string; en: string } | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,6 +159,7 @@ export function ClaudeAgentChat({
       );
       if (!r.activo) {
         if (r.modo) setModo(r.modo);
+        setReanudar(r.reanudar ?? null);
         setLive(null);
         return;
       }
@@ -165,11 +169,14 @@ export function ClaudeAgentChat({
     }
     if (ac.signal.aborted) return;
     const end = ended as AgentEvent | null;
-    if (end?.tipo === 'error' && end.codigo && end.codigo !== 'failed') setError(end.mensaje);
+    if (end?.tipo === 'error' && end.codigo && end.codigo !== 'failed' && !end.reanudarEn) setError(end.mensaje);
     setLive(null);
     onChangedRef.current();
     followAgent(endpoint, () => {})
-      .then((r) => r.modo && setModo(r.modo))
+      .then((r) => {
+        if (r.modo) setModo(r.modo);
+        setReanudar(r.reanudar ?? null);
+      })
       .catch(() => undefined);
   };
 
@@ -197,6 +204,23 @@ export function ClaudeAgentChat({
     return () => clearInterval(t);
   }, [waiting, endpoint]);
 
+  // Esperando a que vuelva el cupo: se mira de vez en cuando para ver el turno cuando arranque solo
+  useEffect(() => {
+    if (!reanudar || live) return;
+    const t = setInterval(() => void followRef.current(false), 30_000);
+    return () => clearInterval(t);
+  }, [reanudar, live, endpoint]);
+
+  const cancelResume = async () => {
+    if (!reanudar) return;
+    try {
+      await agentApi.cancelResume(reanudar.clave);
+      setReanudar(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo cancelar.');
+    }
+  };
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [mensajes.length, live?.texto, live?.pasos.length]);
@@ -208,6 +232,7 @@ export function ClaudeAgentChat({
     setError(null);
     try {
       await agentApi.send(endpoint, t);
+      setReanudar(null); // escribir a Claude sustituye a la reanudación automática
       setInput('');
       onChangedRef.current(); // muestra el mensaje enviado
       void follow(true);
@@ -298,6 +323,20 @@ export function ClaudeAgentChat({
           <p className="flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-[12px] text-rose-600 dark:text-rose-400">
             <AlertCircle className="h-4 w-4 shrink-0" /> {error}
           </p>
+        )}
+
+        {reanudar && !live && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">
+              Se agotó el cupo de Claude. Seguirá solo donde iba hacia las{' '}
+              <b>{new Date(reanudar.en).toLocaleString('es', { weekday: new Date(reanudar.en).toDateString() === new Date().toDateString() ? undefined : 'long', hour: '2-digit', minute: '2-digit' })}</b>{' '}
+              (deja la app abierta en este PC). Si le escribes antes, se cancela.
+            </span>
+            <button type="button" onClick={() => void cancelResume()} className="btn-secondary h-7 px-2.5 text-[11px]">
+              Cancelar
+            </button>
+          </div>
         )}
 
         {mensajes.length === 0 && !live && suggestions.length > 0 && (

@@ -25,6 +25,8 @@ export const agentApi = {
   reset: (endpoint: string) => post(endpoint, { accion: 'nueva_conversacion' }),
   /** Solo Director: arranca el primer pase de un proyecto recién creado. */
   start: (endpoint: string) => post(endpoint, { accion: 'iniciar' }),
+  /** Cancela la reanudación automática (la que espera a que vuelva el cupo). */
+  cancelResume: (clave: string) => post('/api/claude/reanudar', { accion: 'cancelar', clave }),
 };
 
 /**
@@ -36,7 +38,7 @@ export async function followAgent(
   onEvent: (e: AgentEvent) => void,
   signal?: AbortSignal,
   onOpen?: () => void
-): Promise<{ activo: boolean; modo?: SandboxMode }> {
+): Promise<{ activo: boolean; modo?: SandboxMode; reanudar?: { clave: string; en: string } }> {
   const r = await fetch(`${endpoint}?desde=0`, { cache: 'no-store', signal });
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));

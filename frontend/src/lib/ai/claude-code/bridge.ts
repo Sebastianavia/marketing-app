@@ -26,7 +26,9 @@ export type ClaudeCodeErrorReason = 'not_installed' | 'not_logged_in' | 'limit' 
 export class ClaudeCodeError extends Error {
   constructor(
     readonly reason: ClaudeCodeErrorReason,
-    message: string
+    message: string,
+    /** Con reason 'limit': cuándo se libera el cupo (ISO), si Claude Code lo dijo. */
+    readonly resetsAt?: string
   ) {
     super(message);
     this.name = 'ClaudeCodeError';
@@ -499,7 +501,7 @@ export function execClaude(o: ExecClaudeOptions): Promise<ExecClaudeResult> {
       const detail = [r?.result, ...(r?.errors ?? []), stderr].filter(Boolean).join(' ').slice(0, 400);
       if (!r || r.is_error || r.subtype !== 'success') {
         if (rateLimit?.status === 'rejected' || r?.api_error_status === 429 || looksLikeLimit(detail)) {
-          return finish(new ClaudeCodeError('limit', limitMessage(rateLimit)));
+          return finish(new ClaudeCodeError('limit', limitMessage(rateLimit), rateLimit?.resetsAt));
         }
         if (r?.api_error_status === 401 || looksLikeLogin(detail)) {
           return finish(
