@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, BookOpen, Clapperboard, Loader2, Music2, Palette, Plus, Stamp, Wrench } from 'lucide-react';
+import { AlertCircle, BookOpen, Clapperboard, Loader2, Moon, Music2, Palette, Plus, Stamp, Wrench } from 'lucide-react';
 import type { EditProfile } from '@/config/editor-looks';
 import type { EditSummary } from '@/lib/editor/types';
 import { editorApi, type SystemStatus } from './editor-api';
@@ -13,6 +13,7 @@ import { ToolsPanel } from './ToolsPanel';
 import { ManualPanel } from './ManualPanel';
 import { AudioLibraryPanel } from './AudioLibraryPanel';
 import { BrandsPanel } from './BrandsPanel';
+import { BatchesPanel } from './BatchesPanel';
 
 /**
  * Edición de video: subes un video en bruto, eliges tu perfil y la app lo transcribe,
@@ -20,7 +21,7 @@ import { BrandsPanel } from './BrandsPanel';
  * Todo corre en este PC; solo la transcripción y la IA llaman a servicios externos.
  */
 
-type Tab = 'nueva' | 'ediciones' | 'perfiles' | 'manual' | 'audio' | 'marcas' | 'herramientas';
+type Tab = 'nueva' | 'ediciones' | 'lotes' | 'perfiles' | 'manual' | 'audio' | 'marcas' | 'herramientas';
 const OPEN_KEY = 'lulo_editor_open';
 
 export function VideoEditorView() {
@@ -105,6 +106,7 @@ export function VideoEditorView() {
   const tabs: Array<{ id: Tab; label: string; icon: React.ComponentType<{ className?: string }>; count?: number }> = [
     { id: 'nueva', label: 'Nueva edición', icon: Plus },
     { id: 'ediciones', label: 'Mis ediciones', icon: Clapperboard, count: ediciones.length },
+    { id: 'lotes', label: 'Lotes', icon: Moon },
     { id: 'perfiles', label: 'Estilos', icon: Palette, count: perfiles.length },
     { id: 'manual', label: 'Manual', icon: BookOpen },
     { id: 'audio', label: 'Audio', icon: Music2 },
@@ -163,6 +165,17 @@ export function VideoEditorView() {
         ) : (
           <EditsList ediciones={ediciones} onOpen={(id) => open(id)} />
         ))}
+
+      {tab === 'lotes' && (
+        <BatchesPanel
+          perfiles={perfiles}
+          onOpenEdit={(id) => {
+            void refreshEdits();
+            setTab('ediciones');
+            open(id);
+          }}
+        />
+      )}
 
       {tab === 'herramientas' && <ToolsPanel system={system} />}
       {tab === 'manual' && <ManualPanel />}

@@ -83,7 +83,12 @@ async function insideProjects(file: string): Promise<boolean> {
  * Crea la edición. El video llega como flujo (subida) o como ruta dentro de Proyectos.
  * Queda en cola para analizar: el runner la toma enseguida.
  */
-export async function createEdit(meta: NewEditMeta, body: ReadableStream<Uint8Array> | null): Promise<EditProject> {
+export async function createEdit(
+  meta: NewEditMeta,
+  body: ReadableStream<Uint8Array> | null,
+  /** Solo desde el servidor: `fueraDeProyectos` = la ruta ya la validó un lote; `loteId` = edición de un lote. */
+  opts: { fueraDeProyectos?: boolean; loteId?: string } = {}
+): Promise<EditProject> {
   const perfil = await getProfile(meta.perfilId);
   const titulo = titleFrom(meta);
   const source = meta.rutaLocal ? path.normalize(meta.rutaLocal) : null;
@@ -91,7 +96,7 @@ export async function createEdit(meta: NewEditMeta, body: ReadableStream<Uint8Ar
 
   if (source) {
     if (!fsSync.existsSync(source) || !fsSync.statSync(source).isFile()) throw new EditError('Ese video ya no está en el disco.', 404);
-    if (!(await insideProjects(source))) throw new EditError('Solo se pueden usar videos de tu carpeta de proyectos.', 403);
+    if (!opts.fueraDeProyectos && !(await insideProjects(source))) throw new EditError('Solo se pueden usar videos de tu carpeta de proyectos.', 403);
   } else if (!body) {
     throw new EditError('No llegó ningún video.');
   }
@@ -131,6 +136,7 @@ export async function createEdit(meta: NewEditMeta, body: ReadableStream<Uint8Ar
       tarea: 'analizar',
       revisarAntes: meta.revisarAntes,
       ...(meta.marcaId ? { marcaId: meta.marcaId } : {}),
+      ...(opts.loteId ? { loteId: opts.loteId } : {}),
       frases: [],
       gancho: '',
       resaltar: [],

@@ -194,6 +194,16 @@ export async function runAnalysis(id: string): Promise<void> {
 
     // Con Claude Code (suscripción o API Key), Claude (el que ve el video y usa herramientas) hace la edición
     // completa desde el principio: se le pasa el pedido como primer mensaje del chat.
+    // En un lote, Claude no empieza aquí: el planificador del lote le da turno (lib/editor/batch.ts)
+    if (p.loteId) {
+      await updateEdit(id, (x) => {
+        x.estado = 'por_revisar';
+        x.tarea = undefined;
+        x.error = undefined;
+        logActivity(x, 'Video listo. Espera su turno en el lote para que Claude lo edite.');
+      });
+      return;
+    }
     const resolved = await resolveMode(p.modoIA || undefined);
     if (!p.sinIA && (resolved === 'claude-subscription' || resolved === 'claude-apikey')) {
       // Primero se registra el turno de Claude y luego se libera la edición: así, cuando la

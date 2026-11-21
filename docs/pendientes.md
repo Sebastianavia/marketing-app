@@ -58,6 +58,25 @@ Se activan desde la app. Si no aparece el aviso «solo en este PC», ya está co
 - [ ] Marcas (pestaña Marcas): crear la de Lulo Studio con su logo.
 - [ ] Métricas del equipo (`_lulo/metricas.json`) y fichas de referencias (`_lulo/referencias.json`).
 
+## 1d. Lotes nocturnos del editor (2026-11-21): probar con videos reales
+
+Probado con una simulación (Claude y ediciones falsos): rondas, pausa por cupo, reintentos, pausar/seguir, fin. Falta:
+
+- [ ] Lote real de 2–3 videos cortos con «Claude · mi suscripción» (gasta cupo de Claude y ≈ $0,004/min de Scribe, o nada con Whisper).
+- [ ] Un corte real por cupo a mitad del lote (el lote debe pausarse y seguir solo).
+- [ ] Cerrar y abrir la app a mitad de un turno (debe seguir «donde iba»).
+- [ ] Windows: que el PC no se duerma (PowerShell con `SetThreadExecutionState`) y que la interfaz de Lotes funcione.
+
+## 1e. Lotes para las otras herramientas (pedido del dueño: por ahora solo el editor)
+
+Reutilizar `lib/editor/batch.ts` (planificador por turnos, pausa por cupo, keep-awake) y `heavy-queue.ts`:
+
+- [ ] **Director (Guion a video):** una idea o guion por fila (CSV o carpeta de .txt/.pdf) → producción por fila hasta guion + prompts; generar SOLO con aprobación por la mañana (el lote no puede aprobar gastos).
+- [ ] **Estudio Claude:** varios pedidos en cola, cada uno en su proyecto; lo de pago queda en tarjetas de aprobación.
+- [ ] **UGC Studio:** storyboards en lote (gratis con Gemini + revisión de Claude); el render, con una aprobación por la mañana.
+- [ ] **Avatar Studio / Guion a video manual:** guiones en lote → voz + video con presupuesto aprobado al crear el lote (como la transcripción del editor).
+- [ ] Generalizar: sacar del editor el planificador a `lib/batch/` con un «adaptador» por herramienta (preparar, primer turno, mejorar, ¿terminado?).
+
 ## 3. Funciones por terminar
 
 - [ ] **Seguir objetos que no sean la persona** (un producto): seguidor de OpenCV. La Fase 4 solo sigue cara y manos.

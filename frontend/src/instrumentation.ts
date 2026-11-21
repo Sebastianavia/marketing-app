@@ -10,11 +10,14 @@ export async function register() {
     const { startSceneRunner } = await import('@/lib/scenes/scene-runner');
     const { startEditRunner } = await import('@/lib/editor/edit-runner');
     const { startResumeWatcher } = await import('@/lib/ai/claude-code/quota-resume');
+    const { startBatchRunner } = await import('@/lib/editor/batch');
     await ensureDataDir();
     startRunner();
     startSceneRunner();
     startEditRunner();
     // Retoma los chats con Claude que se cortaron por falta de cupo cuando este se libera
     startResumeWatcher();
+    // Lotes nocturnos del editor (varias ediciones a la vez, por turnos)
+    startBatchRunner();
   }
 }

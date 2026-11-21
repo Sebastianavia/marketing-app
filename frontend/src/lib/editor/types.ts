@@ -99,6 +99,8 @@ export interface EditProject {
   tarea?: EditTask;
   /** Modo de IA pedido para el análisis (vacío = el del selector IA). */
   modoIA?: string;
+  /** Lote nocturno al que pertenece (lib/editor/batch.ts): el lote decide cuándo trabaja Claude. */
+  loteId?: string;
   /** Indicación extra para volver a analizar ("que dure 30 s"…). */
   indicacion?: string;
   /** Saltar la IA: solo se quitan pausas. */
