@@ -73,7 +73,7 @@ export interface Batch {
   notaObjetivo: number;
   /** ISO: a partir de aquí no empieza turnos nuevos. */
   horaLimite?: string;
-  /** Lo que se aprobó gastar (transcripción). */
+  /** Costo estimado de la transcripción (informativo). */
   presupuestoUSD: number;
   transcriptor: 'elevenlabs' | 'whisper';
   estado: BatchState;
@@ -227,17 +227,14 @@ function nextLocalTime(hhmm: string): string {
   return d.toISOString();
 }
 
-/** Crea el lote. `montoVisto` = el costo que la persona vio y aprobó (si cambió, 409). */
-export async function createBatch(input: BatchInput, montoVisto: number): Promise<Batch> {
+/** Crea el lote (empezar el lote ya implica aceptar la transcripción; respeta el límite diario). */
+export async function createBatch(input: BatchInput): Promise<Batch> {
   const mode = await resolveMode();
   if (mode !== 'claude-subscription' && mode !== 'claude-apikey') {
     throw new EditError('Los lotes los edita Claude: elige «Claude · mi suscripción» en el selector IA de la barra superior.', 400);
   }
   await getProfile(input.perfilId);
   const pv = await previewBatch(input.carpeta, input.archivos);
-  if (Math.abs(pv.costoUSD - montoVisto) > 0.0011) {
-    throw new EditError(`El costo cambió ($${pv.costoUSD.toFixed(3)}): revísalo y vuelve a aprobar.`, 409);
-  }
   const ok = pv.videos.filter((v) => !v.problema);
   if (!ok.length) throw new EditError('Ninguno de los videos sirve (revisa los problemas de la lista).', 400);
   const now = new Date().toISOString();

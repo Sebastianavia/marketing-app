@@ -180,7 +180,6 @@ function BatchCard({ b, onAction, onOpenEdit }: { b: Batch; onAction: (a: string
         <span className="text-[12px] text-fg-subtle">
           {listos}/{validos} listos{media != null ? ` · nota media ${media}` : ''} · {b.espacios} a la vez · hasta {b.pasadasMax} pasadas · objetivo {b.notaObjetivo}
           {b.horaLimite ? ` · hasta las ${hhmm(b.horaLimite)}` : ''}
-          {b.presupuestoUSD ? ` · transcripción $${b.presupuestoUSD.toFixed(3)}` : ' · transcripción gratis'}
         </span>
         <div className="ml-auto flex gap-1.5">
           {running && (
@@ -272,7 +271,6 @@ function NewBatch({ perfiles, onCancel, onCreated }: { perfiles: EditProfile[]; 
   const [limite, setLimite] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [costo, setCosto] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -294,7 +292,6 @@ function NewBatch({ perfiles, onCancel, onCreated }: { perfiles: EditProfile[]; 
         setVista(d.vista);
         setElegidos(new Set(d.vista.videos.filter((v) => !v.problema).map((v) => v.nombre)));
       }
-      setCosto(d.vista.costoUSD);
       return d.vista;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo leer la carpeta.');
@@ -304,16 +301,11 @@ function NewBatch({ perfiles, onCancel, onCreated }: { perfiles: EditProfile[]; 
     }
   };
 
-  // El costo se recalcula en el servidor con los videos elegidos (es lo que se aprueba)
   const toggle = (n: string) => {
     const next = new Set(elegidos);
     if (next.has(n)) next.delete(n);
     else next.add(n);
     setElegidos(next);
-    if (vista) {
-      const segs = vista.videos.filter((v) => next.has(v.nombre)).reduce((s, v) => s + v.duracion, 0);
-      setCosto(vista.transcriptor === 'whisper' ? 0 : Math.round((segs / 3600) * 0.22 * 10000) / 10000);
-    }
   };
 
   const create = async () => {
@@ -322,13 +314,6 @@ function NewBatch({ perfiles, onCancel, onCreated }: { perfiles: EditProfile[]; 
     setError(null);
     try {
       const archivos = [...elegidos];
-      // Se pide el costo exacto al servidor antes de aprobar
-      const v = await call<{ vista: BatchPreview }>('/api/editor/batches', { accion: 'previsualizar', carpeta: vista.carpeta, archivos });
-      const monto = v.vista.costoUSD;
-      if (monto > 0 && !window.confirm(`La transcripción de ${archivos.length} video(s) cuesta $${monto.toFixed(3)} (ElevenLabs Scribe). Claude edita con tu suscripción. ¿Apruebas el gasto y empiezas el lote?`)) {
-        setBusy(false);
-        return;
-      }
       await call('/api/editor/batches', {
         accion: 'crear',
         titulo: titulo.trim(),
@@ -341,7 +326,6 @@ function NewBatch({ perfiles, onCancel, onCreated }: { perfiles: EditProfile[]; 
         notaObjetivo: nota,
         ...(limite ? { horaLimite: limite } : {}),
         archivos,
-        montoVisto: monto,
       });
       onCreated();
     } catch (err) {
@@ -460,10 +444,7 @@ function NewBatch({ perfiles, onCancel, onCreated }: { perfiles: EditProfile[]; 
               </label>
             ))}
           </div>
-          <p className="text-[12px] text-fg-muted">
-            Transcripción: {vista.transcriptor === 'whisper' ? 'Whisper local (gratis)' : `ElevenLabs Scribe ≈ $${(costo ?? 0).toFixed(3)}`} · la edición con Claude usa tu suscripción ($0).
-            Las ediciones quedan como borrador: las apruebas tú.
-          </p>
+          <p className="text-[12px] text-fg-muted">Las ediciones quedan como borrador: las apruebas tú.</p>
         </div>
       )}
 

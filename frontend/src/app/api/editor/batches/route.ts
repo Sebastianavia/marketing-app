@@ -28,10 +28,10 @@ export async function GET(req: NextRequest) {
 
 const Body = z.discriminatedUnion('accion', [
   z.object({ accion: z.literal('previsualizar'), carpeta: z.string().trim().min(2).max(1000), archivos: z.array(z.string().max(260)).max(60).optional() }),
-  BatchInputSchema.extend({ accion: z.literal('crear'), montoVisto: z.number().min(0).max(1000) }),
+  BatchInputSchema.extend({ accion: z.literal('crear') }),
 ]);
 
-/** previsualizar = videos de la carpeta, duración y costo; crear = lote con el costo aprobado. */
+/** previsualizar = videos de la carpeta y su duración; crear = empezar el lote. */
 export async function POST(req: NextRequest) {
   try {
     assertAppUiRequest(req);
@@ -39,9 +39,9 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Datos no válidos.' }, { status: 400 });
     const b = parsed.data;
     if (b.accion === 'previsualizar') return NextResponse.json({ vista: await previewBatch(b.carpeta, b.archivos) });
-    const { accion: _a, montoVisto, ...input } = b;
+    const { accion: _a, ...input } = b;
     void _a;
-    return NextResponse.json({ lote: await createBatch(input, montoVisto) });
+    return NextResponse.json({ lote: await createBatch(input) });
   } catch (err) {
     return fail(err, 'No se pudo crear el lote.');
   }
