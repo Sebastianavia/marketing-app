@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { heavy } from '@/lib/editor/heavy-queue';
 import fsSync from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -36,7 +37,7 @@ const MASK_W = 360;
 export const personFiles = (key: string) => ({ json: `persona-${key}.json`, mask: `persona-mask-${key}.mp4` });
 
 /** Calcula (o reutiliza) la pista de persona del video base `plate` (dentro de `carpeta`). */
-export async function ensurePersonTrack(o: {
+async function ensurePersonTrackInner(o: {
   carpeta: string;
   plate: string;
   key: string;
@@ -501,3 +502,6 @@ export function personEffectsGraph(o: {
   };
   return { inputs, layers: uses, build, front };
 }
+
+// Trabajo pesado: pasa por la cola (lib/editor/heavy-queue.ts)
+export const ensurePersonTrack = (...a: Parameters<typeof ensurePersonTrackInner>) => heavy('pista de persona', () => ensurePersonTrackInner(...a));

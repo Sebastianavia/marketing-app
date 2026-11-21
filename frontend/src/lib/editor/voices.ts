@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { heavy } from '@/lib/editor/heavy-queue';
 import fsSync from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -160,7 +161,7 @@ function lipMotion(lips: { fps: number; boca: Array<number | null> } | null, a: 
  * Analiza la edición y devuelve las frases de fondo y las zonas de voz ajena (tiempos del original).
  * No cambia nada: `applyBackgroundReport` lo aplica a las frases.
  */
-export async function detectBackgroundVoices(p: EditProject): Promise<BackgroundReport> {
+async function detectBackgroundVoicesInner(p: EditProject): Promise<BackgroundReport> {
   const words = p.frases.flatMap((f) => f.palabras).sort((a, b) => a.s - b.s);
   // 1. Hablante principal (con separación de hablantes): quien más tiempo habla
   const time = new Map<string, number>();
@@ -279,3 +280,6 @@ export function applyBackgroundReport(p: EditProject, r: BackgroundReport, opts:
   }
   p.vocesFondo = r;
 }
+
+// Trabajo pesado: pasa por la cola (lib/editor/heavy-queue.ts)
+export const detectBackgroundVoices = (...a: Parameters<typeof detectBackgroundVoicesInner>) => heavy('voces de fondo', () => detectBackgroundVoicesInner(...a));

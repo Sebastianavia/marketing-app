@@ -59,7 +59,8 @@ async function tick() {
   try {
     const pending = (await listEdits())
       .filter((p) => p.tarea && p.estado !== 'error')
-      .sort((a, b) => a.actualizado.localeCompare(b.actualizado));
+      // Los renders primero: un Claude está esperando su borrador; analizar videos nuevos (lotes) puede esperar
+      .sort((a, b) => Number(b.tarea === 'renderizar') - Number(a.tarea === 'renderizar') || a.actualizado.localeCompare(b.actualizado));
     const next = pending[0];
     if (!next) return;
     if (next.tarea === 'analizar') await runAnalysis(next.id);

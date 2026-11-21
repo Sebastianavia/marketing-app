@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { heavy } from '@/lib/editor/heavy-queue';
 import fsSync from 'fs';
 import os from 'os';
 import path from 'path';
@@ -75,7 +76,7 @@ async function contactSheet(video: string): Promise<string | null> {
   }
 }
 
-export async function renderCodeVideos(base: string, raw: unknown) {
+async function renderCodeVideosInner(base: string, raw: unknown) {
   const input = CodeVideoBatchSchema.parse(raw);
   const { lote, fotogramas, ...single } = input;
   const items = lote?.length ? lote : single.proyecto && single.salida ? [CodeVideoSchema.parse(single)] : [];
@@ -217,7 +218,7 @@ async function projectDir(base: string, proyecto: string, composicion?: string) 
 // Un render o revisión a la vez (cada uno abre varios Chrome)
 const g = globalThis as unknown as { __luloCodeVideoQueue?: Promise<unknown> };
 
-export async function renderCodeVideo(base: string, input: CodeVideoInput) {
+async function renderCodeVideoInner(base: string, input: CodeVideoInput) {
   const out = inside(base, input.salida, 'La salida');
   if (path.extname(out).toLowerCase() !== `.${input.formato}`) throw new CodeVideoError(`La salida tiene que terminar en .${input.formato}.`);
   const { dir, entry } = await projectDir(base, input.proyecto, input.composicion);
@@ -274,3 +275,7 @@ export async function checkCodeVideo(base: string, input: CodeCheckInput) {
   g.__luloCodeVideoQueue = job;
   return job;
 }
+
+// Trabajo pesado: pasa por la cola (lib/editor/heavy-queue.ts)
+export const renderCodeVideos = (...a: Parameters<typeof renderCodeVideosInner>) => heavy('HyperFrames (lote)', () => renderCodeVideosInner(...a));
+export const renderCodeVideo = (...a: Parameters<typeof renderCodeVideoInner>) => heavy('HyperFrames', () => renderCodeVideoInner(...a));

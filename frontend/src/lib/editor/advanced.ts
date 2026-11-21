@@ -1,4 +1,5 @@
 import path from 'path';
+import { heavy } from '@/lib/editor/heavy-queue';
 import fs from 'fs/promises';
 import { resolveFfmpegPath } from '@/lib/video/ffmpeg';
 import { ffmpeg } from './media';
@@ -16,7 +17,7 @@ export class AdvancedUnavailable extends Error {}
  * Mate del sujeto sobre `src` (video ya cortado y encuadrado). Escribe `out` (gris, blanco = persona).
  * `prueba`: sin PyTorch, solo para tests automáticos.
  */
-export async function runMatte(o: {
+async function runMatteInner(o: {
   src: string;
   out: string;
   w: number;
@@ -69,7 +70,7 @@ export async function runMatte(o: {
 }
 
 /** Transcripción con Whisper en este PC. Devuelve palabras con tiempos. */
-export async function transcribeLocal(o: { video: string; workWav: string; outJson: string; vocab?: string }): Promise<{ palabras: EditWord[]; dispositivo: string; modelo: string }> {
+async function transcribeLocalInner(o: { video: string; workWav: string; outJson: string; vocab?: string }): Promise<{ palabras: EditWord[]; dispositivo: string; modelo: string }> {
   const status = await envStatus();
   if (!status.whisperListo || !status.python) {
     throw new AdvancedUnavailable('Whisper no está listo en este PC. Instálalo en Edición → Herramientas o cambia la transcripción a ElevenLabs.');
@@ -137,3 +138,7 @@ export async function runFaces(o: { src: string; out: string; w: number; h: numb
   if (r.code !== 0) throw new Error(`El detector de caras falló: ${error || r.out.split(/\r?\n/).filter(Boolean).slice(-2).join(' ')}`);
   return JSON.parse(await fs.readFile(o.out, 'utf-8')) as FaceTrack;
 }
+
+// Trabajo pesado: pasa por la cola (lib/editor/heavy-queue.ts)
+export const runMatte = (...a: Parameters<typeof runMatteInner>) => heavy('recorte de persona', () => runMatteInner(...a));
+export const transcribeLocal = (...a: Parameters<typeof transcribeLocalInner>) => heavy('Whisper local', () => transcribeLocalInner(...a));

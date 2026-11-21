@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { heavy } from '@/lib/editor/heavy-queue';
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import { formatSize, networkInfo, safeZone, type EditProfile } from '@/config/editor-looks';
@@ -128,7 +129,7 @@ function seedFrom(id: string): number {
 
 export type RenderStage = 'base' | 'recorte' | 'composicion' | 'sonido';
 
-export async function renderEdit(
+async function renderEditInner(
   p: EditProject,
   version: number,
   onProgress?: (pct: number, etapa?: RenderStage, detalle?: string) => void,
@@ -654,3 +655,6 @@ function headTopOf(faces: FaceTrack | null): number | undefined {
   const tops = (faces?.frames ?? []).filter((b): b is NonNullable<typeof b> => !!b).map((b) => b.y - b.h * 0.45).sort((a, b) => a - b);
   return tops.length ? Math.max(0, tops[Math.floor(tops.length / 2)]) : undefined;
 }
+
+// Trabajo pesado: pasa por la cola (lib/editor/heavy-queue.ts)
+export const renderEdit = (...a: Parameters<typeof renderEditInner>) => heavy('render del video', () => renderEditInner(...a));
