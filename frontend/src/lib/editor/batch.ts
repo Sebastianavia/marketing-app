@@ -374,12 +374,15 @@ async function lastTurnOutcome(
   const msgs = p.claude?.mensajes ?? [];
   const last = [...msgs].reverse().find((m) => m.rol === 'claude');
   const resume = await getResume(`edit:${editId}`);
+  // Respaldo: el aviso de cupo en el chat aunque la reanudación no se haya podido apuntar
+  const cupoTexto = Boolean(last?.error && /Se agotó el cupo/i.test(last.texto));
+  const resumeEn = resume?.en ?? (cupoTexto ? new Date(Date.now() + 30 * 60_000).toISOString() : undefined);
   return {
     // La app se cerró a mitad del turno: el último mensaje es el pedido, sin respuesta de Claude
     interrumpido: msgs.length > 0 && msgs[msgs.length - 1].rol === 'usuario',
     ok: Boolean(last && !last.error),
-    cupo: Boolean(resume),
-    resumeEn: resume?.en,
+    cupo: Boolean(resume) || cupoTexto,
+    resumeEn,
     error: last?.error ? last.texto.split('⚠️').pop()?.trim().slice(0, 300) : undefined,
     nota: p.borrador?.nota?.total,
     tieneBorrador: Boolean(p.borrador),
@@ -606,10 +609,23 @@ async function stepCancelled(id: string) {
   });
 }
 
+/**
+ * Al arrancar: un video que se estaba copiando cuando se cerró la app (sin edición apuntada)
+ * vuelve a la cola; si no, se quedaría «preparando» para siempre.
+ */
+async function recoverBatches() {
+  for (const b of await listBatches()) {
+    if (!b.items.some((it) => it.estado === 'preparando' && !it.editId)) continue;
+    await updateBatch(b.id, (x) => {
+      for (const it of x.items) if (it.estado === 'preparando' && !it.editId) it.estado = 'pendiente';
+    }).catch(() => undefined);
+  }
+}
+
 export function startBatchRunner() {
   if (state.timer) return;
   state.timer = setInterval(() => void tick(), TICK_MS);
-  setTimeout(() => void tick(), 3000);
+  setTimeout(() => void recoverBatches().finally(() => void tick()), 3000);
 }
 
 export function kickBatchRunner() {

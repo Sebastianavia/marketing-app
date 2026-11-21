@@ -350,7 +350,26 @@ function looksLikeLogin(text: string): boolean {
 }
 
 function looksLikeLimit(text: string): boolean {
-  return /usage limit|rate limit|limit reached|429|too many requests/i.test(text);
+  return /usage limit|rate limit|limit reached|hit your limit|out of (extra )?usage|429|too many requests/i.test(text);
+}
+
+/**
+ * Hora de liberación sacada del texto de Claude Code cuando no llegó `rate_limit_event`:
+ * «Claude AI usage limit reached|1763650800» (segundos) o «… resets 5pm» / «resets 5:30am».
+ */
+export function resetFromText(text: string, now = new Date()): string | undefined {
+  const epoch = /limit reached\|(\d{10})/i.exec(text);
+  if (epoch) return new Date(Number(epoch[1]) * 1000).toISOString();
+  const m = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(text);
+  if (!m) return undefined;
+  let h = Number(m[1]);
+  const min = Number(m[2] ?? 0);
+  if (m[3]) h = (h % 12) + (m[3].toLowerCase() === 'pm' ? 12 : 0);
+  if (h > 23 || min > 59) return undefined;
+  const d = new Date(now);
+  d.setHours(h, min, 0, 0);
+  if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
+  return d.toISOString();
 }
 
 function limitMessage(rl?: RateLimitInfo): string {
@@ -501,7 +520,8 @@ export function execClaude(o: ExecClaudeOptions): Promise<ExecClaudeResult> {
       const detail = [r?.result, ...(r?.errors ?? []), stderr].filter(Boolean).join(' ').slice(0, 400);
       if (!r || r.is_error || r.subtype !== 'success') {
         if (rateLimit?.status === 'rejected' || r?.api_error_status === 429 || looksLikeLimit(detail)) {
-          return finish(new ClaudeCodeError('limit', limitMessage(rateLimit), rateLimit?.resetsAt));
+          const resetsAt = rateLimit?.resetsAt ?? resetFromText(detail);
+          return finish(new ClaudeCodeError('limit', limitMessage(rateLimit ?? (resetsAt ? { status: 'rejected', resetsAt, at: new Date().toISOString() } : undefined)), resetsAt));
         }
         if (r?.api_error_status === 401 || looksLikeLogin(detail)) {
           return finish(

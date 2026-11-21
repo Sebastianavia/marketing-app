@@ -37,8 +37,20 @@ export const RESUME_MESSAGE =
 
 const file = () => path.join(/*turbopackIgnore: true*/ getDataDir(), 'claude-reanudar.json');
 
-const g = globalThis as unknown as { __luloResume?: { list: PendingResume[] | null; timer?: ReturnType<typeof setInterval>; busy?: boolean } };
+const g = globalThis as unknown as {
+  __luloResume?: { list: PendingResume[] | null; timer?: ReturnType<typeof setInterval>; busy?: boolean; lock?: Promise<unknown> };
+};
 const state = (g.__luloResume ??= { list: null });
+
+/**
+ * Los cambios van de uno en uno: si varios proyectos se quedan sin cupo a la vez, cada turno
+ * apunta su reanudación al mismo tiempo y, sin esto, una escritura pisaría a otra.
+ */
+function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = (state.lock ?? Promise.resolve()).then(fn, fn);
+  state.lock = run.catch(() => undefined);
+  return run;
+}
 
 async function load(): Promise<PendingResume[]> {
   if (state.list) return state.list;
@@ -71,16 +83,20 @@ export async function scheduleResume(clave: string, resetsAt: string | undefined
     return null;
   }
   const item: PendingResume = { clave, en: resumeTime(resetsAt).toISOString(), intentos, creado: new Date().toISOString() };
-  const list = (await load()).filter((x) => x.clave !== clave);
-  await save([...list, item]);
-  return item;
+  return withLock(async () => {
+    const list = (await load()).filter((x) => x.clave !== clave);
+    await save([...list, item]);
+    return item;
+  });
 }
 
 export async function cancelResume(clave: string): Promise<boolean> {
-  const list = await load();
-  if (!list.some((x) => x.clave === clave)) return false;
-  await save(list.filter((x) => x.clave !== clave));
-  return true;
+  return withLock(async () => {
+    const list = await load();
+    if (!list.some((x) => x.clave === clave)) return false;
+    await save(list.filter((x) => x.clave !== clave));
+    return true;
+  });
 }
 
 export async function getResume(clave: string): Promise<PendingResume | null> {
@@ -99,7 +115,7 @@ async function dispatch(item: PendingResume): Promise<void> {
   const sep = item.clave.indexOf(':');
   const kind = item.clave.slice(0, sep);
   const id = item.clave.slice(sep + 1);
-  const { defaultAppUrl } = await import('./agent-runner');
+  const { defaultAppUrl } = await import('@/lib/ai/claude-code/agent-runner');
   const opts = { mostrar: '↻ Reanudación automática: volvió el cupo de Claude.', reintento: item.intentos };
   if (kind === 'edit') {
     const { sendToClaude } = await import('@/lib/editor/claude-agent');
@@ -119,7 +135,7 @@ async function tick() {
   if (state.busy) return;
   state.busy = true;
   try {
-    const { isAgentTurnActive } = await import('./agent-runner');
+    const { isAgentTurnActive } = await import('@/lib/ai/claude-code/agent-runner');
     const now = Date.now();
     for (const item of [...(await load())]) {
       if (Date.parse(item.en) > now) continue;
