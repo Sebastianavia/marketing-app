@@ -3,6 +3,7 @@ import { ffmpeg } from './media';
 import { SR, TAU, lpCoef, rng } from './synth';
 import { decodeMono } from './sfx';
 import type { SubWord } from './timeline';
+import { computeEnvelope, cutThresholds, type Envelope } from './cuts';
 
 /**
  * Sonido de la voz y de fondo (Fase 2 · sonido):
@@ -53,6 +54,27 @@ export function breathGaps(words: SubWord[], D: number): Array<[number, number]>
   return gaps;
 }
 
+/** Recorta cada hueco a la parte silenciosa (sin la cola de la palabra anterior ni el ataque de la siguiente). */
+export function quietPart(gaps: Array<[number, number]>, env: Envelope): Array<[number, number]> {
+  // Al principio del hueco se respeta la cola de la palabra (umbral bajo, como mucho 0,3 s); al final,
+  // solo el ataque con voz de la siguiente (umbral de voz): la inspiración de antes sí se atenúa
+  const th = cutThresholds(env);
+  const n = env.db.length;
+  const val = (t: number) => env.db[Math.max(0, Math.min(n - 1, Math.round(t / 0.005)))];
+  const out: Array<[number, number]> = [];
+  for (const [a0, b0] of gaps) {
+    let a = a0;
+    let b = b0;
+    while (a < b && a < a0 + 0.3 && val(a) > th.tail) a += 0.005;
+    while (b > a && val(b) > th.onset) b -= 0.005;
+    // aire de 30 ms a cada lado para que la rampa no toque la voz
+    a += 0.03;
+    b -= 0.03;
+    if (b - a >= 0.1) out.push([a, b]);
+  }
+  return out;
+}
+
 /**
  * Procesa la voz según el plan. Devuelve un WAV nuevo (o el mismo si no hay nada que hacer).
  * `voz` y el resultado tienen la misma duración.
@@ -69,7 +91,15 @@ export async function processVoice(o: { carpeta: string; voz: string; D: number;
     notas.push('Voz mejorada (presencia y de-esser).');
   }
   if (plan.respiraciones) {
-    const gaps = breathGaps(words, D);
+    let gaps = breathGaps(words, D);
+    // Solo donde de verdad no hay voz: Scribe marca los inicios tarde y las colas siguen sonando;
+    // sin esto, la bajada de −12 dB se comía la primera consonante y la cola de las palabras
+    try {
+      const env = await computeEnvelope(voz, carpeta);
+      gaps = quietPart(gaps, env);
+    } catch {
+      // sin envolvente se usan los huecos de la transcripción
+    }
     if (gaps.length) {
       // −12 dB en cada hueco con rampas de 30 ms (nunca silencio total: se notaría el corte de sala)
       const expr = gaps.map(([a, b]) => `-0.75*clip(min((t-${f3(a)})/0.03,(${f3(b)}-t)/0.03),0,1)`).join('');

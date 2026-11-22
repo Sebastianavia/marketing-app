@@ -2,11 +2,12 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { z } from 'zod';
-import { renderEdit, snapToFrames } from './render';
-import { keptIntervals, subtitleWords, totalDuration } from './timeline';
+import { renderEdit } from './render';
+import { subtitleWords, totalDuration, type KeptInterval } from './timeline';
 import { directedProfile, finalToOriginal } from './direction';
 import { LOUDNESS_BY_NETWORK } from './audio';
 import type { EditProject } from './types';
+import { editIntervals } from './cuts';
 
 /**
  * Versiones y publicación (Fase 5 del editor viral):
@@ -122,7 +123,7 @@ export async function renderCopy(p: EditProject, q: EditProject, outBase: string
 export function applyVariant(p: EditProject, v: VariantInput): EditProject {
   const q = clone(p);
   const perfil = q.direccion ? directedProfile(q.perfil, q.direccion) : q.perfil;
-  const intervals = snapToFrames(keptIntervals(q.frases, perfil.ritmo, q.original.duracion));
+  const intervals = editIntervals(q, perfil.ritmo);
   const ids = new Set(q.frases.map((f) => f.id));
   for (const id of [...(v.conservarFrases ?? []), ...(v.quitarFrases ?? [])]) if (!ids.has(id)) throw new OutputError(`La frase «${id}» no existe (mira ver_edicion).`);
   if (v.conservarFrases) {
@@ -169,7 +170,7 @@ export async function renderVariant(p: EditProject, v: VariantInput, onProgress?
 // ── Exportar por red ─────────────────────────────────────────────────────────
 
 /** Pasa un tiempo de la línea principal al borrador final (avance al inicio + pausas que caen antes). */
-export function mainToDraft(t: number, d: EditProject['direccion'], intervals: ReturnType<typeof snapToFrames>): number {
+export function mainToDraft(t: number, d: EditProject['direccion'], intervals: KeptInterval[]): number {
   if (!d) return t;
   let off = 0;
   if (d.arranque) {
@@ -200,7 +201,7 @@ const srtTime = (s: number) => {
 /** Subtítulos .srt del borrador (líneas de hasta 7 palabras o 2,5 s, sin mezclar frases). */
 export function buildSrt(p: EditProject): string {
   const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
-  const intervals = snapToFrames(keptIntervals(p.frases, perfil.ritmo, p.original.duracion));
+  const intervals = editIntervals(p, perfil.ritmo);
   const words = subtitleWords(p.frases, intervals);
   const lines: Array<{ s: number; e: number; t: string }> = [];
   let cur: typeof words = [];

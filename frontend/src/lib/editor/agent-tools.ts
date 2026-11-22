@@ -9,8 +9,8 @@ import { listProfiles, normalizeProfile } from './profile-store';
 import { runAction } from './actions';
 import { EditError, getEdit, logActivity, updateEdit } from './edit-store';
 import { ffmpeg, probeVideo } from './media';
-import { keptIntervals, phraseText, subtitleWords } from './timeline';
-import { buildPlate, snapToFrames } from './render';
+import { phraseText, subtitleWords } from './timeline';
+import { buildPlate } from './render';
 import { PersonUnavailable, ensurePersonTrack, lightStats, matchLightFilter, measureShake, personSummary } from './person';
 import { formatSize } from '@/config/editor-looks';
 import { placeGraphics } from './graphics';
@@ -40,6 +40,7 @@ import { fontsDir } from './media';
 import { totalDuration } from './timeline';
 import { FONT_SUGGESTIONS, SUBTITLE_STYLES } from '@/config/editor-looks';
 import { CODE_CHECK_DESCRIPTION, CODE_VIDEO_BATCH_DESCRIPTION, CodeCheckSchema, CodeVideoBatchSchema, CodeVideoError, checkCodeVideo, renderCodeVideos } from '@/lib/ai/claude-code/code-video';
+import { editIntervals, ensureEnvelope } from './cuts';
 
 /**
  * Herramientas de Claude sobre UNA edición (chat "Claude" de la pantalla de Edición).
@@ -117,14 +118,14 @@ function structureNote(p: EditProject) {
 
 /** El plan de dirección con tiempos del video final (los cortes actuales). */
 function planInFinal(p: EditProject) {
-  const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+  const intervals = editIntervals(p, normalizeProfile(p.perfil).ritmo);
   return directionInFinal(p.direccion!, intervals, totalDuration(intervals));
 }
 
 /** Cuadrícula de beats de la música del plan, en tiempos del video (línea principal). */
 async function planBeats(p: EditProject): Promise<{ grid: BeatGrid; musica: string } | null> {
   if (!p.direccion?.musica || p.direccion.musica.modo === 'ninguna') return null;
-  const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+  const intervals = editIntervals(p, normalizeProfile(p.perfil).ritmo);
   const total = totalDuration(intervals);
   const m = resolveDirection(p, p.direccion, intervals, total, await musicDir()).musica;
   if (!m) return null;
@@ -259,7 +260,7 @@ const cambiarGuion = tool({
     });
     await updateEdit(editId, (p) => logActivity(p, 'Claude ajustó el guion de la edición.'));
     // Resumen corto (antes devolvía la edición entera: ~25 000 caracteres por llamada)
-    const intervals = snapToFrames(keptIntervals(edit.frases, normalizeProfile(edit.perfil).ritmo, edit.original.duracion));
+    const intervals = editIntervals(edit, normalizeProfile(edit.perfil).ritmo);
     return {
       ok: true,
       frases: { total: edit.frases.length, conservadas: edit.frases.filter((f) => !f.cortar).length, cambiadasAhora: input.frases ? input.frases.filter((f) => byIdChanged(current, f)).length : 0 },
@@ -281,7 +282,7 @@ const palabrasBorrador = tool({
   schema: z.object({}),
   run: async (editId) => {
     const p = await getEdit(editId);
-    const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+    const intervals = editIntervals(p, normalizeProfile(p.perfil).ritmo);
     const palabras = subtitleWords(p.frases, intervals);
     const kept = p.frases.filter((f) => !f.cortar);
     return {
@@ -636,7 +637,7 @@ const beatsMusica = tool({
   }),
   run: async (editId, input) => {
     const p = await getEdit(editId);
-    const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+    const intervals = editIntervals(p, normalizeProfile(p.perfil).ritmo);
     const total = totalDuration(intervals);
     let res: { grid: BeatGrid; musica: string } | null = null;
     if (input.estilo) res = { grid: generatedBeats(input.estilo, total), musica: `generada ${input.estilo}` };
@@ -685,7 +686,7 @@ const kitGrafico = tool({
   schema: KitInputSchema,
   run: async (editId, input) => {
     const p = await getEdit(editId);
-    const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+    const intervals = editIntervals(p, normalizeProfile(p.perfil).ritmo);
     const words = subtitleWords(p.frases, intervals);
     let r;
     try {
@@ -788,7 +789,7 @@ const disenarPortada = tool({
 /** Video base de la edición (el mismo que usa el render: misma clave, se reutiliza). */
 async function editPlate(p: EditProject) {
   const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
-  const intervals = snapToFrames(keptIntervals(p.frases, perfil.ritmo, p.original.duracion));
+  const intervals = editIntervals(p, perfil.ritmo);
   const r = await buildPlate(p, perfil, intervals);
   return { ...r, intervals, perfil };
 }
@@ -1056,7 +1057,7 @@ const corregirPalabra = tool({
       });
       throw new AgentToolError(errorMessage(err, 'No se pudo generar la voz.'), 502);
     }
-    const intervals = snapToFrames(keptIntervals(p0.frases, normalizeProfile(p0.perfil).ritmo, p0.original.duracion));
+    const intervals = editIntervals(p0, normalizeProfile(p0.perfil).ritmo);
     const total = totalDuration(intervals);
     const lib = await musicDir();
     await updateEdit(editId, (q) => {
@@ -1165,7 +1166,7 @@ const usarMarca = tool({
 const cortarPalabras = tool({
   name: 'cortar_palabras',
   description:
-    'Corte POR PALABRA dentro de una frase que se conserva: quita (o restaura con restaurar: true) la secuencia exacta de palabras «quitar» de la frase (id de ver_edicion; sin importar mayúsculas, tildes ni signos; ocurrencia si aparece varias veces). Úsalo para arranques repetidos, muletillas, palabras sueltas o una toma repetida dentro de la frase (queda la última). Con detectar: true vuelve a buscar arranques repetidos en todo el guion. Después renderiza. $0.',
+    'Corte POR PALABRA dentro de una frase que se conserva: quita (o restaura con restaurar: true) la secuencia exacta de palabras «quitar» de la frase (id de ver_edicion; sin importar mayúsculas, tildes ni signos; ocurrencia si aparece varias veces). Úsalo para arranques repetidos, muletillas, palabras sueltas o una toma repetida dentro de la frase (queda la última). Con detectar: true vuelve a buscar arranques repetidos en todo el guion. OJO: el motor ajusta cada corte al sonido real (ataque y cola de la palabra), pero si entre las palabras no hay ni un respiro, el empalme se oye: prefiere cortar donde haya pausa o la frase entera; el control de calidad del render avisa de los cortes «sobre voz». Después renderiza. $0.',
   schema: z.object({
     cortes: z.array(z.object({ frase: z.string(), quitar: z.string().min(1).max(200), ocurrencia: z.number().int().min(1).max(10).default(1), restaurar: z.boolean().default(false) })).max(40).default([]),
     detectar: z.boolean().default(false),
@@ -1249,7 +1250,7 @@ const marcasTool = tool({
 const dirigirEdicion = tool({
   name: 'dirigir_edicion',
   description:
-    'Guarda TU plan de dirección y el motor lo ejecuta tal cual al renderizar (sin reglas automáticas): camara, transiciones, color, subtitulos (diseño y animación), palabrasClave (color/tamaño/efecto por palabra), gancho (texto y estilo), graficos (los escribes tú: tarjeta|numero|lista|detras en el segundo t), estiloGraficos, elementos (imágenes/videos de la carpeta en pantalla completa, flotantes o pantalla dividida), sonidos (efectos en su segundo exacto, todos los que quieras) y musica (generada por estilo con secciones suave/completa/silencio, o un archivo), voz (mejora, respiraciones, efectos de voz por tramo), ambientes de fondo y volumenFinal; los audios de la biblioteca del equipo van como «biblioteca:<id>». TIEMPOS EN SEGUNDOS DEL VIDEO FINAL (palabras_borrador). Cada sección que mandes reemplaza a la anterior; las que no mandes se conservan. `borrar: true` quita el plan entero (vuelve al estilo automático del perfil). Mira catalogo_edicion. Después, renderizar.',
+    'Guarda TU plan de dirección y el motor lo ejecuta tal cual al renderizar (sin reglas automáticas): camara, transiciones, color, subtitulos (diseño y animación), palabrasClave (color/tamaño/efecto por palabra), gancho (texto y estilo), graficos (los escribes tú: tarjeta|numero|lista|detras en el segundo t), estiloGraficos, elementos (imágenes/videos de la carpeta en pantalla completa, flotantes o pantalla dividida), sonidos (efectos en su segundo exacto, todos los que quieras) y musica (generada por estilo con secciones suave/completa/silencio, o un archivo), voz (mejora, respiraciones, efectos de voz por tramo), ambientes de fondo y volumenFinal; los audios de la biblioteca del equipo van como «biblioteca:<id>». TIEMPOS EN SEGUNDOS DEL VIDEO FINAL (palabras_borrador). Los cambios de cámara, transiciones y elementos a menos de 0,2 s de un corte se pegan solos al corte (así no hay doble salto): para un cambio de plano en un corte, pon el tiempo del corte, no el de la palabra. Cada sección que mandes reemplaza a la anterior; las que no mandes se conservan. `borrar: true` quita el plan entero (vuelve al estilo automático del perfil). Mira catalogo_edicion. Después, renderizar.',
   schema: DirectionInputSchema.extend({ borrar: z.boolean().optional() }),
   run: async (editId, input) => {
     const { borrar, ...plan } = input;
@@ -1268,7 +1269,7 @@ const dirigirEdicion = tool({
         logActivity(p, 'Claude quitó su plan de dirección.');
         return;
       }
-      const intervals = snapToFrames(keptIntervals(p.frases, normalizeProfile(p.perfil).ritmo, p.original.duracion));
+      const intervals = editIntervals(p, normalizeProfile(p.perfil).ritmo);
       try {
         const r = prepareDirection(p, plan, intervals, totalDuration(intervals), p.direccion, lib);
         p.direccion = r.direccion;
@@ -1284,7 +1285,7 @@ const dirigirEdicion = tool({
     });
     if (borrar) return { ok: true, plan: null };
     const finalPlan = planInFinal(edit);
-    const intervals = snapToFrames(keptIntervals(edit.frases, normalizeProfile(edit.perfil).ritmo, edit.original.duracion));
+    const intervals = editIntervals(edit, normalizeProfile(edit.perfil).ritmo);
     const total = totalDuration(intervals);
     const graphicStarts = placeGraphics(edit, intervals, total).map((g) => g.start);
     const sub = directedProfile(edit.perfil, edit.direccion!).subtitulos;
@@ -1325,6 +1326,10 @@ export async function runEditorAgentTool(editId: string, name: string, raw: unkn
     throw new AgentToolError(`Datos no válidos — ${parsed.error.issues.map((i) => `${i.path.join('.') || 'entrada'}: ${i.message}`).join('; ')}`);
   }
   try {
+    // Los tiempos que ve Claude salen de los cortes afinados con el sonido: la envolvente debe existir
+    await getEdit(editId)
+      .then((p) => ensureEnvelope(p))
+      .catch(() => null);
     return await t.run(editId, parsed.data);
   } catch (err) {
     if (err instanceof AgentToolError) throw err;

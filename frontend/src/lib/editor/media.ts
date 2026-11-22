@@ -165,3 +165,25 @@ export async function filterScriptArgs(file: string): Promise<string[]> {
   }
   return [scriptFlag, file];
 }
+
+/**
+ * Cuánto empieza el audio después del inicio del archivo (s). La transcripción y la envolvente
+ * cuentan desde la primera muestra de audio; el video se recorta con este desfase para que
+ * coincidan. Casi siempre 0.
+ */
+export async function audioStartOffset(file: string, cwd?: string): Promise<number> {
+  const bin = resolveFfmpegPath();
+  const out: string = await new Promise((resolve) => {
+    const child = spawn(bin, ['-v', 'error', '-i', file, '-map', '0:a:0', '-c', 'copy', '-frames:a', '1', '-f', 'framecrc', '-'], { cwd, windowsHide: true });
+    let s = '';
+    child.stdout.on('data', (d) => (s += d.toString()));
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(s));
+  });
+  const tb = /#tb 0:\s*(\d+)\/(\d+)/.exec(out);
+  const line = out.split('\n').find((l) => /^\s*0,/.test(l));
+  if (!tb || !line) return 0;
+  const pts = Number(line.split(',')[1]);
+  const off = (pts * Number(tb[1])) / Number(tb[2]);
+  return Number.isFinite(off) && off > 0.001 && off < 5 ? off : 0;
+}

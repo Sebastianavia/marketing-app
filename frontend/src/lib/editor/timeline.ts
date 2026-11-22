@@ -58,6 +58,9 @@ export interface KeptInterval {
   e: number;
   /** Inicio en el video final. */
   out: number;
+  /** Audio disponible antes y después del tramo para el fundido cruzado (lib/editor/cuts.ts). */
+  hl?: number;
+  hr?: number;
 }
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;

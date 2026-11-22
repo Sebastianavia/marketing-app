@@ -14,6 +14,7 @@ import { buildPhrases, phraseText, formatClock, keptIntervals, totalDuration } f
 import { planGraphics } from './graphics';
 import { editFile, getEdit, logActivity, updateEdit } from './edit-store';
 import type { EditPhrase, EditProject, EditWord } from './types';
+import { ensureEnvelope } from './cuts';
 
 /**
  * Análisis de una edición:
@@ -171,6 +172,9 @@ export async function runAnalysis(id: string): Promise<void> {
         x.frases = buildPhrases(x.transcripcion!.palabras);
       }));
     }
+
+    // Envolvente del audio: los cortes se afinan con el sonido real (lib/editor/cuts.ts)
+    await ensureEnvelope(p);
 
     // Fase 8 · Cortes limpios: voces de fondo (hablantes, labios y voz sin transcribir). Gratis y local.
     if (!p.vocesFondo) {

@@ -768,8 +768,37 @@ export interface ResolvedDirection {
 }
 
 /** El plan listo para el render: tiempos del final y rutas absolutas. */
+/**
+ * Pega a los cortes los cambios de cámara, transiciones y elementos que caen cerca de uno.
+ * Claude suele dar tiempos de palabras (el corte va ~50 ms antes) y el paso por tiempos del original
+ * redondea a 10 ms: el cambio caía 1–4 fotogramas antes o después del corte y se veía un doble
+ * salto («se queda pegado»). Medido en las ediciones reales de Santi: 6–13 casos por video.
+ */
+export function snapPlanToCuts<T extends Pick<EditDirection, 'camara' | 'transiciones' | 'elementos'>>(f: T, intervals: KeptInterval[]): T {
+  const cuts = intervals.slice(1).map((iv) => iv.out);
+  if (!cuts.length) return f;
+  const snap = (t: number, tol: number) => {
+    let best = t;
+    let bd = tol;
+    for (const c of cuts) {
+      const dd = Math.abs(c - t);
+      if (dd < bd) {
+        bd = dd;
+        best = c;
+      }
+    }
+    return best;
+  };
+  return {
+    ...f,
+    camara: f.camara?.map((c) => ({ ...c, desde: snap(c.desde, 0.2), hasta: snap(c.hasta, 0.2) })),
+    transiciones: f.transiciones?.map((x) => ({ ...x, t: snap(x.t, 0.2) })),
+    elementos: f.elementos?.map((e) => ({ ...e, desde: snap(e.desde, 0.15), hasta: snap(e.hasta, 0.15) })),
+  };
+}
+
 export function resolveDirection(p: EditProject, d: EditDirection, intervals: KeptInterval[], total: number, musicLibrary: string): ResolvedDirection {
-  const f = directionInFinal(d, intervals, total);
+  const f = snapPlanToCuts(directionInFinal(d, intervals, total), intervals);
   const clampR = <X extends { desde: number; hasta: number }>(xs: X[] = []) =>
     xs.map((x) => ({ ...x, desde: Math.max(0, x.desde), hasta: Math.min(total, x.hasta) })).filter((x) => x.hasta > x.desde + 0.05);
   const elementos: ResolvedElement[] = [];

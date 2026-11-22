@@ -10,10 +10,11 @@ import { cameraAt, cameraFilter, colorFilter, describeDirection, directedProfile
 import { PersonUnavailable, chinSeries, ensurePersonTrack, faceSeries, fitSeries, personFaces, valueAt, lightStats, matchLightFilter, personEffectsGraph, seriesExpr, stabilizePlate, targetSeries, type PersonTrack } from './person';
 import { buildAss, buildBehindAss, defaultSubMargin } from './ass';
 import { cardStyle, faceWindow, graphicsEvents, placeGraphics } from './graphics';
-import { ffmpeg, filterScriptArgs, hasSubtitlesFilter, stageFonts } from './media';
+import { audioStartOffset, ffmpeg, filterScriptArgs, hasSubtitlesFilter, stageFonts } from './media';
+import { FPS, editIntervals, ensureEnvelope, snapToFrames, type CutReport } from './cuts';
 import { envStatus } from './python-env';
 import { AdvancedUnavailable, runFaces, runMatte, type FaceTrack } from './advanced';
-import { CUT_ZONE_SEC, keptIntervals, subtitleWords, totalDuration, type KeptInterval } from './timeline';
+import { CUT_ZONE_SEC, formatClock, mapClamped, subtitleWords, totalDuration, type KeptInterval } from './timeline';
 import { editFile } from './edit-store';
 import type { EditProject, QualityCheck } from './types';
 
@@ -27,22 +28,8 @@ import type { EditProject, QualityCheck } from './types';
  *  D. SONIDO: efectos, música con ducking y máster a −14 LUFS → borrador-vN.mp4 + portada + control de calidad.
  */
 
-const FPS = 30;
-
-/** Ajusta los tramos a la rejilla de fotogramas para que audio y video midan lo mismo. */
-export function snapToFrames(intervals: KeptInterval[]): KeptInterval[] {
-  const snap = (t: number) => Math.round(t * FPS) / FPS;
-  let out = 0;
-  const res: KeptInterval[] = [];
-  for (const iv of intervals) {
-    const s = snap(iv.s);
-    const e = snap(iv.e);
-    if (e - s < 2 / FPS) continue;
-    res.push({ s, e, out });
-    out += e - s;
-  }
-  return res;
-}
+// La rejilla de fotogramas y los cortes afinados con el sonido viven en cuts.ts
+export { snapToFrames } from './cuts';
 
 const fill = (W: number, H: number) => `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`;
 
@@ -70,7 +57,7 @@ export async function buildPlate(
   // ── A. Base (se reutiliza si los cortes, el formato y la limpieza de voz no cambian) ──
   const key = crypto
     .createHash('sha1')
-    .update(JSON.stringify([intervals, perfil.formato, perfil.sonido.limpiarVoz, p.original.archivo]))
+    .update(JSON.stringify([intervals, perfil.formato, perfil.sonido.limpiarVoz, p.original.archivo, 'cortes-v2']))
     .digest('hex')
     .slice(0, 10);
   const plate = `plate-${key}.mp4`;
@@ -79,26 +66,51 @@ export async function buildPlate(
     onProgress?.(1, 'base', 'Cortando y encuadrando');
     const n = intervals.length;
     const g: string[] = [];
+    // La transcripción y la envolvente cuentan desde la primera muestra de audio. Si el audio empieza
+    // después que el archivo, el video se recorta con ese desfase.
+    const off = p.original.tieneAudio ? await audioStartOffset(p.original.archivo, p.carpeta) : 0;
     g.push(n > 1 ? `[0:v]fps=${FPS},split=${n}${intervals.map((_, i) => `[vs${i}]`).join('')}` : `[0:v]fps=${FPS}[vs0]`);
     intervals.forEach((iv, i) => {
-      g.push(`[vs${i}]trim=start=${iv.s.toFixed(4)}:end=${iv.e.toFixed(4)},setpts=PTS-STARTPTS,${fill(W, H)},setsar=1,format=yuv420p[v${i}]`);
+      g.push(`[vs${i}]trim=start=${(iv.s + off).toFixed(4)}:end=${(iv.e + off).toFixed(4)},setpts=PTS-STARTPTS,${fill(W, H)},setsar=1,format=yuv420p[v${i}]`);
     });
-    const fade = 0.012;
     if (p.original.tieneAudio) {
-      g.push(n > 1 ? `[0:a]asplit=${n}${intervals.map((_, i) => `[as${i}]`).join('')}` : `[0:a]anull[as0]`);
-      intervals.forEach((iv, i) => {
-        const len = iv.e - iv.s;
-        g.push(
-          `[as${i}]atrim=start=${iv.s.toFixed(4)}:end=${iv.e.toFixed(4)},asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
-            `afade=t=in:d=${fade},afade=t=out:st=${Math.max(0, len - fade).toFixed(4)}:d=${fade}[a${i}]`
-        );
+      // asetpts=N/SR/TB: el audio se recorta por MUESTRAS, no por sus marcas de tiempo. Algunos
+      // teléfonos/apps (todos los videos de Santi) guardan AAC a 44,1 kHz con marcas en base 48 kHz
+      // redondeadas (1115 en vez de 1114,56 por paquete): el audio «duraba» un 0,04 % más y los cortes
+      // se desplazaban ~24 ms por minuto respecto a las palabras.
+      g.push(`[0:a]asetpts=N/SR/TB,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo${n > 1 ? `,asplit=${n}${intervals.map((_, i) => `[as${i}]`).join('')}` : '[as0]'}`);
+      // Fundido cruzado de igual potencia en cada unión (sin bajar a silencio): cada tramo toma un
+      // poco de audio a cada lado (lo que permita el silencio vecino, hl/hr) y se solapan.
+      const dur = p.original.duracion;
+      const xf = intervals.map((iv, i) => {
+        if (i === n - 1) return 0;
+        const next = intervals[i + 1];
+        const room = Math.min(iv.hr ?? 0.002, next.hl ?? 0.002, dur - iv.e, next.s);
+        return Math.max(0.004, 2 * Math.max(0, room));
       });
+      intervals.forEach((iv, i) => {
+        const left = i > 0 ? xf[i - 1] / 2 : 0;
+        const right = i < n - 1 ? xf[i] / 2 : 0;
+        const a = Math.max(0, iv.s - left);
+        const b = iv.e + right;
+        const edge = i === 0 ? ',afade=t=in:d=0.008' : '';
+        const tail = i === n - 1 ? `,afade=t=out:st=${Math.max(0, b - a - 0.008).toFixed(4)}:d=0.008` : '';
+        g.push(`[as${i}]atrim=start=${a.toFixed(5)}:end=${b.toFixed(5)},asetpts=PTS-STARTPTS${edge}${tail}[a${i}]`);
+      });
+      let cur = '[a0]';
+      for (let i = 1; i < n; i++) {
+        const label = i === n - 1 ? '[ac]' : `[x${i}]`;
+        g.push(`${cur}[a${i}]acrossfade=d=${xf[i - 1].toFixed(5)}:c1=qsin:c2=qsin${label}`);
+        cur = label;
+      }
+      if (n === 1) g.push('[a0]anull[ac]');
     } else {
       intervals.forEach((iv, i) => {
         g.push(`anullsrc=r=48000:cl=stereo,atrim=0:${(iv.e - iv.s).toFixed(4)},aformat=sample_fmts=fltp:channel_layouts=stereo[a${i}]`);
       });
+      g.push(`${intervals.map((_, i) => `[a${i}]`).join('')}concat=n=${n}:v=0:a=1[ac]`);
     }
-    g.push(`${intervals.map((_, i) => `[v${i}][a${i}]`).join('')}concat=n=${n}:v=1:a=1[vc][ac]`);
+    g.push(`${intervals.map((_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0[vc]`);
     const outFormat = 'aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo';
     // Voz limpia: graves fuera, menos ruido de fondo y un compresor suave (el volumen final lo pone el máster)
     const voiceChain = 'highpass=f=80,afftdn=nf=-30:nr=8,acompressor=threshold=-20dB:ratio=2.5:attack=8:release=140:makeup=2';
@@ -138,8 +150,10 @@ async function renderEditInner(
 ): Promise<RenderResult> {
   // Con plan de dirección de Claude, el perfil efectivo es el del plan y no hay reglas mecánicas
   const perfil = p.direccion ? directedProfile(p.perfil, p.direccion) : p.perfil;
-  const raw = keptIntervals(p.frases, perfil.ritmo, p.original.duracion);
-  let intervals = snapToFrames(raw);
+  // Cortes afinados con el sonido (envolvente del original; se crea la primera vez)
+  await ensureEnvelope(p);
+  const cutReport: CutReport = { sobreVoz: [] };
+  let intervals = editIntervals(p, perfil.ritmo, cutReport);
   if (!intervals.length) throw new Error('Con los cortes elegidos no queda nada del video. Vuelve a marcar alguna frase para conservar.');
   // Fase 9 · aire al final: el último tramo sigue con el plano real hasta colaFinal s después de la última palabra
   const cola = p.direccion?.colaFinal ?? 0;
@@ -160,6 +174,14 @@ async function renderEditInner(
   const { width: W, height: H } = formatSize(perfil.formato);
   const notas: string[] = [];
   const calidad: QualityCheck[] = [];
+  if (cutReport.sobreVoz.length) {
+    // Cortes por palabra en habla seguida: no hay silencio donde cortar y se oye el empalme
+    const at = [...new Set(cutReport.sobreVoz.map((t) => mapClamped(t, intervals)).filter((t): t is number => t !== null).map((t) => formatClock(t)))];
+    calidad.push({
+      ok: false,
+      texto: `${cutReport.sobreVoz.length} corte(s) caen sobre voz sin silencio${at.length ? ` (${at.slice(0, 6).join(', ')})` : ''}: se oye el empalme. Mejor cortar la frase entera o donde haya una pausa.`,
+    });
+  }
   const f = (name: string) => editFile(p, name);
   const dir = p.direccion ? resolveDirection(p, p.direccion, intervals, total, await musicDir()) : null;
   if (p.direccion) notas.push(`Dirigido por Claude: ${describeDirection(p.direccion, p.graficos?.filter((g) => g.activo).length)}.`);

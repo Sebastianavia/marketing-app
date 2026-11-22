@@ -8,14 +8,14 @@ import { ensureDataDir } from '@/lib/data/data-dir';
 import { getSettings } from '@/lib/data/settings';
 import { ffmpeg, probeVideo } from './media';
 import { normalizeProfile } from './profile-store';
-import { snapToFrames } from './render';
-import { keptIntervals, subtitleWords, totalDuration } from './timeline';
+import { subtitleWords, totalDuration } from './timeline';
 import { directedProfile, directionInFinal } from './direction';
 import { mainToDraft } from './outputs';
 import { detectBeats } from './beats';
 import { measureLoudness } from './audio';
 import { sharedDoc } from './shared-doc';
 import type { EditProject } from './types';
+import { editIntervals } from './cuts';
 
 /**
  * Aprendizaje (Fase 7): métricas reales de cada video publicado (con la evidencia de qué había en
@@ -102,7 +102,7 @@ export function analyzeRetention(p: EditProject, m: MetricInput) {
   const curve = [...(m.retencion ?? [])].sort((a, b) => a.t - b.t);
   if (curve.length < 3) return { resumen: 'Sin curva de retención: solo se guardan los números.', caidas: [] as unknown[] };
   const perfil = p.direccion ? directedProfile(normalizeProfile(p.perfil), p.direccion) : normalizeProfile(p.perfil);
-  const intervals = snapToFrames(keptIntervals(p.frases, perfil.ritmo, p.original.duracion));
+  const intervals = editIntervals(p, perfil.ritmo);
   const total = totalDuration(intervals);
   const plan = p.direccion ? directionInFinal(p.direccion, intervals, total) : null;
   const words = subtitleWords(p.frases, intervals);

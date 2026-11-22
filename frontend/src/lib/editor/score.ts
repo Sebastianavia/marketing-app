@@ -1,11 +1,11 @@
 import { normalizeProfile } from './profile-store';
-import { snapToFrames } from './render';
-import { keptIntervals, totalDuration } from './timeline';
+import { totalDuration } from './timeline';
 import { placeGraphics } from './graphics';
 import { analyzeRhythm, directedProfile, directionInFinal, resolveDirection } from './direction';
 import { beatAlignment, detectBeats, generatedBeats } from './beats';
 import { musicDir } from './audio';
 import type { EditProject } from './types';
+import { editIntervals } from './cuts';
 
 /**
  * Nota de retención (Fase 7, idea 48): 0–100 antes de publicar, a partir del plan de Claude y del
@@ -34,7 +34,7 @@ const NAMES: Record<ScorePart['id'], string> = { gancho: 'Gancho (0–2 s)', rit
 export async function scoreEdit(p: EditProject): Promise<EditScore | null> {
   if (!p.direccion) return null;
   const perfil = directedProfile(normalizeProfile(p.perfil), p.direccion);
-  const intervals = snapToFrames(keptIntervals(p.frases, perfil.ritmo, p.original.duracion));
+  const intervals = editIntervals(p, perfil.ritmo);
   const total = totalDuration(intervals);
   const plan = directionInFinal(p.direccion, intervals, total);
   const graphics = placeGraphics(p, intervals, total).map((g) => g.start);

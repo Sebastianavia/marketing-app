@@ -5,11 +5,11 @@ import { transcribeWithElevenLabs } from '@/lib/generation/transcribe';
 import { envStatus } from './python-env';
 import { transcribeLocal } from './advanced';
 import { ffmpeg, probeVideo } from './media';
-import { keptIntervals, subtitleWords } from './timeline';
-import { snapToFrames } from './render';
+import { subtitleWords } from './timeline';
 import { directedProfile } from './direction';
 import { normalizeProfile } from './profile-store';
 import type { EditProject } from './types';
+import { editIntervals } from './cuts';
 
 /**
  * Comprobación del audio FINAL (Fase 9, la pide p. ej. el estándar ETM): se transcribe el borrador
@@ -76,7 +76,7 @@ export async function verifyFinalAudio(p: EditProject, usarElevenLabs: boolean) 
     }
   }
   const perfil = p.direccion ? directedProfile(normalizeProfile(p.perfil), p.direccion) : normalizeProfile(p.perfil);
-  const expected = subtitleWords(p.frases, snapToFrames(keptIntervals(p.frases, perfil.ritmo, p.original.duracion)));
+  const expected = subtitleWords(p.frases, editIntervals(p, perfil.ritmo));
   return { metodo, ...compareWords(expected, heard) };
 }
 
