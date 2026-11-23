@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { assertAppUiRequest } from '@/lib/director/local-guard';
 import { NewEditMetaSchema, createEdit } from '@/lib/editor/actions';
-import { MaterialError, setMaterialFolder, validateMaterialFolder } from '@/lib/material/material';
+import {
+  MaterialError,
+  setMaterialFolder,
+  setTaggedMaterialFolders,
+  validateMaterialFolder,
+  validateTaggedMaterialFolders,
+} from '@/lib/material/material';
 import { EditError, listEdits, summarize } from '@/lib/editor/edit-store';
 import { editorError } from '@/lib/editor/http';
 
@@ -49,11 +55,13 @@ export async function POST(req: NextRequest) {
     const meta = parsed.data;
     if (isJson && !meta.rutaLocal) throw new EditError('Falta el video.');
     if (!isJson && meta.rutaLocal) throw new EditError('Datos de la edición no válidos.');
-    // La carpeta de material se valida antes de crear (si no vale, no queda una edición a medias) y
-    // se guarda enseguida: el primer pase de Claude empieza después de transcribir
+    // La carpeta de material y las carpetas con etiqueta se validan antes de crear (si no valen, no queda una edición a medias) y
+    // se guardan enseguida: el primer pase de Claude empieza después de transcribir
     const material = meta.carpetaMaterial ? await validateMaterialFolder(meta.carpetaMaterial) : null;
+    const tagged = meta.carpetasEtiquetadas?.length ? await validateTaggedMaterialFolders(meta.carpetasEtiquetadas) : [];
     const edit = await createEdit(meta, isJson ? null : body);
     if (material) await setMaterialFolder(`edit:${edit.id}`, material);
+    if (tagged.length) await setTaggedMaterialFolders(`edit:${edit.id}`, tagged);
     return NextResponse.json({ edicion: edit });
   } catch (err) {
     if (err instanceof MaterialError) return NextResponse.json({ error: err.message }, { status: err.status });
@@ -61,7 +69,14 @@ export async function POST(req: NextRequest) {
   }
 }
 
-const FIELD_NAMES: Record<string, string> = { perfilId: 'elige un estilo', pedido: 'el pedido es demasiado largo (máx. 30 000 caracteres)', titulo: 'el nombre es demasiado largo (máx. 80)', carpetaMaterial: 'la ruta de la carpeta de material es demasiado larga', marcaId: 'la marca no es válida' };
+const FIELD_NAMES: Record<string, string> = {
+  perfilId: 'elige un estilo',
+  pedido: 'el pedido es demasiado largo (máx. 30 000 caracteres)',
+  titulo: 'el nombre es demasiado largo (máx. 80)',
+  carpetaMaterial: 'la ruta de la carpeta de material es demasiado larga',
+  carpetasEtiquetadas: 'revisa las carpetas adicionales y sus etiquetas',
+  marcaId: 'la marca no es válida',
+};
 
 /** Mensaje claro de qué dato falló (antes decía siempre «elige un perfil»). */
 function metaProblem(issues: Array<{ path: PropertyKey[] }>): string {

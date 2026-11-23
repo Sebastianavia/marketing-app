@@ -41,6 +41,8 @@ export interface NewEditMeta {
   archivo?: string;
   /** Ruta de un video que ya está en la carpeta de proyectos. */
   rutaLocal?: string;
+  /** Carpetas adicionales con etiqueta para uso condicional de Claude. */
+  carpetasEtiquetadas?: Array<{ carpeta: string; etiqueta: string }>;
 }
 
 export const NewEditMetaSchema = z.object({
@@ -52,6 +54,16 @@ export const NewEditMetaSchema = z.object({
   rutaLocal: z.string().max(1024).optional(),
   /** Carpeta de material para Claude (lib/material); la guarda la ruta al crear. */
   carpetaMaterial: z.string().max(1000).optional(),
+  /** Carpetas adicionales con etiqueta (ej. "Resultados de estudiantes") que Claude solo usa si el guion/pedido/material lo indica. */
+  carpetasEtiquetadas: z
+    .array(
+      z.object({
+        carpeta: z.string().min(1).max(1000),
+        etiqueta: z.string().trim().min(1).max(80),
+      })
+    )
+    .max(12)
+    .optional(),
   /** Marca del video (su estándar de edición manda). */
   marcaId: z.string().max(20).optional(),
 });

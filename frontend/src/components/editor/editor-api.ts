@@ -46,6 +46,16 @@ export const editorApi = {
     files.forEach((f) => form.append('imagenes', f));
     return api<{ perfil: ProfileInput; explicacion: string }>('/api/editor/profiles/from-references', { method: 'POST', body: form });
   },
+  profileFromDocument: (file: File) => {
+    const form = new FormData();
+    form.append('documento', file);
+    return api<{ perfil: ProfileInput; explicacion: string }>('/api/editor/profiles/from-document', { method: 'POST', body: form });
+  },
+  brandFromDocument: (file: File) => {
+    const form = new FormData();
+    form.append('documento', file);
+    return api<{ marca: import('@/lib/editor/kit/brands').BrandInput; explicacion: string }>('/api/editor/brands/from-document', { method: 'POST', body: form });
+  },
 
   profiles: () => api<{ perfiles: EditProfile[] }>('/api/editor/profiles').then((d) => d.perfiles),
   createProfile: (p: ProfileInput) =>
@@ -77,6 +87,8 @@ export interface NewEditPayload {
   perfilId: string;
   revisarAntes: boolean;
   carpetaMaterial?: string;
+  carpetasEtiquetadas?: Array<{ carpeta: string; etiqueta: string }>;
+  marcaId?: string;
 }
 
 /**

@@ -6,7 +6,7 @@ import type { EditProfile } from '@/config/editor-looks';
 import type { EditProject } from '@/lib/editor/types';
 import { editorApi, uploadEdit, type SystemStatus } from './editor-api';
 import { MaterialFolderField } from '@/components/material/MaterialFolderBar';
-import { materialApi } from '@/components/material/material-api';
+import { materialApi, type TaggedFolderInput } from '@/components/material/material-api';
 import { LookDots, LookPreview } from './LookPreview';
 
 /**
@@ -53,6 +53,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
   const [perfilId, setPerfilId] = useState<string>(perfiles[0]?.id ?? '');
   const [revisarAntes, setRevisarAntes] = useState(true);
   const [material, setMaterial] = useState<string | null>(null);
+  const [carpetasEtiquetadas, setCarpetasEtiquetadas] = useState<TaggedFolderInput[]>([]);
   // Marca del video: si tiene estándar de edición del cliente, Claude lo sigue por encima del manual
   const [marcas, setMarcas] = useState<Array<{ id: string; nombre: string; estandar?: string; perfilId?: string; estado: string }>>([]);
   const [marcaId, setMarcaId] = useState('');
@@ -97,12 +98,24 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
     if (!perfil || !hasVideo) return;
     setBusy(true);
     setError(null);
-    const meta = { titulo: titulo.trim(), pedido: pedido.trim(), perfilId: perfil.id, revisarAntes, ...(material ? { carpetaMaterial: material } : {}), ...(marcaId ? { marcaId } : {}) };
+    const meta = {
+      titulo: titulo.trim(),
+      pedido: pedido.trim(),
+      perfilId: perfil.id,
+      revisarAntes,
+      ...(material ? { carpetaMaterial: material } : {}),
+      ...(carpetasEtiquetadas.length ? { carpetasEtiquetadas } : {}),
+      ...(marcaId ? { marcaId } : {}),
+    };
     try {
-      // Antes de subir el video: si la carpeta ya no vale, el error llega claro y sin esperar la subida
+      // Antes de subir el video: si alguna carpeta ya no vale, el error llega claro y sin esperar la subida
       if (material) {
         const b = await materialApi.browse(material);
         if (!b.usable) throw new Error(`Carpeta de material: ${b.problema ?? 'no se puede usar'}`);
+      }
+      for (const ex of carpetasEtiquetadas) {
+        const b = await materialApi.browse(ex.carpeta);
+        if (!b.usable) throw new Error(`Carpeta «${ex.etiqueta}»: ${b.problema ?? 'no se puede usar'}`);
       }
       const edit = localVideo
         ? await editorApi.fromProjects({ ...meta, rutaLocal: localVideo.ruta })
@@ -111,6 +124,7 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
       setLocalVideo(null);
       setTitulo('');
       setMaterial(null);
+      setCarpetasEtiquetadas([]);
       setProgress(null);
       onCreated(edit);
     } catch (err) {
@@ -133,9 +147,18 @@ export function NewEdit({ perfiles, system, onCreated, onEditProfiles }: Props) 
             <span className="block">Describe lo que quieres, como se lo dirías a un editor</span>
             <textarea value={pedido} onChange={(e) => setPedido(e.target.value)} maxLength={30000} rows={8} className="input-clean w-full resize-y px-3 py-2 text-[13px]" />
           </label>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-subtle">
-            <MaterialFolderField value={material} onChange={setMaterial} />
-            <span>Opcional: tomas de apoyo, logos, música o el guion. Claude las verá (solo con «Claude · mi suscripción»).</span>
+          <div className="space-y-1.5 text-[11px] text-fg-subtle">
+            <div className="flex flex-wrap items-center gap-2">
+              <MaterialFolderField
+                value={material}
+                onChange={setMaterial}
+                taggedFolders={carpetasEtiquetadas}
+                onTaggedFoldersChange={setCarpetasEtiquetadas}
+              />
+            </div>
+            <p>
+              Opcional: tomas de apoyo, logos, música o el guion en «Carpeta de material». Con «+ Otra carpeta con etiqueta» puedes añadir carpetas temáticas (ej. resultados de estudiantes o clientes) que Claude solo usará si las instrucciones, el guion o el material lo indican.
+            </p>
           </div>
           {marcas.length > 0 && (
             <label className="flex flex-wrap items-center gap-2 text-[12px] text-fg-muted">

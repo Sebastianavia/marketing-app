@@ -4,6 +4,19 @@
 
 export type MaterialKind = 'imagen' | 'video' | 'audio' | 'pdf' | 'texto' | 'diseno' | 'otro';
 
+export interface TaggedFolderInput {
+  carpeta: string;
+  etiqueta: string;
+}
+
+export interface TaggedFolderInfo extends TaggedFolderInput {
+  problema?: string;
+  total?: number;
+  truncado?: boolean;
+  tipos?: Partial<Record<MaterialKind, number>>;
+  muestra?: string[];
+}
+
 export interface MaterialInfo {
   carpeta: string | null;
   problema?: string;
@@ -11,6 +24,7 @@ export interface MaterialInfo {
   truncado?: boolean;
   tipos?: Partial<Record<MaterialKind, number>>;
   muestra?: string[];
+  extras?: TaggedFolderInfo[];
 }
 
 export interface BrowseResult {
@@ -40,6 +54,12 @@ export const materialApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clave, carpeta }),
     }).then((r) => json<MaterialInfo>(r, 'No se pudo guardar la carpeta.')),
+  setExtras: (clave: string, extras: TaggedFolderInput[]) =>
+    fetch('/api/material', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clave, extras }),
+    }).then((r) => json<MaterialInfo>(r, 'No se pudieron guardar las carpetas con etiqueta.')),
   browse: (ruta?: string) =>
     fetch(`/api/material/browse${ruta ? `?ruta=${encodeURIComponent(ruta)}` : ''}`, { cache: 'no-store' }).then((r) => json<BrowseResult>(r, 'No se pudo abrir la carpeta.')),
   imageUrl: (carpeta: string, archivo: string) => `/api/material/file?carpeta=${encodeURIComponent(carpeta)}&f=${encodeURIComponent(archivo)}`,

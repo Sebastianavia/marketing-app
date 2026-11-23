@@ -134,31 +134,92 @@ function storeFile(clave: string): string {
 }
 
 interface Stored {
-  carpeta: string;
+  carpeta: string | null;
   elegida: string;
+  extras?: TaggedMaterialFolder[];
 }
 
-/** Carpeta guardada para el proyecto (sin validar: puede haberse borrado o movido). */
-export async function getMaterialFolder(clave: string): Promise<string | null> {
+export interface TaggedMaterialFolder {
+  carpeta: string;
+  etiqueta: string;
+}
+
+export const MAX_TAGGED_FOLDERS = 12;
+
+export function normalizeTag(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+async function readStored(clave: string): Promise<Stored | null> {
   try {
-    const s = JSON.parse(await fs.readFile(storeFile(clave), 'utf8')) as Stored;
-    return typeof s.carpeta === 'string' && s.carpeta ? s.carpeta : null;
+    const s = JSON.parse(await fs.readFile(storeFile(clave), 'utf8')) as Partial<Stored>;
+    return {
+      carpeta: typeof s.carpeta === 'string' && s.carpeta ? s.carpeta : null,
+      elegida: typeof s.elegida === 'string' ? s.elegida : new Date().toISOString(),
+      extras: Array.isArray(s.extras)
+        ? s.extras
+            .filter((e): e is TaggedMaterialFolder => !!e && typeof e.carpeta === 'string' && !!e.carpeta && typeof e.etiqueta === 'string')
+            .map((e) => ({ carpeta: e.carpeta, etiqueta: normalizeTag(e.etiqueta) || path.basename(e.carpeta) }))
+        : undefined,
+    };
   } catch {
     return null;
   }
 }
 
-/** Guarda (o quita, con null) la carpeta de material del proyecto. Devuelve la ruta real guardada. */
-export async function setMaterialFolder(clave: string, carpeta: string | null): Promise<string | null> {
-  const file = storeFile(clave);
-  if (!carpeta) {
-    await fs.rm(file, { force: true });
-    return null;
+/** Carpeta guardada para el proyecto (sin validar: puede haberse borrado o movido). */
+export async function getMaterialFolder(clave: string): Promise<string | null> {
+  return (await readStored(clave))?.carpeta ?? null;
+}
+
+/** Carpetas extra etiquetadas guardadas para el proyecto (sin validar). */
+export async function getTaggedMaterialFolders(clave: string): Promise<TaggedMaterialFolder[]> {
+  return (await readStored(clave))?.extras ?? [];
+}
+
+/** Valida una lista de carpetas etiquetadas (rutas reales y etiquetas no vacías). */
+export async function validateTaggedMaterialFolders(input: TaggedMaterialFolder[]): Promise<TaggedMaterialFolder[]> {
+  if (input.length > MAX_TAGGED_FOLDERS) {
+    throw new MaterialError(`Se admiten como máximo ${MAX_TAGGED_FOLDERS} carpetas adicionales.`);
   }
-  const real = await validateMaterialFolder(carpeta);
+  const out: TaggedMaterialFolder[] = [];
+  for (const item of input) {
+    const etiqueta = normalizeTag(item.etiqueta);
+    if (!etiqueta) throw new MaterialError('Ponle una etiqueta a la carpeta adicional (p. ej. "Resultados de estudiantes").');
+    const carpeta = await validateMaterialFolder(item.carpeta);
+    out.push({ carpeta, etiqueta });
+  }
+  return out;
+}
+
+async function writeStored(clave: string, carpeta: string | null, extras: TaggedMaterialFolder[]): Promise<void> {
+  const file = storeFile(clave);
+  if (!carpeta && extras.length === 0) {
+    await fs.rm(file, { force: true });
+    return;
+  }
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await writeJsonAtomic(file, { carpeta: real, elegida: new Date().toISOString() } satisfies Stored);
+  await writeJsonAtomic(file, {
+    carpeta,
+    elegida: new Date().toISOString(),
+    ...(extras.length ? { extras } : {}),
+  } satisfies Stored);
+}
+
+/** Guarda (o quita, con null) la carpeta de material principal del proyecto. Conserva las carpetas extra. */
+export async function setMaterialFolder(clave: string, carpeta: string | null): Promise<string | null> {
+  const prev = await readStored(clave);
+  const real = carpeta ? await validateMaterialFolder(carpeta) : null;
+  await writeStored(clave, real, prev?.extras ?? []);
   return real;
+}
+
+/** Guarda las carpetas adicionales con etiqueta del proyecto (conservando la carpeta principal). */
+export async function setTaggedMaterialFolders(clave: string, extras: TaggedMaterialFolder[]): Promise<TaggedMaterialFolder[]> {
+  const prev = await readStored(clave);
+  const validated = await validateTaggedMaterialFolders(extras);
+  await writeStored(clave, prev?.carpeta ?? null, validated);
+  return validated;
 }
 
 /** La carpeta del proyecto si sigue existiendo y siendo válida; si no, null. */
@@ -168,15 +229,58 @@ export async function usableMaterialFolder(clave: string): Promise<string | null
   return validateMaterialFolder(c).catch(() => null);
 }
 
-/** Bloque del prompt de sistema de Claude con la carpeta y sus archivos. */
-export async function materialPrompt(dir: string, o: { puedeCopiar: boolean; comoUsar: string }): Promise<string> {
-  const { archivos, truncado } = await listMaterial(dir, 250);
-  const lista = archivos.map((a) => `- ${a.ruta} (${a.tipo}, ${a.mb} MB)`).join('\n') || '(vacía por ahora)';
-  return `
-## Carpeta de material del proyecto
-La persona eligió esta carpeta con el material para este video: \`${dir}\`
+/** Las carpetas extra con etiqueta que siguen existiendo y siendo válidas. */
+export async function usableTaggedMaterialFolders(clave: string): Promise<TaggedMaterialFolder[]> {
+  const raw = await getTaggedMaterialFolders(clave);
+  const out: TaggedMaterialFolder[] = [];
+  for (const e of raw) {
+    const ok = await validateMaterialFolder(e.carpeta).catch(() => null);
+    if (ok && e.etiqueta) out.push({ carpeta: ok, etiqueta: e.etiqueta });
+  }
+  return out;
+}
+
+/** Bloque del prompt de sistema de Claude con la carpeta principal y/o las carpetas etiquetadas por tema. */
+export async function materialPrompt(
+  dir: string | null,
+  o: { puedeCopiar: boolean; comoUsar: string; extras?: TaggedMaterialFolder[] }
+): Promise<string> {
+  const sections: string[] = [];
+  const copyRule = o.puedeCopiar
+    ? 'Lo más cómodo es copiar a tu carpeta lo que vayas a usar (p. ej. `mkdir -p claude/material && cp "<archivo>" claude/material/`) y trabajar con la copia.'
+    : 'No puedes copiar archivos (Bash está desactivado): léelos con Read y explica a la persona qué necesitas que adjunte.';
+
+  if (dir) {
+    const { archivos, truncado } = await listMaterial(dir, 250);
+    const lista = archivos.map((a) => `- ${a.ruta} (${a.tipo}, ${a.mb} MB)`).join('\n') || '(vacía por ahora)';
+    sections.push(`## Carpeta de material del proyecto
+La persona eligió esta carpeta con el material general para este video: \`${dir}\`
 Úsala como fuente principal: mira lo que hay ANTES de decidir (fotos y PDF con Read; videos y audios con FFmpeg/ffprobe para saber duración y contenido; textos con Read) y básate en ese material en vez de inventar.
-Puedes leer todo y crear archivos nuevos ahí si te sirve, pero NO cambies, muevas ni borres los originales de la persona. ${o.puedeCopiar ? 'Lo más cómodo es copiar a tu carpeta lo que vayas a usar (p. ej. `mkdir -p claude/material && cp "<archivo>" claude/material/`) y trabajar con la copia.' : 'No puedes copiar archivos (Bash está desactivado): léelos con Read y explica a la persona qué necesitas que adjunte.'} ${o.comoUsar}
+Puedes leer todo y crear archivos nuevos ahí si te sirve, pero NO cambies, muevas ni borres los originales de la persona. ${copyRule} ${o.comoUsar}
 Archivos (${archivos.length}${truncado ? '+, lista recortada: usa Glob para ver el resto' : ''}; la lista es de cuando empezó este mensaje):
-${lista}`;
+${lista}`);
+  }
+
+  const extras = o.extras ?? [];
+  if (extras.length > 0) {
+    const blocks: string[] = [];
+    for (const ex of extras) {
+      const { archivos, truncado } = await listMaterial(ex.carpeta, 150);
+      const lista = archivos.map((a) => `  - ${a.ruta} (${a.tipo}, ${a.mb} MB)`).join('\n') || '  (vacía por ahora)';
+      blocks.push(`### Etiqueta / Tema: «${ex.etiqueta}»
+Carpeta: \`${ex.carpeta}\`
+REGLA ESTRICTA DE USO CONDICIONAL: NO tomes ni uses ningún archivo de esta carpeta a menos que en las instrucciones/pedido de la persona, en lo que se dice en el guion/transcripción del video, o en un documento/guion dentro de la carpeta de material principal se mencione, pida o corresponda hablar de «${ex.etiqueta}» (o su tema equivalente). Si en una parte del video SÍ va o se menciona ese tema, usa los archivos de esta carpeta en esa parte exactamente (copiándolos primero a \`claude/material/\` sin modificar los originales). Si en ningún momento del video ni de las instrucciones aplica «${ex.etiqueta}», ignora esta carpeta por completo.
+Archivos (${archivos.length}${truncado ? '+, lista recortada: usa Glob para ver el resto' : ''}):
+${lista}`);
+    }
+    sections.push(`## Carpetas adicionales por etiqueta (USO SOLO SI APLICA EL TEMA)
+La persona adjuntó ${extras.length === 1 ? 'esta carpeta temática opcional' : 'estas carpetas temáticas opcionales'}. A diferencia de la carpeta de material general, cada carpeta con etiqueta es CONDICIONAL:
+- PROHIBIDO usarla por relleno o si el video no toca ese tema.
+- ÚSALA ÚNICAMENTE en la parte donde el pedido/instrucciones, el guion hablado en el video o un documento/guion de la carpeta de material indique o mencione el tema de su etiqueta (por ejemplo: si la etiqueta es «Resultados de estudiantes», «Resultados de clientes», «Testimonios», etc., úsala solo cuando en esa parte del guion o las instrucciones vaya o se hable de eso).
+- ${copyRule}
+
+${blocks.join('\n\n')}`);
+  }
+
+  return sections.length ? '\n' + sections.join('\n\n') : '';
 }

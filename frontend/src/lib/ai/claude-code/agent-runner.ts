@@ -13,7 +13,7 @@ import { fontsDir } from '@/lib/editor/media';
 import { findPython, modelsDir } from '@/lib/editor/python-env';
 import { CLAUDE_DEFAULT_EFFORT, CLAUDE_SUBSCRIPTION_MODEL } from '@/config/llm-models';
 import { ensureVideoSkillsPlugin, videoSkillsPrompt } from './video-skills';
-import { materialPrompt, usableMaterialFolder } from '@/lib/material/material';
+import { materialPrompt, type TaggedMaterialFolder, usableMaterialFolder, usableTaggedMaterialFolders } from '@/lib/material/material';
 import { manualPrompt } from '@/lib/editor/manual';
 import { pythonPackageDirs, toolboxPromptLine } from '@/lib/editor/claude-toolbox';
 import { ClaudeCodeError, acquireClaudeSlot, childEnv, claudeApiKeyEnv, execClaude, hasClaudeApiKey, type ToolUseEvent } from './bridge';
@@ -162,13 +162,16 @@ type AgentDirs = {
   modelos: string;
   skills: string | null;
   material: string | null;
+  /** Carpetas adicionales con etiqueta temática (uso condicional). */
+  materialExtras?: TaggedMaterialFolder[];
   /** Carpeta de proyectos de Lulo (Claude puede escribir en toda ella). */
   proyectos: string | null;
 };
 
 /** Carpetas donde Claude escribe (la suya primero); las demás también van como --add-dir. */
 function writableDirs(spec: AgentSpec, dirs: AgentDirs): string[] {
-  return [...new Set([spec.cwd, dirs.tools, dirs.proyectos, dirs.material].filter((d): d is string => !!d))];
+  const extraPaths = (dirs.materialExtras ?? []).map((e) => e.carpeta);
+  return [...new Set([spec.cwd, dirs.tools, dirs.proyectos, dirs.material, ...extraPaths].filter((d): d is string => !!d))];
 }
 
 /** Cachés y temporales de npm, pip, HyperFrames, Chrome… (escritura en el sandbox). */
@@ -440,8 +443,17 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const plugin = spec.videoSkills ? await ensureVideoSkillsPlugin() : null;
     // Se vuelve a validar en cada turno: la carpeta pudo borrarse o moverse
     const material = spec.material ? await usableMaterialFolder(spec.key) : null;
+    const materialExtras = spec.material ? await usableTaggedMaterialFolders(spec.key) : [];
     const proyectos = await getStorageBasePath().catch(() => null);
-    const dirs: AgentDirs = { tools: await toolsDir(), fuentes: await fontsDir(), modelos: await modelsDir(), skills: plugin ? path.dirname(plugin) : null, material, proyectos };
+    const dirs: AgentDirs = {
+      tools: await toolsDir(),
+      fuentes: await fontsDir(),
+      modelos: await modelsDir(),
+      skills: plugin ? path.dirname(plugin) : null,
+      material,
+      materialExtras,
+      proyectos,
+    };
     const ffmpegBin = resolveFfmpegPath();
     const py = await findPython().catch(() => null);
     const ctx: AgentContext = {
@@ -460,7 +472,9 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
     const systemPrompt =
       spec.systemPrompt(ctx) +
       (plugin && spec.videoSkills ? '\n' + videoSkillsPrompt(spec.videoSkills) : '') +
-      (material && spec.material ? '\n' + (await materialPrompt(material, { puedeCopiar: mode !== 'sin_bash', comoUsar: spec.material.comoUsar })) : '') +
+      (spec.material && (material || materialExtras.length > 0)
+        ? await materialPrompt(material, { puedeCopiar: mode !== 'sin_bash', comoUsar: spec.material.comoUsar, extras: materialExtras })
+        : '') +
       (spec.manual ? '\n' + (await manualPrompt().catch(() => '')) : '') +
       (spec.extraPrompt ? '\n' + (await spec.extraPrompt().catch(() => '')) : '');
     await fsp.writeFile(systemFile, systemPrompt, 'utf8');
@@ -568,9 +582,13 @@ async function runTurn(spec: AgentSpec, turn: Turn, texto: string, o: { sessionI
       });
 
     // Con --resume Claude Code conserva el prompt de sistema del primer mensaje: si la carpeta de
-    // material se eligió o cambió después, esta línea es lo que le avisa
+    // material o las carpetas con etiqueta se eligieron o cambiaron después, esta línea es lo que le avisa
+    const extrasNotice = materialExtras.length
+      ? `[Carpetas adicionales por etiqueta (USO ESTRICTAMENTE CONDICIONAL: NO las uses ni tomes nada de ellas a menos que en las instrucciones/pedido, en lo que se dice en el guion del video o en un documento/guion de la carpeta de material principal se mencione o pida específicamente el tema de su etiqueta): ${materialExtras.map((e) => `«${e.etiqueta}» → ${e.carpeta}`).join(' · ')}. Si en una parte del video sí aplica ese tema, toma los archivos de esa carpeta (copiando a claude/material/ sin modificar originales).]\n\n`
+      : '';
     const prefix =
       (material ? `[Carpeta de material de este proyecto (no toques los originales): ${material}. Si el pedido usa material, revísala con Glob/Read antes de decidir.]\n\n` : '') +
+      extrasNotice +
       (spec.messagePrefix ? await spec.messagePrefix().catch(() => '') : '');
     let r;
     try {
