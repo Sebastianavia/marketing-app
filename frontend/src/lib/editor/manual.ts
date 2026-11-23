@@ -453,6 +453,7 @@ export const LULO_BASE_RULES: Array<{ area: string; reglas: string[] }> = [
       'Un solo elemento a la vez además del subtítulo: nunca dos textos peleando.',
       'Ningún texto sobre la cara ni cortado por el borde: margen de 60 px a los bordes, letra mínima de 42 px (en 1920 de alto), máximo 12 palabras por gráfico.',
       'La pantalla dividida existe solo mientras muestra algo: con el panel vacío se vuelve a pantalla completa.',
+      'En pantalla dividida, el panel y el reencuadre de la persona entran y salen juntos con empuje vertical sincronizado (el panel se despliega empujando a la persona a su mitad y al salir se recoge mientras la persona sube de vuelta a pantalla completa), nunca con fundido transparente (fade) que deje ver a la persona duplicada arriba y abajo.',
       'Acabado profesional y moderno: nada que parezca hecho con Paint (figuras planas, robots de caricatura, emojis usados como iconos).',
     ],
   },

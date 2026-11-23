@@ -683,6 +683,9 @@ export function elementsFilter(
     let size: string;
     let x: string;
     let y: string;
+    const a = e.desde;
+    const fin = e.hasta;
+    const isSplit = e.modo === 'pantalla_dividida';
     const sideX = (p: string) => (p.endsWith('_izq') ? '80' : p.endsWith('_der') ? `main_w-overlay_w-${safe.right + 20}` : '(main_w-overlay_w)/2');
     const sideY = (p: string) => (p.startsWith('arriba') ? `${safe.top + 40}` : p.startsWith('abajo') ? `main_h-overlay_h-${safe.bottom + 40}` : '(main_h-overlay_h)/2');
     if (e.modo === 'capa') {
@@ -694,17 +697,22 @@ export function elementsFilter(
       size = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`;
       x = '0';
       y = '0';
-    } else if (e.modo === 'pantalla_dividida') {
+    } else if (isSplit) {
       const hh = Math.round(H / 4) * 2;
       const assetTop = e.posicion.startsWith('arriba');
       size = `scale=${W}:${hh}:force_original_aspect_ratio=increase,crop=${W}:${hh}`;
-      x = '0';
-      y = assetTop ? '0' : `${H - hh}`;
-      // La persona NO queda tapada: se encuadra su cara en la otra mitad
+      // Empuje vertical sincronizado (sin fade transparente que duplique a la persona): el panel se despliega
+      // empujando a la persona hacia su mitad y al terminar se recoge mientras la persona vuelve a pantalla completa.
+      const dPush = Math.min(0.22, Math.max(0.05, (fin - a) / 4));
+      const u = `min(clip((t-${f4(a)})/${f4(dPush)},0,1),clip((${f4(fin)}-t)/${f4(dPush)},0,1))`;
+      const pSplit = `(1-pow(1-${u},3))`;
       const y0 = Math.round(Math.min(H - hh, Math.max(0, faceY * H - hh * 0.42)));
+      const shiftY = assetTop ? H - hh - y0 : -y0;
+      x = '0';
+      y = assetTop ? `-${hh}*(1-${pSplit})` : `${H}-${hh}*${pSplit}`;
       graph.push(`[${cur}]split=2[sb${i}][ss${i}]`);
-      graph.push(`[ss${i}]crop=${W}:${hh}:0:${y0},setsar=1[sh${i}]`);
-      graph.push(`[sb${i}][sh${i}]overlay=x=0:y=${assetTop ? H - hh : 0}:enable='between(t,${f4(e.desde)},${f4(e.hasta)})'[sp${i}]`);
+      graph.push(`[ss${i}]setsar=1[sh${i}]`);
+      graph.push(`[sb${i}][sh${i}]overlay=x=0:y='${shiftY}*${pSplit}':enable='between(t,${f4(a)},${f4(fin)})'[sp${i}]`);
       cur = `sp${i}`;
     } else {
       const w = Math.round((e.tamano * W) / 2) * 2;
@@ -713,10 +721,8 @@ export function elementsFilter(
       x = sideX(e.posicion);
       y = sideY(e.posicion);
     }
-    const a = e.desde;
-    const fin = e.hasta;
-    const dIn = e.entrada === 'pop' ? 0.1 : e.entrada === 'fundido' ? 0.25 : e.entrada === 'deslizar' ? 0.12 : 0;
-    const fades = `${dIn ? `,fade=t=in:st=${f4(a)}:d=${f4(dIn)}:alpha=1` : ''},fade=t=out:st=${f4(Math.max(a, fin - 0.15))}:d=0.15:alpha=1`;
+    const dIn = isSplit ? 0 : e.entrada === 'pop' ? 0.1 : e.entrada === 'fundido' ? 0.25 : e.entrada === 'deslizar' ? 0.12 : 0;
+    const fades = isSplit ? '' : `${dIn ? `,fade=t=in:st=${f4(a)}:d=${f4(dIn)}:alpha=1` : ''},fade=t=out:st=${f4(Math.max(a, fin - 0.15))}:d=0.15:alpha=1`;
     // Un video más corto que su ventana se congela en su último fotograma (si no, en un split quedaba
     // la persona recortada sobre sí misma al acabarse el clip)
     const v = e.esImagen ? 1 : Math.max(0.25, Math.min(4, e.velocidad ?? 1));
@@ -725,9 +731,11 @@ export function elementsFilter(
     const pts = v === 1 ? 'PTS-STARTPTS' : `(PTS-STARTPTS)/${v.toFixed(3)}`;
     graph.push(`[${idx}:v]${hold}setpts=${pts}+${f4(a)}/TB,${size},format=rgba${fades},setsar=1[el${i}]`);
     // Movimiento de entrada: el pop sube 70 px con rebote; deslizar entra desde el lado
-    const p = `clip((t-${f4(a)})/0.22,0,1)`;
-    if (e.entrada === 'pop') y = `${y}+70*pow(1-${p},3)`;
-    if (e.entrada === 'deslizar') x = `${x}+main_w*pow(1-clip((t-${f4(a)})/0.28,0,1),3)`;
+    if (!isSplit) {
+      const p = `clip((t-${f4(a)})/0.22,0,1)`;
+      if (e.entrada === 'pop') y = `${y}+70*pow(1-${p},3)`;
+      if (e.entrada === 'deslizar') x = `${x}+main_w*pow(1-clip((t-${f4(a)})/0.28,0,1),3)`;
+    }
     if (e.pos) {
       x = e.pos.x;
       y = e.pos.y;

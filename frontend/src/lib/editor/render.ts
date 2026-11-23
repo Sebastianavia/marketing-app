@@ -660,11 +660,15 @@ function subtitleAnchor(o: { perfil: EditProfile; dir: ResolvedDirection | null;
     let y = p.y * H + H * 0.022;
     const split = els.find((e) => e.modo === 'pantalla_dividida' && t >= e.desde && t < e.hasta);
     if (split) {
-      // Misma cuenta que elementsFilter: la persona se recorta en una banda y va a su mitad
+      // Misma cuenta que elementsFilter: la persona se desplaza con empuje vertical sincronizado hacia su mitad
       const hh = Math.round(H / 4) * 2;
       const assetTop = split.posicion.startsWith('arriba');
       const y0 = Math.round(Math.min(H - hh, Math.max(0, face.y * H - hh * 0.42)));
-      y = y - y0 + (assetTop ? H - hh : 0);
+      const dPush = Math.min(0.22, Math.max(0.05, (split.hasta - split.desde) / 4));
+      const pIn = Math.min(1, Math.max(0, (t - split.desde) / dPush));
+      const pOut = Math.min(1, Math.max(0, (split.hasta - t) / dPush));
+      const pSplit = 1 - Math.pow(1 - Math.min(pIn, pOut), 3);
+      y += ((assetTop ? H - hh : 0) - y0) * pSplit;
     }
     x = Math.min(W * 0.72, Math.max(W * 0.28, x));
     y = Math.min(H - safe.bottom - lineH, Math.max(safe.top + 40, y));
