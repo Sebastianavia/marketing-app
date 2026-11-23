@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Copy, FolderOpen, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
+import { AlertCircle, Copy, FileText, FolderOpen, ImagePlus, Loader2, Plus, Save, Sparkles, Trash2, Upload } from 'lucide-react';
 import {
   EDIT_FORMATS,
   FONT_SUGGESTIONS,
@@ -16,6 +16,7 @@ import {
 } from '@/config/editor-looks';
 import { editorApi, toInput } from './editor-api';
 import { LookDots, LookPreview } from './LookPreview';
+import { DocumentTemplateModal } from './DocumentTemplateModal';
 
 /**
  * Biblioteca de perfiles de edición ("tu marca"): todo lo que se repite en cada video
@@ -53,11 +54,35 @@ export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicR
   const [refBusy, setRefBusy] = useState(false);
   const [refError, setRefError] = useState<string | null>(null);
   const refInput = useRef<HTMLInputElement>(null);
+
+  const [docBusy, setDocBusy] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+  const [showTemplate, setShowTemplate] = useState(false);
+  const docInput = useRef<HTMLInputElement>(null);
+
   const startNew = (from?: EditProfile) => {
     setSelectedId('new');
     setRefNote(null);
     setDraftSeed(from ? { ...toInput(from), nombre: `${from.nombre} (copia)` } : blankProfileInput());
   };
+
+  const fromDocument = async (file: File | null) => {
+    if (!file) return;
+    setDocBusy(true);
+    setDocError(null);
+    try {
+      const r = await editorApi.profileFromDocument(file);
+      setSelectedId('new');
+      setDraftSeed(r.perfil);
+      setRefNote(r.explicacion);
+    } catch (err) {
+      setDocError(err instanceof Error ? err.message : 'No se pudo analizar el documento.');
+    } finally {
+      setDocBusy(false);
+      if (docInput.current) docInput.current.value = '';
+    }
+  };
+
   const fromReferences = async (list: FileList | null) => {
     const files = Array.from(list ?? []).slice(0, 6);
     if (!files.length) return;
@@ -107,6 +132,23 @@ export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicR
           </button>
         ))}
         {perfiles.length === 0 && <p className="text-[12px] text-fg-subtle">Todavía no hay estilos. Crea el primero.</p>}
+
+        <div className="space-y-2 rounded-xl border border-dashed border-accent/40 bg-accent/5 p-3">
+          <p className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
+            <FileText className="h-3.5 w-3.5 text-accent" /> Importar documento o PDF
+          </p>
+          <p className="text-[11px] text-fg-subtle">Sube un PDF, manual o estándar (o .txt / .md): la IA extrae tipografía, tamaños, colores y reglas para crear el estilo.</p>
+          <input ref={docInput} type="file" accept=".pdf,.txt,.md,text/plain,application/pdf" className="hidden" onChange={(e) => void fromDocument(e.target.files?.[0] ?? null)} />
+          <div className="flex gap-1.5">
+            <button type="button" disabled={docBusy} onClick={() => docInput.current?.click()} className="btn-primary h-8 flex-1 px-2.5 text-[12px]">
+              {docBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} {docBusy ? 'Analizando…' : 'Subir documento'}
+            </button>
+            <button type="button" onClick={() => setShowTemplate(true)} title="Ver plantilla recomendada" className="btn-secondary h-8 px-2 text-[12px]">
+              <FileText className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {docError && <p className="text-[11px] text-rose-600 dark:text-rose-400">{docError}</p>}
+        </div>
 
         <div className="space-y-2 rounded-xl border border-dashed border-line p-3">
           <p className="flex items-center gap-1.5 text-[12px] font-medium text-fg">
@@ -160,6 +202,7 @@ export function ProfilesPanel({ perfiles, onChanged, initialId, musica, onMusicR
         </div>
       )}
     </div>
+    <DocumentTemplateModal isOpen={showTemplate} onClose={() => setShowTemplate(false)} />
     </div>
   );
 }

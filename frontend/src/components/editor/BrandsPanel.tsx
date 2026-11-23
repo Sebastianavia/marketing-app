@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BrandFontPicker } from './BrandFontPicker';
-import { AlertCircle, Check, Loader2, Pencil, Plus, RotateCcw, Stamp, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, FileText, Loader2, Pencil, Plus, RotateCcw, Stamp, Upload, X } from 'lucide-react';
+import { editorApi } from './editor-api';
+import { DocumentTemplateModal } from './DocumentTemplateModal';
 
 /** Mismos datos que lib/editor/kit/brands.ts (sin importar el módulo de servidor). */
 interface Brand {
@@ -60,6 +62,41 @@ export function BrandsPanel() {
   const [showRetired, setShowRetired] = useState(false);
   const [estilos, setEstilos] = useState<Array<{ id: string; nombre: string }>>([]);
   const [aviso, setAviso] = useState<string | null>(null);
+
+  const [docBusy, setDocBusy] = useState(false);
+  const [showTemplate, setShowTemplate] = useState(false);
+  const docInputRef = useRef<HTMLInputElement>(null);
+
+  const importFromDocument = async (file: File | null) => {
+    if (!file) return;
+    setDocBusy(true);
+    setError(null);
+    setAviso(null);
+    try {
+      const res = await editorApi.brandFromDocument(file);
+      const b = res.marca;
+      setDraft({
+        nombre: b.nombre || '',
+        primario: b.colores.primario || '#0B0B0B',
+        acento: b.colores.acento || '#C6FF3D',
+        texto: b.colores.texto || '#FFFFFF',
+        fuente: b.fuente || 'Archivo Black',
+        lema: b.lema || '',
+        usuario: b.usuario || '',
+        cta: b.cta || '',
+        nota: b.nota || '',
+        estandar: b.estandar || '',
+        perfilId: b.perfilId || '',
+        logo: null,
+      });
+      setAviso(`Datos extraídos del documento: ${res.explicacion}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo leer el documento de la marca.');
+    } finally {
+      setDocBusy(false);
+      if (docInputRef.current) docInputRef.current.value = '';
+    }
+  };
   const loadStyles = useCallback(async () => {
     const r = await fetch('/api/editor/profiles', { cache: 'no-store' }).catch(() => null);
     const d = r?.ok ? await r.json() : { perfiles: [] };
@@ -192,11 +229,37 @@ export function BrandsPanel() {
             {data?.compartidas ? ' Compartidas por todo el equipo.' : ''}
           </p>
         </div>
-        {!draft && (
-          <button type="button" onClick={() => setDraft(emptyDraft())} className="btn-primary h-9 px-3 text-[12px]">
-            <Plus className="h-3.5 w-3.5" /> Nueva marca
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            ref={docInputRef}
+            type="file"
+            accept=".pdf,.txt,.md,text/plain,application/pdf"
+            className="hidden"
+            onChange={(e) => void importFromDocument(e.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            onClick={() => setShowTemplate(true)}
+            className="btn-secondary h-9 px-3 text-[12px]"
+            title="Ver plantilla para tus manuales de marca o estándar"
+          >
+            <FileText className="h-3.5 w-3.5" /> Ver plantilla
           </button>
-        )}
+          <button
+            type="button"
+            disabled={docBusy}
+            onClick={() => docInputRef.current?.click()}
+            className="btn-secondary h-9 px-3 text-[12px]"
+          >
+            {docBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            {docBusy ? 'Analizando documento…' : 'Importar PDF / doc'}
+          </button>
+          {!draft && (
+            <button type="button" onClick={() => setDraft(emptyDraft())} className="btn-primary h-9 px-3 text-[12px]">
+              <Plus className="h-3.5 w-3.5" /> Nueva marca
+            </button>
+          )}
+        </div>
       </div>
 
       {data?.aviso && <p className="rounded-lg border border-line bg-surface px-3 py-2 text-[12px] text-fg-muted">{data.aviso}</p>}
@@ -321,6 +384,7 @@ export function BrandsPanel() {
           ))}
         </ul>
       )}
+      <DocumentTemplateModal isOpen={showTemplate} onClose={() => setShowTemplate(false)} />
     </section>
   );
 }
