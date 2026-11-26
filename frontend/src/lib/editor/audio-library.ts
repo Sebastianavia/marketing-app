@@ -48,6 +48,12 @@ export interface LibraryItem {
   huella?: string;
   /** Pack o carpeta de origen (importaciones). */
   pack?: string;
+  /** Efectos: segundos del archivo donde hay un golpe (paquetes de varios golpes: elige uno con desde/duracion). */
+  golpes?: number[];
+  /** Efectos: silencio al inicio del archivo (s); el motor lo salta solo. */
+  silencioInicial?: number;
+  /** Música: segundo del tema donde entra la parte fuerte (para empezar ahí con inicioArchivo o hacer coincidir el drop). */
+  entradaFuerte?: number;
   duracion: number;
   bpm?: number;
   ext: string;
@@ -290,6 +296,9 @@ export function libraryForClaude(l: AudioLibrary, raw: Partial<LibrarySearch> = 
       etiquetas: it.etiquetas,
       duracion: Math.round(it.duracion * 10) / 10,
       ...(it.bpm ? { bpm: it.bpm } : {}),
+      ...(it.entradaFuerte ? { entradaFuerte: it.entradaFuerte } : {}),
+      ...(it.golpes && (it.golpes.length > 1 || (it.golpes[0] ?? 0) > 0.05) ? { golpes: it.golpes } : {}),
+      ...(it.silencioInicial && it.silencioInicial > 0.05 ? { silencioInicial: it.silencioInicial } : {}),
       ...(it.nota ? { nota: it.nota } : {}),
     })),
     ...(!words.length && !tags.length ? { vocabulario: vocab() } : {}),
@@ -430,6 +439,7 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
           const b = await detectBeats(local, 0, Math.min(90, duracion)).catch(() => null);
           if (b && (b.confianza ?? 0) >= 0.3) item.bpm = Math.round(b.bpm);
         }
+        Object.assign(item, await analyzeAudio(local, tipo).catch(() => ({})));
         added.push(item);
       } catch (err) {
         console.warn(`[audio] No se pudo leer ${key}:`, err instanceof Error ? err.message : err);
@@ -511,4 +521,62 @@ export async function fileHash(file: string): Promise<string> {
     fsSync.createReadStream(file).on('data', (c) => h.update(c)).on('end', () => resolve()).on('error', reject);
   });
   return h.digest('hex');
+}
+
+// ── Medidas del sonido (para que Claude coloque bien lo que no puede oír) ─────────
+
+/**
+ * Efectos: golpes (picos a ≥ 0,15 s entre sí con un valle de 6 dB, a menos de 20 dB del máximo) y
+ * silencio inicial. Música: dónde entra la parte fuerte (la media de 1 s llega cerca del nivel
+ * alto del tema y se mantiene 2 s).
+ */
+export async function analyzeAudio(file: string, tipo: AudioKind): Promise<Pick<LibraryItem, 'golpes' | 'silencioInicial' | 'entradaFuerte'>> {
+  const { computeEnvelope } = await import('./cuts');
+  const env = await computeEnvelope(file);
+  const db = env.db;
+  const W = 0.005;
+  if (!db.length) return {};
+  let max = -Infinity;
+  for (const v of db) if (v > max) max = v;
+  if (tipo === 'musica') {
+    const win = 200; // 1 s
+    const avg: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < db.length; i++) {
+      acc += db[i];
+      if (i >= win) acc -= db[i - win];
+      if (i >= win - 1) avg.push(acc / win);
+    }
+    if (!avg.length) return {};
+    const sorted = [...avg].sort((a, b) => a - b);
+    const loud = sorted[Math.floor(sorted.length * 0.8)];
+    for (let i = 0; i < avg.length; i++) {
+      if (avg[i] < loud - 2) continue;
+      let ok = true;
+      for (let k = i; k < Math.min(avg.length, i + 400); k += 20) if (avg[k] < loud - 4) ok = false;
+      if (ok) return { entradaFuerte: Math.round(i * W * 10) / 10 };
+    }
+    return {};
+  }
+  const thr = max - 20;
+  let silencio = 0;
+  while (silencio < db.length && db[silencio] < max - 30) silencio++;
+  const golpes: number[] = [];
+  let lastPeak = -1;
+  let valley = Infinity;
+  for (let i = 1; i < db.length - 1; i++) {
+    valley = Math.min(valley, db[i]);
+    const isPeak = db[i] >= thr && db[i] >= db[i - 1] && db[i] >= db[i + 1];
+    if (!isPeak) continue;
+    if (lastPeak < 0 || ((i - lastPeak) * W >= 0.15 && db[i] - valley >= 6)) {
+      golpes.push(Math.round(i * W * 100) / 100);
+      lastPeak = i;
+      valley = Infinity;
+      if (golpes.length >= 8) break;
+    } else if (db[i] > db[lastPeak]) {
+      lastPeak = i;
+      golpes[golpes.length - 1] = Math.round(i * W * 100) / 100;
+    }
+  }
+  return { golpes, silencioInicial: Math.round(silencio * W * 100) / 100 };
 }

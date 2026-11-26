@@ -300,6 +300,47 @@ export function decodeMono(file: string, maxSeconds = 20): Promise<Float32Array>
   });
 }
 
+export type SfxAlign = 'inicio' | 'golpe' | 'final';
+
+/**
+ * Prepara un efecto de archivo antes de colocarlo: `desde` (segundo del archivo donde empieza),
+ * `duracion` (corta el resto, p. ej. para quedarse con un golpe de un paquete de varios) y `alinear`:
+ *  - inicio: salta el silencio inicial; el sonido arranca justo en t.
+ *  - golpe: el punto más fuerte cae en t (un whoosh centrado en el corte).
+ *  - final: el sonido termina en t (un riser que remata en la revelación).
+ * Devuelve las muestras y cuántos segundos hay que adelantarlas respecto a t.
+ */
+export function prepareSample(src: Float32Array, o: { desde?: number; duracion?: number; alinear?: SfxAlign }): { muestras: Float32Array; adelanto: number } {
+  let m = src.subarray(Math.min(src.length, Math.max(0, Math.round((o.desde ?? 0) * SR))));
+  if (o.duracion && o.duracion > 0) m = m.subarray(0, Math.min(m.length, Math.round(o.duracion * SR)));
+  let peak = 0;
+  let peakIdx = 0;
+  for (let i = 0; i < m.length; i++) {
+    const a = Math.abs(m[i]);
+    if (a > peak) {
+      peak = a;
+      peakIdx = i;
+    }
+  }
+  if (!peak) return { muestras: new Float32Array(0), adelanto: 0 };
+  // Umbral −30 dB del pico: lo de antes es silencio o ruido de la grabación
+  const thr = peak * 0.0316;
+  let first = 0;
+  while (first < m.length && Math.abs(m[first]) < thr) first++;
+  let last = m.length - 1;
+  while (last > first && Math.abs(m[last]) < thr) last--;
+  const pre = Math.min(first, Math.round(0.004 * SR));
+  const out = Float32Array.from(m.subarray(first - pre, Math.min(m.length, last + Math.round(0.03 * SR))));
+  // Rampas cortas: sin clics al cortar a mitad de un sonido
+  const fi = Math.min(out.length, Math.round(0.003 * SR));
+  for (let i = 0; i < fi; i++) out[i] *= i / fi;
+  const fo = Math.min(out.length, Math.round(0.015 * SR));
+  for (let i = 0; i < fo; i++) out[out.length - 1 - i] *= i / fo;
+  const align = o.alinear ?? 'inicio';
+  const adelanto = align === 'golpe' ? (peakIdx - (first - pre)) / SR : align === 'final' ? (last - (first - pre)) / SR : pre / SR;
+  return { muestras: out, adelanto: Math.max(0, adelanto) };
+}
+
 export interface SfxPlacement {
   /** Segundo del video final. */
   t: number;

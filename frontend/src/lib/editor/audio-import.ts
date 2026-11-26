@@ -9,6 +9,7 @@ import { validateMaterialFolder } from '@/lib/material/material';
 import { detectBeats } from './beats';
 import {
   LIBRARY_EXT,
+  analyzeAudio,
   LibraryError,
   fileHash,
   fileKey,
@@ -234,6 +235,8 @@ async function runImport(job: ImportJob & { cancel?: boolean }) {
         const b = await detectBeats(file, 0, Math.min(90, duracion)).catch(() => null);
         if (b && (b.confianza ?? 0) >= 0.3) item.bpm = Math.round(b.bpm);
       }
+      // Golpes y silencio inicial (efectos) o dónde entra la parte fuerte (música)
+      Object.assign(item, await analyzeAudio(file, tipo).catch(() => ({})));
       // Si la app se cerró a mitad, el archivo puede estar ya en el bucket: no se vuelve a subir
       if (shared && !knownKeys.has(key)) await putFile(key, file, LIBRARY_EXT[ext], { nombre: encodeURIComponent(item.nombre) });
       await fs.copyFile(file, path.join(/*turbopackIgnore: true*/ localDir(), `${id}${ext}`));

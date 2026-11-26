@@ -146,6 +146,12 @@ const SoundSchema = z.object({
   tipo: z.union([z.enum(SFX_TYPES), z.literal('archivo')]),
   /** Con tipo 'archivo': ruta relativa a la carpeta de la edición. */
   archivo: z.string().max(300).optional(),
+  /** Con tipo 'archivo': segundo DEL ARCHIVO donde empieza (p. ej. el 2.º golpe de un paquete; mira «golpes» en biblioteca_audio). */
+  desde: z.number().min(0).max(600).optional(),
+  /** Con tipo 'archivo': cuánto suena como mucho (corta el resto con un fundido corto). */
+  duracion: z.number().min(0.05).max(120).optional(),
+  /** Con tipo 'archivo': qué cae en t — inicio (salta el silencio inicial; por defecto), golpe (el punto más fuerte: whoosh en el corte) o final (riser que remata en t). */
+  alinear: z.enum(['inicio', 'golpe', 'final']).optional(),
   /** dB respecto al nivel normal de efectos (−18 … +6). */
   volumen: z.number().min(-18).max(6).default(0),
   pan: z.number().min(-1).max(1).default(0),
@@ -753,7 +759,7 @@ export interface ResolvedDirection {
   transiciones: NonNullable<EditDirection['transiciones']>;
   color?: EditDirection['color'];
   elementos: ResolvedElement[];
-  sonidos: Array<{ t: number; tipo: SfxType | 'archivo'; abs?: string; volumen: number; pan: number }>;
+  sonidos: Array<{ t: number; tipo: SfxType | 'archivo'; abs?: string; volumen: number; pan: number; desde?: number; duracion?: number; alinear?: 'inicio' | 'golpe' | 'final' }>;
   musica?: { modo: 'generada' | 'archivo' | 'ninguna'; estilo?: MusicStyle; abs?: string; bajoVozDb: number; ducking: number; inicioArchivo: number; secciones: MusicSection[] };
   palabrasClave: NonNullable<EditDirection['palabrasClave']>;
   /** Ventanas con pantalla dividida (los subtítulos van al centro, sobre la unión). */
@@ -826,7 +832,7 @@ export function resolveDirection(p: EditProject, d: EditDirection, intervals: Ke
     if (s.tipo === 'archivo') {
       try {
         const abs = editAsset(p.carpeta, s.archivo ?? '');
-        if (fsSync.existsSync(abs)) sonidos.push({ t: s.t, tipo: 'archivo', abs, volumen: s.volumen, pan: s.pan });
+        if (fsSync.existsSync(abs)) sonidos.push({ t: s.t, tipo: 'archivo', abs, volumen: s.volumen, pan: s.pan, desde: s.desde, duracion: s.duracion, alinear: s.alinear });
       } catch {
         // archivo fuera de la carpeta: se ignora
       }

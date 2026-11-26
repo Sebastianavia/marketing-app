@@ -8,6 +8,7 @@ import { computeEnvelope } from './cuts';
 import {
   AUDIO_KINDS,
   LibraryError,
+  analyzeAudio,
   ensureLocal,
   kindFromFolders,
   loadLibrary,
@@ -30,20 +31,36 @@ import {
 
 // ── 1. Ordenar etiquetas ─────────────────────────────────────────────────────
 
-export async function tidyLibrary(): Promise<{ revisados: number; cambiados: number }> {
+export async function tidyLibrary(): Promise<{ revisados: number; cambiados: number; medidos: number }> {
+  // Medidas que faltan (lo importado antes de que existieran): golpes de los efectos y entrada
+  // fuerte de la música. Se bajan del bucket si este PC no los tiene.
+  const { biblioteca } = await loadLibrary();
+  const measures = new Map<string, Awaited<ReturnType<typeof analyzeAudio>>>();
+  for (const it of biblioteca.items) {
+    if (it.estado !== 'activa') continue;
+    const missing = it.tipo === 'musica' ? it.entradaFuerte == null : it.golpes == null;
+    if (!missing) continue;
+    try {
+      measures.set(it.id, await analyzeAudio(await ensureLocal(it), it.tipo));
+    } catch {
+      // sin archivo o dañado: se deja como está
+    }
+  }
   const { result } = await updateLibrary((l) => {
     let cambiados = 0;
     for (const it of l.items) {
       const tags = mergeTags(it.etiquetas);
       const where = it.clave ?? '';
       const kind = where ? kindFromFolders(where) : null;
+      const m = measures.get(it.id);
       const changed = tags.join('|') !== it.etiquetas.join('|') || (kind && kind !== it.tipo);
+      if (m) Object.assign(it, m);
       if (!changed) continue;
       it.etiquetas = tags;
       if (kind) it.tipo = kind;
       cambiados++;
     }
-    return { revisados: l.items.length, cambiados };
+    return { revisados: l.items.length, cambiados, medidos: measures.size };
   });
   return result;
 }

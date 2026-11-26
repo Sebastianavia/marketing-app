@@ -98,8 +98,11 @@ export function AudioOrganizer({ onClose, onSaved }: { onClose: () => void; onSa
     setBusy('ordenar');
     setError(null);
     try {
-      const r = await post<{ revisados: number; cambiados: number }>({ accion: 'ordenar' });
-      setMsg(r.cambiados ? `Etiquetas ordenadas en ${r.cambiados} de ${r.revisados} audios (sin repetidas ni genéricas, y el tipo según la carpeta).` : `Los ${r.revisados} audios ya estaban en orden.`);
+      const r = await post<{ revisados: number; cambiados: number; medidos: number }>({ accion: 'ordenar' });
+      setMsg(
+        `${r.cambiados ? `Etiquetas ordenadas en ${r.cambiados} de ${r.revisados} audios (sin repetidas ni genéricas, y el tipo según la carpeta).` : `Las etiquetas de los ${r.revisados} audios ya estaban en orden.`}` +
+          (r.medidos ? ` Medidos ${r.medidos} audios (golpes de los efectos y dónde entra la parte fuerte de la música).` : '')
+      );
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo ordenar.');
@@ -155,7 +158,7 @@ export function AudioOrganizer({ onClose, onSaved }: { onClose: () => void; onSa
         </button>
       </div>
       <p className="text-fg-muted">
-        1) <b className="font-medium text-fg">Ordenar etiquetas</b>: gratis y al instante; quita etiquetas repetidas («epico» y «épico») o que no aportan, y corrige el tipo según la carpeta. 2){' '}
+        1) <b className="font-medium text-fg">Ordenar etiquetas</b>: gratis; quita etiquetas repetidas («epico» y «épico») o que no aportan, corrige el tipo según la carpeta y mide los audios que falten (golpes de los efectos, parte fuerte de la música; la primera vez puede tardar unos minutos). 2){' '}
         <b className="font-medium text-fg">Organizar con Claude</b>: propone nombre, tipo, etiquetas y una nota de uso para cada audio (no los oye: decide por el nombre, la carpeta, la duración, el BPM y medidas del sonido). Revisas y guardas lo que quieras.
       </p>
       <div className="flex flex-wrap items-center gap-2">

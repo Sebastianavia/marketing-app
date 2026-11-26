@@ -6,7 +6,7 @@ import type { EditProfile } from '@/config/editor-looks';
 import { ffmpeg } from './media';
 import { generateMusic, sfxImpact, sfxWhoosh, writeWav } from './synth';
 import { generateStyledMusic, MUSIC_CATALOG } from './music';
-import { buildSfxTrack, decodeMono, sfxSamples, type SfxPlacement } from './sfx';
+import { buildSfxTrack, decodeMono, prepareSample, sfxSamples, type SfxPlacement } from './sfx';
 import type { ResolvedDirection } from './direction';
 import type { SubWord } from './timeline';
 import { applyCorrections, buildAmbientTrack, processVoice } from './voice';
@@ -155,12 +155,16 @@ export async function buildFinalAudio(o: {
     const decoded = new Map<string, Float32Array>();
     for (const s of plan) {
       let muestras: Float32Array;
+      let t = s.t;
       if (s.tipo === 'archivo' && s.abs) {
         if (!decoded.has(s.abs)) decoded.set(s.abs, await decodeMono(s.abs).catch(() => new Float32Array(0)));
-        muestras = decoded.get(s.abs)!;
+        // Sin el silencio inicial del archivo y alineado como pidió Claude (inicio, golpe o final en t)
+        const prep = prepareSample(decoded.get(s.abs)!, { desde: s.desde, duracion: s.duracion, alinear: s.alinear });
+        muestras = prep.muestras;
+        t = s.t - prep.adelanto;
       } else if (s.tipo !== 'archivo') muestras = sfxSamples(s.tipo);
       else continue;
-      if (muestras.length) placements.push({ t: s.t, muestras, volumenDb: s.volumen, pan: s.pan });
+      if (muestras.length) placements.push({ t, muestras, volumenDb: s.volumen, pan: s.pan });
     }
     const tr = buildSfxTrack(D, placements);
     sfxTrack = f('sfx-pista.wav');

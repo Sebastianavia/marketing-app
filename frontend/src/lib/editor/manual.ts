@@ -279,7 +279,7 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     titulo: 'Sonido (dirigir_edicion + biblioteca_audio + beats_musica)',
     items: [
       'Cuadrícula de beats de la música (generada: exacta; archivo: detectada): cortes, punch y entradas en el beat; cambios grandes al inicio de compás; impactos en los golpes. El informe de ritmo avisa si los cortes no caen en el beat.',
-      'Biblioteca de audio del equipo (pestaña «Audio», compartida): efectos, música y ambientes reales con licencia, como «biblioteca:<id>». Los sonidos en tendencia «solo en la app» se recomiendan para añadirlos al publicar.',
+      'Biblioteca de audio del equipo (pestaña «Audio», compartida): música, efectos, ambientes y audios virales reales con etiquetas de ánimo, colección y categoría, BPM y nota de uso; búsqueda por etiquetas, BPM y duración (biblioteca_audio); se usan como «biblioteca:<id>».',
       'Voz: mejora (presencia + de-esser), respiraciones y chasquidos atenuados, y efectos por tramo: teléfono, radio, megáfono, eco, sala, pensamiento, grave y agudo.',
       'Ambientes de fondo por tramos: lluvia, viento, oficina, ciudad, naturaleza, tensión, sala (sintetizados) o un archivo.',
       'Velocidad de los clips de apoyo: cámara lenta (0,25–0,9) o rápida (1,5–4).',
@@ -439,7 +439,7 @@ export const LULO_BASE_RULES: Array<{ area: string; reglas: string[] }> = [
       'En el video solo se oye a la persona: fuera la voz del apuntador o cualquier voz ajena, aunque suene bajito entre frases.',
       'Fuera arranques falsos, palabras sueltas, muletillas y respiraciones largas. De las tomas repetidas queda la última, salvo que una anterior sea claramente mejor.',
       'Entre frase y frase, como mucho 0,25 s: nunca la persona quieta y callada (salvo una pausa dramática a propósito).',
-      'Ninguna frase a medias ni palabra huérfana. Fundido de audio de 10–20 ms en cada corte; la imagen va con corte seco.',
+      'Ninguna frase a medias ni palabra huérfana. El motor ajusta cada corte al sonido real (ataque y cola de la palabra) y funde el audio con un fundido cruzado, sin silencios; la imagen va con corte seco. Evita cortar palabras sueltas en habla seguida: no hay silencio donde cortar y se oye el empalme.',
       'Cuando se unen dos tomas del mismo plano, cambia el encuadre (p. ej. 100 % ↔ 112 %) para que no se note el salto.',
     ],
   },
