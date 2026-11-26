@@ -280,6 +280,10 @@ export const CAPABILITIES_RADAR: Array<{ titulo: string; items: string[] }> = [
     items: [
       'Cuadrícula de beats de la música (generada: exacta; archivo: detectada): cortes, punch y entradas en el beat; cambios grandes al inicio de compás; impactos en los golpes. El informe de ritmo avisa si los cortes no caen en el beat.',
       'Biblioteca de audio del equipo (pestaña «Audio», compartida): música, efectos, ambientes y audios virales reales con etiquetas de ánimo, colección y categoría, BPM y nota de uso; búsqueda por etiquetas, BPM y duración (biblioteca_audio); se usan como «biblioteca:<id>».',
+      'Medidas de la biblioteca: «golpes» de cada efecto (si hay varios es un paquete) y su silencio inicial, y «entradaFuerte» de cada tema (segundo donde entra la parte fuerte, para usarlo con inicioArchivo).',
+      'Efectos de archivo con precisión: desde/duracion para tomar UN golpe de un paquete y alinear inicio (salta el silencio inicial) | golpe (el punto fuerte cae en el segundo pedido: whoosh en el corte) | final (termina en el segundo pedido: riser en la revelación).',
+      'Los efectos reales se igualan por cómo suenan, no por su pico, y su nivel se fija en el plan con efectosBajoVozDb (8–10 dB bajo la voz en videos virales, 12–16 en tono sobrio).',
+      'El informe de ritmo mide los efectos: mínimo 0,5 por segundo y marca cada hueco de más de 3 s sin ninguno (las pausas dramáticas no cuentan).',
       'Voz: mejora (presencia + de-esser), respiraciones y chasquidos atenuados, y efectos por tramo: teléfono, radio, megáfono, eco, sala, pensamiento, grave y agudo.',
       'Ambientes de fondo por tramos: lluvia, viento, oficina, ciudad, naturaleza, tensión, sala (sintetizados) o un archivo.',
       'Velocidad de los clips de apoyo: cámara lenta (0,25–0,9) o rápida (1,5–4).',
@@ -468,6 +472,9 @@ export const LULO_BASE_RULES: Array<{ area: string; reglas: string[] }> = [
     area: 'Sonido',
     reglas: [
       'Un efecto por evento y que nunca tape una palabra (su pico, al menos 8 dB bajo la voz).',
+      'Efectos presentes y seguidos: en videos virales, 8–10 dB bajo la voz y nunca más de 2–3 s sin ninguno (salvo una pausa dramática a propósito); entre los fuertes, sonidos sutiles (tick, aire, pop suave) que mantienen el ritmo.',
+      'Con efectos reales de la biblioteca: un golpe por paquete, whoosh centrado en el corte, riser que termina en la revelación, y el mismo archivo como mucho 2–3 veces seguidas.',
+      'Música real de la biblioteca antes que la generada cuando encaje: por ánimo y BPM, con su parte fuerte entrando en el gancho o en el re-gancho; 16–22 dB bajo la voz con ducking.',
       'Voz a −14 LUFS con pico de −1 dB o menos: nunca satura.',
     ],
   },
