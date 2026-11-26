@@ -210,24 +210,90 @@ export async function findItem(id: string): Promise<LibraryItem> {
   return it;
 }
 
-/** Lo que ve Claude: solo lo activo, filtrado. */
-export function libraryForClaude(l: AudioLibrary, filtro: { tipo?: AudioKind; texto?: string } = {}) {
-  const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  const q = filtro.texto ? norm(filtro.texto) : '';
-  return l.items
-    .filter((it) => it.estado === 'activa')
-    .filter((it) => !filtro.tipo || it.tipo === filtro.tipo)
-    .filter((it) => !q || norm([it.nombre, it.nota ?? '', ...it.etiquetas].join(' ')).includes(q))
-    .map((it) => ({
+/** Búsqueda de Claude en la biblioteca (`biblioteca_audio`). */
+export const LibrarySearchSchema = z.object({
+  tipo: z.enum(AUDIO_KINDS).optional(),
+  /** Palabras sueltas: deben aparecer todas (nombre, etiquetas o nota); sin tildes ni mayúsculas. */
+  texto: z.string().max(80).optional(),
+  /** Etiquetas que debe tener (todas): ánimos, colecciones, categorías… («epico», «energia para hooks»). */
+  etiquetas: z.array(z.string().max(40)).max(6).optional(),
+  bpmMin: z.number().min(40).max(220).optional(),
+  bpmMax: z.number().min(40).max(220).optional(),
+  duracionMin: z.number().min(0).max(1800).optional(),
+  duracionMax: z.number().min(0).max(1800).optional(),
+  orden: z.enum(['relevancia', 'bpm', 'duracion', 'recientes', 'nombre']).default('relevancia'),
+  /** Para ver más resultados: el «siguiente» que devolvió la búsqueda anterior. */
+  desde: z.number().int().min(0).default(0),
+  limite: z.number().int().min(1).max(60).default(40),
+});
+export type LibrarySearch = z.infer<typeof LibrarySearchSchema>;
+
+const normText = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * Lo que ve Claude: solo lo activo, filtrado y ordenado, por páginas. Sin filtros de texto ni
+ * etiquetas devuelve además el VOCABULARIO de la biblioteca (cuántos hay por tipo y las etiquetas
+ * más usadas con su número) para que sepa qué pedir.
+ */
+export function libraryForClaude(l: AudioLibrary, raw: Partial<LibrarySearch> = {}) {
+  const f = LibrarySearchSchema.parse(raw);
+  const active = l.items.filter((it) => it.estado === 'activa');
+  const words = f.texto ? normText(f.texto).split(/[^a-z0-9]+/).filter((w) => w.length > 1) : [];
+  const tags = (f.etiquetas ?? []).map(normText).filter(Boolean);
+  const scored = active
+    .filter((it) => !f.tipo || it.tipo === f.tipo)
+    .filter((it) => !tags.length || tags.every((t) => it.etiquetas.some((e) => normText(e).includes(t))))
+    .filter((it) => f.bpmMin == null || (it.bpm != null && it.bpm >= f.bpmMin))
+    .filter((it) => f.bpmMax == null || (it.bpm != null && it.bpm <= f.bpmMax))
+    .filter((it) => f.duracionMin == null || it.duracion >= f.duracionMin)
+    .filter((it) => f.duracionMax == null || it.duracion <= f.duracionMax)
+    .map((it) => {
+      if (!words.length) return { it, score: 0 };
+      const name = normText(it.nombre);
+      const tg = normText(it.etiquetas.join(' '));
+      const nota = normText(it.nota ?? '');
+      let score = 0;
+      for (const w of words) {
+        const hit = (tg.includes(w) ? 3 : 0) + (name.includes(w) ? 2 : 0) + (nota.includes(w) ? 1 : 0);
+        if (!hit) return null;
+        score += hit;
+      }
+      return { it, score };
+    })
+    .filter((x): x is { it: LibraryItem; score: number } => !!x);
+  const sorters: Record<LibrarySearch['orden'], (a: { it: LibraryItem; score: number }, b: { it: LibraryItem; score: number }) => number> = {
+    relevancia: (a, b) => b.score - a.score || a.it.nombre.localeCompare(b.it.nombre, 'es'),
+    bpm: (a, b) => (a.it.bpm ?? 999) - (b.it.bpm ?? 999),
+    duracion: (a, b) => a.it.duracion - b.it.duracion,
+    recientes: (a, b) => b.it.fecha.localeCompare(a.it.fecha),
+    nombre: (a, b) => a.it.nombre.localeCompare(b.it.nombre, 'es'),
+  };
+  scored.sort(sorters[f.orden]);
+  const page = scored.slice(f.desde, f.desde + f.limite);
+  const vocab = () => {
+    const count = new Map<string, number>();
+    for (const it of active.filter((x) => !f.tipo || x.tipo === f.tipo)) for (const e of it.etiquetas) count.set(e, (count.get(e) ?? 0) + 1);
+    return {
+      porTipo: Object.fromEntries(AUDIO_KINDS.map((k) => [k, active.filter((it) => it.tipo === k).length])),
+      etiquetas: [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([e, n]) => `${e} (${n})`),
+    };
+  };
+  return {
+    total: scored.length,
+    desde: f.desde,
+    mostrados: page.length,
+    siguiente: f.desde + page.length < scored.length ? f.desde + page.length : null,
+    items: page.map(({ it }) => ({
       ref: `biblioteca:${it.id}`,
       nombre: it.nombre,
       tipo: it.tipo,
       etiquetas: it.etiquetas,
-      duracion: it.duracion,
+      duracion: Math.round(it.duracion * 10) / 10,
       ...(it.bpm ? { bpm: it.bpm } : {}),
       ...(it.nota ? { nota: it.nota } : {}),
-      ...(it.licencia ? { origen: it.licencia } : {}),
-    }));
+    })),
+    ...(!words.length && !tags.length ? { vocabulario: vocab() } : {}),
+  };
 }
 
 const REF = /^biblioteca:([a-z0-9]+)$/i;
@@ -349,7 +415,7 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
           id,
           nombre: nameFromKey(key),
           tipo,
-          etiquetas: tagsFromKey(key),
+          etiquetas: mergeTags(tagsFromKey(key)),
           licencia: '',
           clave: key,
           duracion,
@@ -388,11 +454,48 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
   return res;
 }
 
-/** Tipo por la carpeta (sonidos/musica/ambientes…) o, si no lo dice, por la duración. */
+/**
+ * Tipo por la carpeta (sonidos/musica/ambientes…) o, si no lo dice, por la duración. Manda la
+ * carpeta MÁS ALTA que diga algo: «musica/ambientes-y-moods/x.mp3» es música, no ambiente.
+ */
 export function guessKind(relPath: string, duracion: number): AudioKind {
   // Sin tildes («Música» = «musica»); solo cuentan las carpetas, no el nombre del archivo
-  const dirs = relPath.replace(/\\/g, '/').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  return KIND_BY_FOLDER.find(([re]) => re.test(dirs))?.[1] ?? (duracion <= 20 ? 'efecto' : 'musica');
+  const dirs = relPath.replace(/\\/g, '/').normalize('NFD').replace(/[̀-ͯ]/g, '').split('/').slice(0, -1);
+  for (const seg of dirs) {
+    const hit = KIND_BY_FOLDER.find(([re]) => re.test(`${seg}/`));
+    if (hit) return hit[1];
+  }
+  return duracion <= 20 ? 'efecto' : 'musica';
+}
+
+/** Etiquetas que no aportan (el tipo ya lo dice). */
+const GENERIC_TAGS = new Set(['musica', 'music', 'efectos', 'efecto', 'sfx', 'fx', 'sonidos', 'sounds', 'ambientes', 'ambiente', 'audio', 'audios']);
+const tagKey = (t: string) =>
+  t
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' y ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+/**
+ * Une listas de etiquetas sin repetir la misma con o sin tilde («epico» = «épico», «phonk y
+ * cinematico» = «phonk & cinemático»): queda la primera que aparezca (pon primero las mejores).
+ */
+export function mergeTags(...lists: string[][]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of lists) {
+    for (const raw of list) {
+      const t = raw.trim().toLowerCase().slice(0, 30);
+      const k = tagKey(t);
+      if (!k || GENERIC_TAGS.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      out.push(t);
+    }
+  }
+  return out;
 }
 
 /** SHA-1 del archivo (sin cargarlo entero en memoria). */

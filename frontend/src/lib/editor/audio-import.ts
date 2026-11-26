@@ -15,6 +15,7 @@ import {
   guessKind,
   loadLibrary,
   localDir,
+  mergeTags,
   nameFromKey,
   tagsFromKey,
   updateLibrary,
@@ -212,13 +213,12 @@ async function runImport(job: ImportJob & { cancel?: boolean }) {
         id,
         nombre: nameFromKey(rel),
         tipo,
-        etiquetas: [
-          ...new Set([
-            ...tagsFromKey(rel),
-            ...(extraTags.get(rel.toLowerCase()) ?? extraTags.get(`#${path.posix.basename(rel).toLowerCase()}`) ?? []),
-            job.pack.toLowerCase().slice(0, 30),
-          ]),
-        ].slice(0, 12),
+        // Primero las de la ficha del pack (mejor escritas: «épico», «phonk & cinemático»), luego las carpetas
+        etiquetas: mergeTags(
+          extraTags.get(rel.toLowerCase()) ?? extraTags.get(`#${path.posix.basename(rel).toLowerCase()}`) ?? [],
+          tagsFromKey(rel),
+          [job.pack.toLowerCase().slice(0, 30)]
+        ).slice(0, 12),
         licencia: '',
         pack: job.pack,
         ...(shared ? { clave: key } : {}),

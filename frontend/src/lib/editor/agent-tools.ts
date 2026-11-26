@@ -35,7 +35,7 @@ import { canVerifyFree, verifyCost, verifyFinalAudio } from './verify-audio';
 import { installGoogleFont, listFonts } from './fonts';
 import { KIT_CATALOG, KitError, KitInputSchema, buildKitPiece, changeZones, designCover } from './kit/kit';
 import { loadBrands } from './kit/brands';
-import { AUDIO_KINDS, ensureLocal, findItem, libraryForClaude, loadLibrary, materializeLibraryRefs } from './audio-library';
+import { ensureLocal, findItem, libraryForClaude, LibrarySearchSchema, loadLibrary, materializeLibraryRefs } from './audio-library';
 import { fontsDir } from './media';
 import { totalDuration } from './timeline';
 import { FONT_SUGGESTIONS, SUBTITLE_STYLES } from '@/config/editor-looks';
@@ -579,7 +579,7 @@ const catalogoEdicion = tool({
           archivo: 'tipo «archivo» con archivo: «biblioteca:<id>» (tipo ambiente de biblioteca_audio) o ruta de la carpeta.',
           nivel: 'bajoVozDb 24–32: se siente, no se escucha. Un ambiente bajo la voz da «lugar» al video; quítalo en los tramos con música fuerte.',
         },
-        bibliotecaDelEquipo: 'Efectos, música y ambientes reales que subió el equipo (con licencia): mira biblioteca_audio y úsalos con archivo «biblioteca:<id>» en sonidos (tipo archivo), musica (modo archivo) o ambientes.',
+        bibliotecaDelEquipo: 'Música, efectos y ambientes reales que subió el equipo, con etiquetas de ánimo/colección/categoría y BPM: mira biblioteca_audio (primero sin filtros para ver el vocabulario) y úsalos con archivo «biblioteca:<id>» en sonidos (tipo archivo), musica (modo archivo) o ambientes.',
         beats: 'beats_musica da la cuadrícula de la música del plan (o de un archivo): corta, haz punch y mete efectos EN el beat; los cambios grandes al inicio de compás; los «drops» en los golpes.',
         velocidad: 'elementos[].velocidad: 0,5 = cámara lenta (momento emotivo, detalle de producto), 2–4 = rápido (proceso, timelapse). Solo en videos de apoyo, nunca en la persona hablando.',
         volumenFinal: { porRed: LOUDNESS_BY_NETWORK, nota: 'Por defecto según la red del perfil. Puedes subirlo a −12/−11 LUFS en TikTok si el video es muy enérgico; nunca por encima de −9.' },
@@ -609,17 +609,18 @@ const catalogoEdicion = tool({
 const bibliotecaAudio = tool({
   name: 'biblioteca_audio',
   description:
-    'Biblioteca de audio DEL EQUIPO (compartida): efectos, música, ambientes y audios virales que subió el equipo (también lo subido directo al bucket; las etiquetas salen de sus carpetas). Filtra por tipo (efecto|musica|ambiente) y/o texto (nombre, etiquetas, nota). Úsalos en dirigir_edicion con archivo «biblioteca:<id>» (la app los copia a la carpeta). Todos se pueden meter en el video. $0.',
-  schema: z.object({ tipo: z.enum(AUDIO_KINDS).optional(), texto: z.string().max(80).optional() }),
+    'Biblioteca de audio DEL EQUIPO (compartida): música, efectos, ambientes y audios virales reales que subió el equipo, con etiquetas de ánimo, colección y categoría (épico, calma, emocional, vibra oscura, energía para hooks, destacadas, transiciones, impactos, interfaz…) y BPM de la música. NO la escuchas: elige por etiquetas, nombre, BPM y duración. Sin texto ni etiquetas devuelve el VOCABULARIO (cuántos hay por tipo y las etiquetas con su número): empieza así y luego filtra. Filtros: tipo (efecto|musica|ambiente), etiquetas (todas deben estar), texto (palabras sueltas, todas deben aparecer), bpmMin/bpmMax (p. ej. 120–135 para cortes rápidos, 70–95 para algo emotivo), duracionMin/duracionMax (efectos cortos ≤ 2 s; música ≥ la duración del video), orden (relevancia|bpm|duracion|recientes|nombre). Pagina con desde = «siguiente». Úsalos en dirigir_edicion con archivo «biblioteca:<id>» (sonidos tipo archivo, musica modo archivo, ambientes): la app los copia a la carpeta. Con la música elegida, beats_musica para cortar en el beat. VARÍA: no repitas la misma música en videos seguidos de la misma marca. $0.',
+  schema: LibrarySearchSchema,
   run: async (_editId, input) => {
     const { biblioteca, compartida, aviso } = await loadLibrary();
-    const items = libraryForClaude(biblioteca, input);
+    const r = libraryForClaude(biblioteca, input);
     return {
       compartida,
       ...(aviso ? { aviso } : {}),
-      total: items.length,
-      items: items.slice(0, 120),
-      ...(items.length ? {} : { nota: 'No hay nada con ese filtro. Usa los efectos y la música generados por la app (catalogo_edicion) o pídele a la persona que suba audios en la pestaña «Audio».' }),
+      ...r,
+      ...(r.total
+        ? {}
+        : { nota: 'No hay nada con esos filtros: quita alguno, prueba otra etiqueta del vocabulario (llama sin texto ni etiquetas) o usa los efectos y la música generados por la app (catalogo_edicion).' }),
     };
   },
 });
