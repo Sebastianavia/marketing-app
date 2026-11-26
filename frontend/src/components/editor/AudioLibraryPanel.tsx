@@ -49,13 +49,13 @@ interface Draft {
   licencia: string;
   fuente: string;
   nota: string;
-  soloEnApp: boolean;
 }
-const emptyDraft = (): Draft => ({ file: null, nombre: '', tipo: 'efecto', etiquetas: '', licencia: '', fuente: '', nota: '', soloEnApp: false });
+const emptyDraft = (): Draft => ({ file: null, nombre: '', tipo: 'efecto', etiquetas: '', licencia: '', fuente: '', nota: '' });
 
 /**
- * Biblioteca de audio del equipo: efectos, música y ambientes reales (con licencia) que Claude puede
- * usar en sus ediciones. Compartida por todos en R2, como el manual.
+ * Biblioteca de audio del equipo: efectos, música, ambientes y audios virales que Claude puede usar
+ * en sus ediciones. Cualquier audio vale (el uso es responsabilidad del cliente). Compartida en R2;
+ * lo que se suba directo al bucket aparece solo.
  */
 export function AudioLibraryPanel() {
   const [data, setData] = useState<Data | null>(null);
@@ -98,7 +98,6 @@ export function AudioLibraryPanel() {
           licencia: draft.licencia.trim(),
           fuente: draft.fuente.trim() || undefined,
           nota: draft.nota.trim() || undefined,
-          soloEnApp: draft.soloEnApp,
         })
       );
       setData(await readJson(await fetch(API, { method: 'POST', body: fd })));
@@ -132,7 +131,18 @@ export function AudioLibraryPanel() {
   const items = data?.biblioteca.items ?? [];
   const visible = items.filter((it) => (showRetired ? it.estado === 'retirada' : it.estado === 'activa')).filter((it) => filter === 'todo' || it.tipo === filter);
   const count = (k: Kind) => items.filter((it) => it.estado === 'activa' && it.tipo === k).length;
-  const canUpload = !!draft?.file && draft.nombre.trim().length >= 2 && draft.licencia.trim().length >= 3;
+  const canUpload = !!draft?.file && draft.nombre.trim().length >= 2;
+  const syncNow = async () => {
+    setBusy('sync');
+    try {
+      setData(await readJson(await fetch(`${API}?sync=1`, { cache: 'no-store' })));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo revisar el bucket.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <section className="space-y-5">
@@ -143,15 +153,22 @@ export function AudioLibraryPanel() {
             <Music2 className="h-4 w-4 text-accent" /> Biblioteca de audio
           </h2>
           <p className="text-[12px] text-fg-muted">
-            Efectos, música y ambientes reales que Claude puede usar en las ediciones, además de los que genera la app. Cada audio necesita su licencia: sube solo lo que el equipo puede usar
-            (CC0, Pixabay, bibliotecas pagadas por Lulo…). Los sonidos en tendencia de TikTok o Instagram márcalos «solo en la app»: Claude los recomienda pero no los mete en el video.
+            Efectos, música, ambientes y audios virales que Claude puede usar en las ediciones, además de los que genera la app. Vale cualquier audio. También puedes subir audios
+            directamente al bucket (en cualquier carpeta): aparecen aquí solos, con el nombre del archivo y las carpetas como etiquetas.
             {data?.compartida ? ' Compartida por todo el equipo.' : ''}
           </p>
         </div>
         {!draft && (
-          <button type="button" onClick={() => setDraft(emptyDraft())} className="btn-primary h-9 px-3 text-[12px]">
-            <Upload className="h-3.5 w-3.5" /> Subir audio
-          </button>
+          <div className="flex gap-2">
+            {data?.compartida && (
+              <button type="button" onClick={() => void syncNow()} disabled={busy === 'sync'} className="btn-secondary h-9 px-3 text-[12px]" title="Busca audios nuevos subidos directamente al bucket">
+                {busy === 'sync' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Music2 className="h-3.5 w-3.5" />} Revisar bucket
+              </button>
+            )}
+            <button type="button" onClick={() => setDraft(emptyDraft())} className="btn-primary h-9 px-3 text-[12px]">
+              <Upload className="h-3.5 w-3.5" /> Subir audio
+            </button>
+          </div>
         )}
       </div>
 
@@ -187,16 +204,12 @@ export function AudioLibraryPanel() {
               ))}
             </div>
           </div>
-          <input value={draft.licencia} onChange={(e) => setDraft({ ...draft, licencia: e.target.value })} maxLength={200} placeholder="Licencia (obligatoria): CC0, Pixabay License, Epidemic (cuenta Lulo)…" className="input-clean h-9 w-full px-3 text-[12px]" />
+          <input value={draft.licencia} onChange={(e) => setDraft({ ...draft, licencia: e.target.value })} maxLength={200} placeholder="Origen o licencia (opcional)" className="input-clean h-9 w-full px-3 text-[12px]" />
           <div className="grid gap-2 sm:grid-cols-2">
             <input value={draft.etiquetas} onChange={(e) => setDraft({ ...draft, etiquetas: e.target.value })} placeholder="Etiquetas separadas por comas: transición, épico, gym" className="input-clean h-9 px-3 text-[12px]" />
             <input value={draft.fuente} onChange={(e) => setDraft({ ...draft, fuente: e.target.value })} maxLength={300} placeholder="Fuente (URL o sitio, opcional)" className="input-clean h-9 px-3 text-[12px]" />
           </div>
           <input value={draft.nota} onChange={(e) => setDraft({ ...draft, nota: e.target.value })} maxLength={300} placeholder="Cuándo usarlo (lo lee Claude): «para revelar una cifra», «intro de tutoriales»…" className="input-clean h-9 w-full px-3 text-[12px]" />
-          <label className="flex items-center gap-2 text-[12px] text-fg-muted">
-            <input type="checkbox" checked={draft.soloEnApp} onChange={(e) => setDraft({ ...draft, soloEnApp: e.target.checked })} />
-            Sonido en tendencia: solo se puede añadir desde la app de la red al publicar (no va en el MP4)
-          </label>
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setDraft(null)} className="btn-secondary h-8 px-3 text-[12px]">
               Cancelar
@@ -237,12 +250,13 @@ export function AudioLibraryPanel() {
                     {KINDS.find(([k]) => k === it.tipo)![1].replace(/s$/, '')} · {fmtDur(it.duracion)}
                     {it.bpm ? ` · ${it.bpm} BPM` : ''}
                   </span>
-                  {it.soloEnApp && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] text-fg-muted">solo en la app</span>}
                 </p>
                 {it.nota && <p className="text-[12px] text-fg-muted">{it.nota}</p>}
                 <p className="text-[11px] text-fg-subtle">
-                  {it.etiquetas.length ? `${it.etiquetas.join(', ')} · ` : ''}Licencia: {it.licencia}
-                  {it.fuente ? ` · ${it.fuente}` : ''} · {it.subidoPor}, {new Date(it.fecha).toLocaleDateString('es')}
+                  {it.etiquetas.length ? `${it.etiquetas.join(', ')} · ` : ''}
+                  {it.licencia ? `Origen: ${it.licencia} · ` : ''}
+                  {it.fuente ? `${it.fuente} · ` : ''}
+                  {it.subidoPor}, {new Date(it.fecha).toLocaleDateString('es')}
                 </p>
               </div>
               {it.estado === 'activa' ? (

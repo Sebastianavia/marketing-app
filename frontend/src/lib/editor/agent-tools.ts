@@ -609,7 +609,7 @@ const catalogoEdicion = tool({
 const bibliotecaAudio = tool({
   name: 'biblioteca_audio',
   description:
-    'Biblioteca de audio DEL EQUIPO (compartida): efectos, música y ambientes reales con licencia que subieron las personas. Filtra por tipo (efecto|musica|ambiente) y/o texto (nombre, etiquetas, nota). Úsalos en dirigir_edicion con archivo «biblioteca:<id>» (la app los copia a la carpeta). Los marcados soloEnApp son sonidos en tendencia: no van en el MP4, recomiéndalos en tu respuesta para añadirlos al publicar. $0.',
+    'Biblioteca de audio DEL EQUIPO (compartida): efectos, música, ambientes y audios virales que subió el equipo (también lo subido directo al bucket; las etiquetas salen de sus carpetas). Filtra por tipo (efecto|musica|ambiente) y/o texto (nombre, etiquetas, nota). Úsalos en dirigir_edicion con archivo «biblioteca:<id>» (la app los copia a la carpeta). Todos se pueden meter en el video. $0.',
   schema: z.object({ tipo: z.enum(AUDIO_KINDS).optional(), texto: z.string().max(80).optional() }),
   run: async (_editId, input) => {
     const { biblioteca, compartida, aviso } = await loadLibrary();

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { assertAppUiRequest, ForbiddenError } from '@/lib/director/local-guard';
 import { assertAppUiRead } from '@/lib/material/guard';
 import { errorMessage } from '@/lib/errors';
-import { addToLibrary, editItem, ensureLocal, findItem, LIBRARY_EXT, LibraryError, LibraryInputSchema, loadLibrary, setItemState } from '@/lib/editor/audio-library';
+import { addToLibrary, editItem, ensureLocal, findItem, LIBRARY_EXT, LibraryError, LibraryInputSchema, loadLibrary, setItemState, syncBucket } from '@/lib/editor/audio-library';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +26,11 @@ export async function GET(req: NextRequest) {
   try {
     assertAppUiRead(req);
     const id = req.nextUrl.searchParams.get('id');
-    if (!id) return NextResponse.json(await loadLibrary());
+    if (!id) {
+      // ?sync=1: revisar ya el bucket (sin esperar al minuto)
+      if (req.nextUrl.searchParams.get('sync') === '1') await syncBucket(true);
+      return NextResponse.json(await loadLibrary());
+    }
     const it = await findItem(id);
     const file = await ensureLocal(it);
     const buf = await fs.readFile(file);
@@ -36,7 +40,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** Subir un audio: multipart con `archivo` y `datos` (JSON con nombre, tipo, etiquetas, licencia…). */
+/** Subir un audio: multipart con `archivo` y `datos` (JSON con nombre, tipo, etiquetas y, si se quiere, origen…). */
 export async function POST(req: NextRequest) {
   let tmp = '';
   try {

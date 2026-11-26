@@ -4,21 +4,25 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { getDataDir, writeJsonAtomic } from '@/lib/data/data-dir';
-import { feedbackConfigured, getFile, getJsonTagged, putFile, putJsonIfUnchanged } from '@/lib/feedback/r2';
+import { feedbackConfigured, getFile, getJsonTagged, listAll, putFile, putJsonIfUnchanged } from '@/lib/feedback/r2';
 import { getSettings } from '@/lib/data/settings';
 import { probeMedia } from '@/lib/video/ffmpeg';
 import { detectBeats } from './beats';
 
 /**
- * Biblioteca de audio del equipo (Fase 2 · sonido): efectos, música y ambientes REALES que sube el
- * equipo, cada uno con su licencia. COMPARTIDA por los 4 en el bucket R2 de la app de feedback (como
+ * Biblioteca de audio del equipo (Fase 2 · sonido): efectos, música, ambientes y audios virales que
+ * sube el equipo. Se admite CUALQUIER audio: la licencia es un dato opcional y la responsabilidad del
+ * uso es del cliente (decisión del dueño, 2026-11-26). COMPARTIDA por los 4 en el bucket R2 de la app de feedback (como
  * el manual): catálogo `_lulo/audio/catalogo.json` (escrituras condicionales) y archivos en
  * `_lulo/audio/archivos/<id>.<ext>`. Caché local en `<datos>/audio-biblioteca/` (lo ya bajado no se
  * vuelve a bajar). Sin R2 configurado, la biblioteca es solo de este PC.
  *
  * Claude la ve en `biblioteca_audio` y la usa en el plan con `archivo: "biblioteca:<id>"`; al guardar
- * el plan la app copia el archivo a la carpeta de la edición. Las entradas «solo en la app» (sonidos
- * en tendencia con licencia de la plataforma) no se meten en el MP4: se añaden al publicar.
+ * el plan la app copia el archivo a la carpeta de la edición.
+ *
+ * Cualquier audio que se suba al bucket por fuera de la app (Cloudflare, rclone, otra herramienta)
+ * entra solo al catálogo (`syncBucket`): nombre sacado del archivo, tipo según la carpeta o la
+ * duración y etiquetas de las carpetas. Si se borra del bucket, sale de la biblioteca.
  */
 
 export const AUDIO_KINDS = ['efecto', 'musica', 'ambiente'] as const;
@@ -30,14 +34,16 @@ export interface LibraryItem {
   nombre: string;
   tipo: AudioKind;
   etiquetas: string[];
-  /** Licencia (obligatoria): «CC0», «Pixabay License», «comprado en Epidemic (cuenta Lulo)»… */
+  /** Licencia u origen (opcional, solo informativo). */
   licencia: string;
   /** De dónde salió (URL o nombre del sitio). */
   fuente?: string;
   /** Para qué sirve / cuándo usarlo (lo lee Claude). */
   nota?: string;
-  /** Sonido en tendencia que solo se puede usar desde la propia app (TikTok/Instagram): no va en el MP4. */
+  /** Marca antigua de «sonido en tendencia» (ya no bloquea nada; se conserva en los datos viejos). */
   soloEnApp?: boolean;
+  /** Clave del archivo en el bucket si se subió por fuera de la app (si no, `_lulo/audio/archivos/<id><ext>`). */
+  clave?: string;
   duracion: number;
   bpm?: number;
   ext: string;
@@ -57,7 +63,7 @@ export const LibraryInputSchema = z.object({
   nombre: z.string().trim().min(2).max(80),
   tipo: z.enum(AUDIO_KINDS),
   etiquetas: z.array(z.string().trim().min(1).max(30)).max(12).default([]),
-  licencia: z.string().trim().min(3, 'Indica la licencia (p. ej. «CC0», «Pixabay License»).').max(200),
+  licencia: z.string().trim().max(200).default(''),
   fuente: z.string().trim().max(300).optional(),
   nota: z.string().trim().max(300).optional(),
   soloEnApp: z.boolean().default(false),
@@ -73,7 +79,7 @@ export class LibraryError extends Error {
 }
 
 const CATALOG_KEY = '_lulo/audio/catalogo.json';
-const fileKey = (it: Pick<LibraryItem, 'id' | 'ext'>) => `_lulo/audio/archivos/${it.id}${it.ext}`;
+const fileKey = (it: Pick<LibraryItem, 'id' | 'ext' | 'clave'>) => it.clave ?? `_lulo/audio/archivos/${it.id}${it.ext}`;
 const localDir = () => path.join(/*turbopackIgnore: true*/ getDataDir(), 'audio-biblioteca');
 const localCatalog = () => path.join(localDir(), 'catalogo.json');
 export const localItemPath = (it: Pick<LibraryItem, 'id' | 'ext'>) => path.join(localDir(), `${it.id}${it.ext}`);
@@ -94,6 +100,8 @@ async function saveLocal(l: AudioLibrary) {
 
 export async function loadLibrary(): Promise<{ biblioteca: AudioLibrary; compartida: boolean; aviso?: string }> {
   if (feedbackConfigured()) {
+    // Lo que se haya subido al bucket por fuera de la app entra al catálogo (como mucho una vez por minuto)
+    await syncBucket().catch((err) => console.warn('[audio] No se pudo revisar el bucket:', err instanceof Error ? err.message : err));
     try {
       const { data } = await getJsonTagged<AudioLibrary>(CATALOG_KEY);
       const lib = data ?? empty();
@@ -138,7 +146,6 @@ export async function addToLibrary(tmpFile: string, originalName: string, input:
   const info = await probeMedia(tmpFile).catch(() => null);
   const duracion = Math.round((info?.duration ?? 0) * 100) / 100;
   if (!duracion) throw new LibraryError('No se pudo leer el audio (¿archivo dañado?).');
-  if (input.tipo === 'efecto' && duracion > 20) throw new LibraryError('Un efecto dura como mucho 20 s: súbelo como música o ambiente.');
   const settings = await getSettings().catch(() => null);
   const item: LibraryItem = {
     id: `a${randomUUID().replace(/-/g, '').slice(0, 10)}`,
@@ -150,13 +157,13 @@ export async function addToLibrary(tmpFile: string, originalName: string, input:
     fecha: new Date().toISOString(),
     estado: 'activa',
   };
-  if (input.tipo === 'musica' && !input.soloEnApp) {
+  if (input.tipo === 'musica') {
     const g = await detectBeats(tmpFile, 0, Math.min(90, duracion)).catch(() => null);
     if (g && (g.confianza ?? 0) >= 0.3) item.bpm = Math.round(g.bpm);
   }
   await fs.mkdir(localDir(), { recursive: true });
   await fs.copyFile(tmpFile, localItemPath(item));
-  if (feedbackConfigured()) await putFile(fileKey(item), tmpFile, LIBRARY_EXT[ext], { nombre: item.nombre, licencia: item.licencia });
+  if (feedbackConfigured()) await putFile(fileKey(item), tmpFile, LIBRARY_EXT[ext], { nombre: encodeURIComponent(item.nombre) });
   await updateLibrary((l) => l.items.push(item));
   return item;
 }
@@ -215,8 +222,7 @@ export function libraryForClaude(l: AudioLibrary, filtro: { tipo?: AudioKind; te
       duracion: it.duracion,
       ...(it.bpm ? { bpm: it.bpm } : {}),
       ...(it.nota ? { nota: it.nota } : {}),
-      licencia: it.licencia,
-      ...(it.soloEnApp ? { soloEnApp: 'Sonido en tendencia: NO va en el MP4; recomiéndalo para añadirlo al publicar.' } : {}),
+      ...(it.licencia ? { origen: it.licencia } : {}),
     }));
 }
 
@@ -244,10 +250,6 @@ export async function materializeLibraryRefs(carpeta: string, plan: { sonidos?: 
       problems.push(`${r.what}: biblioteca:${id} no existe (mira biblioteca_audio).`);
       continue;
     }
-    if (it.soloEnApp) {
-      problems.push(`${r.what}: «${it.nombre}» es un sonido en tendencia que solo se puede añadir desde la app de la red al publicar; no va en el MP4.`);
-      continue;
-    }
     if (!done.has(id)) {
       try {
         const src = await ensureLocal(it);
@@ -264,4 +266,117 @@ export async function materializeLibraryRefs(carpeta: string, plan: { sonidos?: 
     if (r.what === 'musica' && 'modo' in r.obj) (r.obj as { modo: string }).modo = 'archivo';
   }
   return problems;
+}
+
+// ── Audios subidos directamente al bucket ────────────────────────────────────
+
+const g = globalThis as unknown as { __luloAudioSync?: { at: number; running: Promise<void> | null } };
+const syncState = (g.__luloAudioSync ??= { at: 0, running: null });
+/** Como mucho una revisión del bucket por minuto (la llaman la pestaña Audio y Claude). */
+const SYNC_EVERY_MS = 60_000;
+/** Audios nuevos que se dan de alta por revisión (cada uno se baja para medirlo). */
+const SYNC_BATCH = 40;
+
+const KIND_BY_FOLDER: Array<[RegExp, AudioKind]> = [
+  [/(^|\/)(efectos?|sfx|fx|sonidos?|sounds?|whoosh|transiciones?|impactos?|memes?)(\/|$)/i, 'efecto'],
+  [/(^|\/)(musica|music|canciones?|songs?|beats?|virales?|trends?|tendencias?)(\/|$)/i, 'musica'],
+  [/(^|\/)(ambientes?|ambience|ambient|atmosferas?|room ?tone)(\/|$)/i, 'ambiente'],
+];
+
+/** Nombre legible a partir del archivo: «sfx_whoosh-rapido_01.wav» → «Sfx whoosh rapido 01». */
+function nameFromKey(key: string): string {
+  const base = path.posix.basename(key).replace(/\.[^.]+$/, '');
+  const clean = base.replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return (clean.charAt(0).toUpperCase() + clean.slice(1)).slice(0, 80) || 'Audio';
+}
+
+/** Etiquetas sacadas de las carpetas del bucket (sin las de sistema). */
+function tagsFromKey(key: string): string[] {
+  return path.posix
+    .dirname(key)
+    .split('/')
+    .filter((x) => x && !['_lulo', 'audio', 'archivos', '.'].includes(x.toLowerCase()))
+    .map((x) => x.replace(/[_-]+/g, ' ').trim().toLowerCase().slice(0, 30))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+/**
+ * Da de alta los audios del bucket que no están en el catálogo y retira los que ya no existen.
+ * Vale cualquier audio en cualquier carpeta (los videos de la app de feedback no son audio).
+ */
+export async function syncBucket(force = false): Promise<{ nuevos: number; retirados: number }> {
+  if (!feedbackConfigured()) return { nuevos: 0, retirados: 0 };
+  if (syncState.running) {
+    await syncState.running;
+    return { nuevos: 0, retirados: 0 };
+  }
+  if (!force && Date.now() - syncState.at < SYNC_EVERY_MS) return { nuevos: 0, retirados: 0 };
+  let res = { nuevos: 0, retirados: 0 };
+  syncState.running = (async () => {
+    const objects = (await listAll()).filter((o) => o.Key && LIBRARY_EXT[path.posix.extname(o.Key).toLowerCase()]);
+    const present = new Set(objects.map((o) => o.Key!));
+    const { data } = await getJsonTagged<AudioLibrary>(CATALOG_KEY);
+    const lib = data ?? empty();
+    const known = new Set(lib.items.map((it) => fileKey(it)));
+    const fresh = objects.filter((o) => !known.has(o.Key!)).slice(0, SYNC_BATCH);
+    const gone = lib.items.filter((it) => it.estado === 'activa' && !present.has(fileKey(it)));
+
+    // Medir los nuevos (se bajan a la caché local: quedan listos para usarse)
+    const added: LibraryItem[] = [];
+    await fs.mkdir(localDir(), { recursive: true });
+    for (const o of fresh) {
+      const key = o.Key!;
+      const ext = path.posix.extname(key).toLowerCase();
+      const id = `a${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+      const local = path.join(localDir(), `${id}${ext}`);
+      try {
+        await getFile(key, local);
+        const info = await probeMedia(local).catch(() => null);
+        const duracion = Math.round((info?.duration ?? 0) * 100) / 100;
+        if (!duracion) {
+          await fs.rm(local, { force: true }).catch(() => undefined);
+          continue;
+        }
+        const tipo = KIND_BY_FOLDER.find(([re]) => re.test(key))?.[1] ?? (duracion <= 20 ? 'efecto' : 'musica');
+        const item: LibraryItem = {
+          id,
+          nombre: nameFromKey(key),
+          tipo,
+          etiquetas: tagsFromKey(key),
+          licencia: '',
+          clave: key,
+          duracion,
+          ext,
+          bytes: o.Size ?? fsSync.statSync(local).size,
+          subidoPor: 'Bucket',
+          fecha: (o.LastModified ?? new Date()).toISOString(),
+          estado: 'activa',
+        };
+        if (tipo === 'musica') {
+          const b = await detectBeats(local, 0, Math.min(90, duracion)).catch(() => null);
+          if (b && (b.confianza ?? 0) >= 0.3) item.bpm = Math.round(b.bpm);
+        }
+        added.push(item);
+      } catch (err) {
+        console.warn(`[audio] No se pudo leer ${key}:`, err instanceof Error ? err.message : err);
+      }
+    }
+    if (added.length || gone.length) {
+      const goneIds = new Set(gone.map((it) => it.id));
+      await updateLibrary((l) => {
+        const have = new Set(l.items.map((it) => fileKey(it)));
+        for (const it of added) if (!have.has(fileKey(it))) l.items.push(it);
+        for (const it of l.items) if (goneIds.has(it.id)) it.estado = 'retirada';
+      });
+    }
+    res = { nuevos: added.length, retirados: gone.length };
+  })();
+  try {
+    await syncState.running;
+    syncState.at = Date.now();
+  } finally {
+    syncState.running = null;
+  }
+  return res;
 }
