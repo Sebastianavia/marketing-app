@@ -75,6 +75,39 @@ async function walk(dir: string, depth = 0, out: string[] = []): Promise<string[
   return out;
 }
 
+/**
+ * Fichas de etiquetas que acompañan a un pack (`_etiquetas.json` en cualquier carpeta):
+ * `{ pistas|efectos|items: [{ archivo: "musica/calma/x.mp3", etiquetas: ["Calma", "Destacadas"] }] }`.
+ * Devuelve ruta relativa (y nombre de archivo, por si la ruta no coincide) → etiquetas.
+ */
+async function sidecarTags(root: string): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const visit = async (dir: string, depth: number) => {
+    if (depth > MAX_DEPTH) return;
+    for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(/*turbopackIgnore: true*/ dir, e.name);
+      if (e.isDirectory() && !e.name.startsWith('.')) await visit(full, depth + 1);
+      else if (e.isFile() && e.name.toLowerCase() === '_etiquetas.json') {
+        try {
+          const data = JSON.parse(await fs.readFile(full, 'utf8')) as Record<string, unknown>;
+          const list = (data.pistas ?? data.efectos ?? data.items ?? []) as Array<{ archivo?: string; etiquetas?: unknown }>;
+          for (const it of Array.isArray(list) ? list : []) {
+            if (!it?.archivo || !Array.isArray(it.etiquetas)) continue;
+            const tags = it.etiquetas.filter((t): t is string => typeof t === 'string').map((t) => t.replace(/^★\s*/, '').trim().toLowerCase().slice(0, 30)).filter(Boolean);
+            const rel = it.archivo.replace(/\\/g, '/');
+            out.set(rel.toLowerCase(), tags);
+            out.set(`#${path.posix.basename(rel).toLowerCase()}`, tags);
+          }
+        } catch {
+          // ficha dañada: se ignora
+        }
+      }
+    }
+  };
+  await visit(root, 0);
+  return out;
+}
+
 export function getImportJob(id: string): ImportJob | null {
   const j = jobs.get(id);
   if (!j) return null;
@@ -125,6 +158,7 @@ export async function startImport(carpeta: string, pack?: string): Promise<Impor
 
 async function runImport(job: ImportJob & { cancel?: boolean }) {
   const files = await walk(job.carpeta);
+  const extraTags = await sidecarTags(job.carpeta);
   job.total = files.length;
   job.estado = 'importando';
   if (!files.length) {
@@ -178,7 +212,13 @@ async function runImport(job: ImportJob & { cancel?: boolean }) {
         id,
         nombre: nameFromKey(rel),
         tipo,
-        etiquetas: [...new Set([...tagsFromKey(rel), job.pack.toLowerCase().slice(0, 30)])].slice(0, 8),
+        etiquetas: [
+          ...new Set([
+            ...tagsFromKey(rel),
+            ...(extraTags.get(rel.toLowerCase()) ?? extraTags.get(`#${path.posix.basename(rel).toLowerCase()}`) ?? []),
+            job.pack.toLowerCase().slice(0, 30),
+          ]),
+        ].slice(0, 12),
         licencia: '',
         pack: job.pack,
         ...(shared ? { clave: key } : {}),
