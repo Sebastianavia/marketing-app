@@ -331,6 +331,22 @@ export function prepareSample(src: Float32Array, o: { desde?: number; duracion?:
   while (last > first && Math.abs(m[last]) < thr) last--;
   const pre = Math.min(first, Math.round(0.004 * SR));
   const out = Float32Array.from(m.subarray(first - pre, Math.min(m.length, last + Math.round(0.03 * SR))));
+  // Nivel por cómo SUENA, no por el pico: los efectos reales (colas largas, paquetes) suenan 15–25 dB
+  // bajo su pico y quedaban al fondo. Se lleva la parte activa a −12 dBFS RMS, lo que la mezcla supone
+  // para un golpe sintetizado (pico como mucho ×1,6: el limitador suave de la pista lo contiene).
+  let sum = 0;
+  let active = 0;
+  for (let i = 0; i < out.length; i++) {
+    if (Math.abs(out[i]) >= thr) {
+      sum += out[i] * out[i];
+      active++;
+    }
+  }
+  if (active) {
+    const rms = Math.sqrt(sum / active);
+    const gain = Math.min(0.251 / rms, 1.6 / peak);
+    if (gain > 0) for (let i = 0; i < out.length; i++) out[i] *= gain;
+  }
   // Rampas cortas: sin clics al cortar a mitad de un sonido
   const fi = Math.min(out.length, Math.round(0.003 * SR));
   for (let i = 0; i < fi; i++) out[i] *= i / fi;
