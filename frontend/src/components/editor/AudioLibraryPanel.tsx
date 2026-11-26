@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Loader2, Music2, Pause, Play, RotateCcw, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, FolderInput, Loader2, Music2, Pause, Play, RotateCcw, Upload, X } from 'lucide-react';
+import { FolderPickerModal } from '@/components/material/FolderPickerModal';
 
 /** Mismos datos que lib/editor/audio-library.ts (sin importar el módulo de servidor). */
 type Kind = 'efecto' | 'musica' | 'ambiente';
@@ -32,6 +33,19 @@ interface Library {
 type Data = { biblioteca: Library; compartida: boolean; aviso?: string };
 
 const API = '/api/editor/audio-library';
+
+interface ImportJob {
+  id: string;
+  pack: string;
+  estado: 'buscando' | 'importando' | 'terminado' | 'error' | 'cancelado';
+  total: number;
+  hechos: number;
+  nuevos: number;
+  duplicados: number;
+  errores: Array<{ archivo: string; error: string }>;
+  actual?: string;
+  error?: string;
+}
 
 async function readJson(r: Response): Promise<Data> {
   const d = await r.json().catch(() => ({}));
@@ -78,6 +92,52 @@ export function AudioLibraryPanel() {
     const t = setTimeout(() => void load(), 0);
     return () => clearTimeout(t);
   }, [load]);
+
+  const [picking, setPicking] = useState(false);
+  const [job, setJob] = useState<ImportJob | null>(null);
+  // Seguir la importación en curso; al terminar, recargar el catálogo
+  useEffect(() => {
+    if (!job || !['buscando', 'importando'].includes(job.estado)) return;
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch(`${API}/import?id=${job.id}`, { cache: 'no-store' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'No se pudo seguir la importación.');
+        setJob(d.importacion);
+        if (!['buscando', 'importando'].includes(d.importacion.estado)) void load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'No se pudo seguir la importación.');
+        setJob(null);
+      }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [job, load]);
+  // Al abrir la pestaña: retomar una importación que siga en marcha
+  useEffect(() => {
+    fetch(`${API}/import`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : { importaciones: [] }))
+      .then((d) => {
+        const running = (d.importaciones as ImportJob[]).find((j) => ['buscando', 'importando'].includes(j.estado));
+        if (running) setJob(running);
+      })
+      .catch(() => undefined);
+  }, []);
+  const importFolder = async (carpeta: string) => {
+    setPicking(false);
+    try {
+      const r = await fetch(`${API}/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'importar', carpeta }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'No se pudo importar la carpeta.');
+      setJob(d.importacion);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo importar la carpeta.');
+    }
+  };
+  const cancelJob = async () => {
+    if (!job) return;
+    await fetch(`${API}/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'cancelar', id: job.id }) }).catch(() => undefined);
+  };
 
   // Un solo <audio> montado mientras algo suena: pausar = desmontarlo
   const toggle = (id: string) => setPlaying((cur) => (cur === id ? null : id));
@@ -165,6 +225,15 @@ export function AudioLibraryPanel() {
                 {busy === 'sync' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Music2 className="h-3.5 w-3.5" />} Revisar bucket
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setPicking(true)}
+              disabled={!!job && ['buscando', 'importando'].includes(job.estado)}
+              className="btn-secondary h-9 px-3 text-[12px]"
+              title="Importa todos los audios de una carpeta y sus subcarpetas (packs, cursos…)"
+            >
+              <FolderInput className="h-3.5 w-3.5" /> Importar carpeta
+            </button>
             <button type="button" onClick={() => setDraft(emptyDraft())} className="btn-primary h-9 px-3 text-[12px]">
               <Upload className="h-3.5 w-3.5" /> Subir audio
             </button>
@@ -178,6 +247,56 @@ export function AudioLibraryPanel() {
           <AlertCircle className="h-4 w-4 shrink-0" /> {error}
         </p>
       )}
+
+      {job && (
+        <div className="space-y-2 rounded-xl border border-line bg-surface p-4 text-[12px]">
+          <div className="flex flex-wrap items-center gap-2">
+            {['buscando', 'importando'].includes(job.estado) ? <Loader2 className="h-4 w-4 animate-spin text-accent" /> : <Check className="h-4 w-4 text-accent" />}
+            <span className="font-medium text-fg">
+              {job.estado === 'buscando' ? 'Buscando audios' : job.estado === 'importando' ? 'Importando' : job.estado === 'cancelado' ? 'Importación detenida' : job.estado === 'error' ? 'Error al importar' : 'Importación terminada'} · «{job.pack}»
+            </span>
+            <span className="text-fg-subtle">
+              {job.hechos}/{job.total} · {job.nuevos} nuevos · {job.duplicados} repetidos{job.errores.length ? ` · ${job.errores.length} con error` : ''}
+            </span>
+            <span className="ml-auto flex gap-2">
+              {['buscando', 'importando'].includes(job.estado) ? (
+                <button type="button" onClick={() => void cancelJob()} className="btn-secondary h-7 px-2.5 text-[11px]">
+                  Detener
+                </button>
+              ) : (
+                <button type="button" onClick={() => setJob(null)} className="btn-secondary h-7 px-2.5 text-[11px]">
+                  Cerrar
+                </button>
+              )}
+            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+            <div className="h-full bg-accent transition-all" style={{ width: `${job.total ? Math.round((job.hechos / job.total) * 100) : 0}%` }} />
+          </div>
+          {job.actual && <p className="truncate text-fg-subtle">{job.actual}</p>}
+          {job.error && <p className="text-fg-muted">{job.error}</p>}
+          {job.errores.length > 0 && !['buscando', 'importando'].includes(job.estado) && (
+            <details className="text-fg-subtle">
+              <summary className="cursor-pointer">Ver los que no se pudieron importar</summary>
+              <ul className="mt-1 space-y-0.5">
+                {job.errores.slice(0, 50).map((e) => (
+                  <li key={e.archivo} className="truncate">
+                    {e.archivo}: {e.error}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      <FolderPickerModal
+        open={picking}
+        title="Importar carpeta de audios"
+        hint="Elige la carpeta del pack o del curso: se importan todos los audios de esa carpeta y de sus subcarpetas. Los nombres de las carpetas sirven de etiquetas y para saber si es efecto, música o ambiente."
+        onClose={() => setPicking(false)}
+        onPick={(ruta) => void importFolder(ruta)}
+      />
 
       {draft && (
         <div className="space-y-3 rounded-xl border border-accent/40 bg-surface p-4">

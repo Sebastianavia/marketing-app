@@ -44,6 +44,10 @@ export interface LibraryItem {
   soloEnApp?: boolean;
   /** Clave del archivo en el bucket si se subió por fuera de la app (si no, `_lulo/audio/archivos/<id><ext>`). */
   clave?: string;
+  /** SHA-1 del contenido: el mismo audio no entra dos veces aunque tenga otro nombre. */
+  huella?: string;
+  /** Pack o carpeta de origen (importaciones). */
+  pack?: string;
   duracion: number;
   bpm?: number;
   ext: string;
@@ -79,8 +83,8 @@ export class LibraryError extends Error {
 }
 
 const CATALOG_KEY = '_lulo/audio/catalogo.json';
-const fileKey = (it: Pick<LibraryItem, 'id' | 'ext' | 'clave'>) => it.clave ?? `_lulo/audio/archivos/${it.id}${it.ext}`;
-const localDir = () => path.join(/*turbopackIgnore: true*/ getDataDir(), 'audio-biblioteca');
+export const fileKey = (it: Pick<LibraryItem, 'id' | 'ext' | 'clave'>) => it.clave ?? `_lulo/audio/archivos/${it.id}${it.ext}`;
+export const localDir = () => path.join(/*turbopackIgnore: true*/ getDataDir(), 'audio-biblioteca');
 const localCatalog = () => path.join(localDir(), 'catalogo.json');
 export const localItemPath = (it: Pick<LibraryItem, 'id' | 'ext'>) => path.join(localDir(), `${it.id}${it.ext}`);
 
@@ -114,7 +118,7 @@ export async function loadLibrary(): Promise<{ biblioteca: AudioLibrary; compart
   return { biblioteca: (await readLocal()) ?? empty(), compartida: false, aviso: 'La biblioteca es solo de este PC: configura la app de feedback (FEEDBACK_R2_*) para compartirla con el equipo.' };
 }
 
-async function updateLibrary<T>(fn: (l: AudioLibrary) => T): Promise<{ biblioteca: AudioLibrary; result: T }> {
+export async function updateLibrary<T>(fn: (l: AudioLibrary) => T): Promise<{ biblioteca: AudioLibrary; result: T }> {
   const apply = (l: AudioLibrary) => {
     const copy: AudioLibrary = JSON.parse(JSON.stringify(l));
     const result = fn(copy);
@@ -277,26 +281,28 @@ const SYNC_EVERY_MS = 60_000;
 /** Audios nuevos que se dan de alta por revisión (cada uno se baja para medirlo). */
 const SYNC_BATCH = 40;
 
-const KIND_BY_FOLDER: Array<[RegExp, AudioKind]> = [
-  [/(^|\/)(efectos?|sfx|fx|sonidos?|sounds?|whoosh|transiciones?|impactos?|memes?)(\/|$)/i, 'efecto'],
-  [/(^|\/)(musica|music|canciones?|songs?|beats?|virales?|trends?|tendencias?)(\/|$)/i, 'musica'],
-  [/(^|\/)(ambientes?|ambience|ambient|atmosferas?|room ?tone)(\/|$)/i, 'ambiente'],
+/** Palabras de carpeta que dicen el tipo (en cualquier parte del nombre: «01 Pack SFX», «02 Música sin copy»). */
+export const KIND_BY_FOLDER: Array<[RegExp, AudioKind]> = [
+  [/(^|\/)[^/]*\b(efectos?|sfx|fx|sonidos?|sounds?|whoosh(es)?|swoosh|transici(on|ones)|transitions?|impactos?|hits?|risers?|foley|ui|clicks?|pops?|memes?)\b[^/]*\//i, 'efecto'],
+  [/(^|\/)[^/]*\b(ambientes?|ambience|ambient|atmosferas?|atmospheres?|room ?tone|paisajes? sonoros?)\b[^/]*\//i, 'ambiente'],
+  [/(^|\/)[^/]*\b(musica|music|canciones?|songs?|beats?|tracks?|pistas?|virales?|trends?|tendencias?|bgm|instrumentales?)\b[^/]*\//i, 'musica'],
 ];
 
 /** Nombre legible a partir del archivo: «sfx_whoosh-rapido_01.wav» → «Sfx whoosh rapido 01». */
-function nameFromKey(key: string): string {
+export function nameFromKey(key: string): string {
   const base = path.posix.basename(key).replace(/\.[^.]+$/, '');
   const clean = base.replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
   return (clean.charAt(0).toUpperCase() + clean.slice(1)).slice(0, 80) || 'Audio';
 }
 
 /** Etiquetas sacadas de las carpetas del bucket (sin las de sistema). */
-function tagsFromKey(key: string): string[] {
+export function tagsFromKey(key: string): string[] {
   return path.posix
     .dirname(key)
     .split('/')
     .filter((x) => x && !['_lulo', 'audio', 'archivos', '.'].includes(x.toLowerCase()))
-    .map((x) => x.replace(/[_-]+/g, ' ').trim().toLowerCase().slice(0, 30))
+    // Sin la numeración de los cursos («01 Pack SFX» → «pack sfx»)
+    .map((x) => x.replace(/[_-]+/g, ' ').replace(/^\s*\d+[\s.)-]*/, '').trim().toLowerCase().slice(0, 30))
     .filter(Boolean)
     .slice(0, 6);
 }
@@ -338,7 +344,7 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
           await fs.rm(local, { force: true }).catch(() => undefined);
           continue;
         }
-        const tipo = KIND_BY_FOLDER.find(([re]) => re.test(key))?.[1] ?? (duracion <= 20 ? 'efecto' : 'musica');
+        const tipo = guessKind(key, duracion);
         const item: LibraryItem = {
           id,
           nombre: nameFromKey(key),
@@ -349,6 +355,7 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
           duracion,
           ext,
           bytes: o.Size ?? fsSync.statSync(local).size,
+          huella: await fileHash(local),
           subidoPor: 'Bucket',
           fecha: (o.LastModified ?? new Date()).toISOString(),
           estado: 'activa',
@@ -379,4 +386,21 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
     syncState.running = null;
   }
   return res;
+}
+
+/** Tipo por la carpeta (sonidos/musica/ambientes…) o, si no lo dice, por la duración. */
+export function guessKind(relPath: string, duracion: number): AudioKind {
+  // Sin tildes («Música» = «musica»); solo cuentan las carpetas, no el nombre del archivo
+  const dirs = relPath.replace(/\\/g, '/').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return KIND_BY_FOLDER.find(([re]) => re.test(dirs))?.[1] ?? (duracion <= 20 ? 'efecto' : 'musica');
+}
+
+/** SHA-1 del archivo (sin cargarlo entero en memoria). */
+export async function fileHash(file: string): Promise<string> {
+  const { createHash } = await import('crypto');
+  const h = createHash('sha1');
+  await new Promise<void>((resolve, reject) => {
+    fsSync.createReadStream(file).on('data', (c) => h.update(c)).on('end', () => resolve()).on('error', reject);
+  });
+  return h.digest('hex');
 }
