@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, FolderInput, Loader2, Music2, Pause, Play, RotateCcw, Upload, X } from 'lucide-react';
+import { AlertCircle, Check, FolderInput, Loader2, Music2, Pause, Play, RotateCcw, Sparkles, Upload, X } from 'lucide-react';
 import { FolderPickerModal } from '@/components/material/FolderPickerModal';
+import { AudioOrganizer } from './AudioOrganizer';
 
 /** Mismos datos que lib/editor/audio-library.ts (sin importar el módulo de servidor). */
 type Kind = 'efecto' | 'musica' | 'ambiente';
@@ -94,6 +95,7 @@ export function AudioLibraryPanel() {
   }, [load]);
 
   const [picking, setPicking] = useState(false);
+  const [organizing, setOrganizing] = useState(false);
   const [job, setJob] = useState<ImportJob | null>(null);
   // Seguir la importación en curso; al terminar, recargar el catálogo
   useEffect(() => {
@@ -225,6 +227,9 @@ export function AudioLibraryPanel() {
                 {busy === 'sync' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Music2 className="h-3.5 w-3.5" />} Revisar bucket
               </button>
             )}
+            <button type="button" onClick={() => setOrganizing(true)} className="btn-secondary h-9 px-3 text-[12px]" title="Ordenar etiquetas y que Claude proponga nombres, etiquetas y notas de uso">
+              <Sparkles className="h-3.5 w-3.5" /> Organizar
+            </button>
             <button
               type="button"
               onClick={() => setPicking(true)}
@@ -289,6 +294,8 @@ export function AudioLibraryPanel() {
           )}
         </div>
       )}
+
+      {organizing && <AudioOrganizer onClose={() => setOrganizing(false)} onSaved={() => void load()} />}
 
       <FolderPickerModal
         open={picking}

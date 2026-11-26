@@ -459,13 +459,18 @@ export async function syncBucket(force = false): Promise<{ nuevos: number; retir
  * carpeta MÁS ALTA que diga algo: «musica/ambientes-y-moods/x.mp3» es música, no ambiente.
  */
 export function guessKind(relPath: string, duracion: number): AudioKind {
+  return kindFromFolders(relPath) ?? (duracion <= 20 ? 'efecto' : 'musica');
+}
+
+/** El tipo que dicen las carpetas (la más alta que diga algo), o null si ninguna lo dice. */
+export function kindFromFolders(relPath: string): AudioKind | null {
   // Sin tildes («Música» = «musica»); solo cuentan las carpetas, no el nombre del archivo
   const dirs = relPath.replace(/\\/g, '/').normalize('NFD').replace(/[̀-ͯ]/g, '').split('/').slice(0, -1);
   for (const seg of dirs) {
     const hit = KIND_BY_FOLDER.find(([re]) => re.test(`${seg}/`));
     if (hit) return hit[1];
   }
-  return duracion <= 20 ? 'efecto' : 'musica';
+  return null;
 }
 
 /** Etiquetas que no aportan (el tipo ya lo dice). */
