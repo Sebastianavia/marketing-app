@@ -972,7 +972,9 @@ export const RHYTHM_BUDGET = {
   /** Ningún tramo más largo que esto sin un cambio visual (cámara, elemento, gráfico, transición). */
   sinCambioMax: 3.5,
   /** Efectos de sonido por segundo: mínimo y máximo razonables. */
-  sfxPorSegundo: [0.3, 1.4] as [number, number],
+  sfxPorSegundo: [0.5, 1.4] as [number, number],
+  /** Hueco máximo entre un efecto y el siguiente (s), salvo dentro de una pausa dramática. */
+  sfxHuecoMax: 3,
 };
 
 export interface RhythmReport {
@@ -982,6 +984,8 @@ export interface RhythmReport {
   segundosPorCambio: number;
   tramoMasLargoSinCambio: { desde: number; hasta: number; segundos: number };
   efectosPorSegundo: number;
+  /** Huecos sin efectos más largos que el máximo (tiempos del video final). */
+  huecosSinEfectos: Array<{ desde: number; hasta: number; segundos: number }>;
   presupuesto: typeof RHYTHM_BUDGET;
   avisos: string[];
 }
@@ -1066,7 +1070,22 @@ export function analyzeRhythm(
   for (const c of d.camara ?? []) {
     if (c.tipo === 'plano' && c.hasta - c.desde > 5) avisos.push(`Plano fijo de ${r1(c.hasta - c.desde)} s (${r1(c.desde)}–${r1(c.hasta)} s): muévelo (acercar/alejar/paneo) o pártelo en dos ángulos.`);
   }
-  if (sfx < B.sfxPorSegundo[0]) avisos.push(`Pocos efectos de sonido (${sfx.toFixed(2)}/s): cada evento visual lleva su sonido.`);
+  if (sfx < B.sfxPorSegundo[0]) avisos.push(`Pocos efectos de sonido (${sfx.toFixed(2)}/s; mínimo ${B.sfxPorSegundo[0]}/s): cada evento visual lleva su sonido y entre los fuertes van sonidos sutiles.`);
+  // Huecos sin efectos (inicio y final incluidos); dentro de una pausa dramática el silencio es a propósito
+  const pausas = (d.pausas ?? []).map((p) => [p.t, p.t + (p.duracion ?? 0.6)] as [number, number]);
+  const times = [0, ...(d.sonidos ?? []).map((s) => s.t).filter((t) => t >= 0 && t <= total).sort((a, b) => a - b), total];
+  const huecos: RhythmReport['huecosSinEfectos'] = [];
+  for (let i = 1; i < times.length; i++) {
+    const a = times[i - 1];
+    const b = times[i];
+    const libre = b - a - pausas.reduce((s, [pa, pb]) => s + Math.max(0, Math.min(b, pb) - Math.max(a, pa)), 0);
+    if (libre > B.sfxHuecoMax) huecos.push({ desde: r1(a), hasta: r1(b), segundos: r1(b - a) });
+  }
+  if (huecos.length && (d.sonidos ?? []).length) {
+    avisos.push(
+      `${huecos.length} hueco(s) de más de ${B.sfxHuecoMax} s sin efectos (${huecos.slice(0, 5).map((h) => `${h.desde}–${h.hasta} s`).join(', ')}): mete un sonido en cada texto, ítem o cambio de plano de ese tramo, o uno sutil (tick, aire, pop suave) entre medias.`
+    );
+  }
   if (sfx > B.sfxPorSegundo[1]) avisos.push(`Demasiados efectos de sonido (${sfx.toFixed(2)}/s): satura; deja solo los que acompañan un evento.`);
   // Variedad: que ningún recurso se coma el video (la gente desliza cuando todo es igual)
   const share = <T>(xs: T[], key: (x: T) => string) => {
@@ -1101,6 +1120,7 @@ export function analyzeRhythm(
     segundosPorCambio: cambios ? r1(total / cambios) : r1(total),
     tramoMasLargoSinCambio: longest,
     efectosPorSegundo: Math.round(sfx * 100) / 100,
+    huecosSinEfectos: huecos,
     presupuesto: B,
     avisos,
   };
